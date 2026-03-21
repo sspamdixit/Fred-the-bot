@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "cUTBlAjfepaX5WRBgzXBO"
+uri = "file://bubbl-manager.tar.gz"
+type = "unspecified"
+title = "bubbl-manager.tar.gz"
