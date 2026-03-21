@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -27,6 +28,7 @@ import {
   Hash,
   CheckCircle2,
   Megaphone,
+  Zap,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -56,6 +58,15 @@ interface GuildInfo {
   channels: ChannelInfo[];
 }
 
+const STATUS_OPTIONS = [
+  { value: "online",    label: "Online",       color: "bg-status-online" },
+  { value: "idle",      label: "Idle",         color: "bg-status-away" },
+  { value: "dnd",       label: "Do Not Disturb", color: "bg-status-busy" },
+  { value: "invisible", label: "Invisible",    color: "bg-status-offline" },
+] as const;
+
+const ACTIVITY_TYPES = ["Playing", "Watching", "Listening", "Competing", "Streaming", "Custom"] as const;
+
 function formatUptime(uptimeStart: number | null): string {
   if (!uptimeStart) return "—";
   const ms = Date.now() - uptimeStart;
@@ -69,20 +80,39 @@ function formatUptime(uptimeStart: number | null): string {
   return `${seconds}s`;
 }
 
-function StatusDot({ status }: { status: string }) {
-  if (status === "online")
-    return <span data-testid="status-dot-online" className="inline-block w-3 h-3 rounded-full bg-status-online pulse-dot" />;
-  if (status === "error")
-    return <span data-testid="status-dot-error" className="inline-block w-3 h-3 rounded-full bg-status-busy pulse-dot-error" />;
-  return <span data-testid="status-dot-offline" className="inline-block w-3 h-3 rounded-full bg-status-offline" />;
+function StatusDot({ status, size = "sm" }: { status: string; size?: "sm" | "md" }) {
+  const sizeClass = size === "md" ? "w-3 h-3" : "w-2.5 h-2.5";
+  const colorMap: Record<string, string> = {
+    online:    "bg-status-online pulse-dot",
+    idle:      "bg-status-away",
+    dnd:       "bg-status-busy pulse-dot-error",
+    invisible: "bg-status-offline",
+    error:     "bg-status-busy pulse-dot-error",
+    offline:   "bg-status-offline",
+  };
+  return (
+    <span
+      data-testid={`status-dot-${status}`}
+      className={`inline-block ${sizeClass} rounded-full flex-shrink-0 ${colorMap[status] ?? "bg-status-offline"}`}
+    />
+  );
 }
 
 export default function Home() {
   const { toast } = useToast();
+  const qc = useQueryClient();
+
+  // Message state
   const [selectedGuildId, setSelectedGuildId] = useState<string>("");
   const [selectedChannelId, setSelectedChannelId] = useState<string>("");
   const [message, setMessage] = useState<string>("");
   const [lastSent, setLastSent] = useState<{ channel: string; guild: string } | null>(null);
+
+  // Presence state
+  const [presenceStatus, setPresenceStatus] = useState<string>("online");
+  const [activityType, setActivityType] = useState<string>("Watching");
+  const [activityName, setActivityName] = useState<string>("the Archives");
+  const [presenceSaved, setPresenceSaved] = useState(false);
 
   const { data: status, isLoading: statusLoading, isError, refetch, isFetching } = useQuery<BotStatus>({
     queryKey: ["/api/bot/status"],
@@ -95,13 +125,20 @@ export default function Home() {
     enabled: status?.online === true,
   });
 
+  // Sync presence form when status loads
+  useEffect(() => {
+    if (status && !presenceSaved) {
+      setPresenceStatus(status.status === "error" || status.status === "offline" ? "online" : status.status);
+      setActivityType(status.activityType);
+      setActivityName(status.activityName);
+    }
+  }, [status?.status, status?.activityType, status?.activityName]);
+
   const selectedGuild = guilds.find((g) => g.id === selectedGuildId);
   const selectedChannel = selectedGuild?.channels.find((c) => c.id === selectedChannelId);
 
   useEffect(() => {
-    if (guilds.length > 0 && !selectedGuildId) {
-      setSelectedGuildId(guilds[0].id);
-    }
+    if (guilds.length > 0 && !selectedGuildId) setSelectedGuildId(guilds[0].id);
   }, [guilds]);
 
   useEffect(() => {
@@ -113,35 +150,49 @@ export default function Home() {
   }, [selectedGuildId]);
 
   const sendMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/bot/send", {
-        channelId: selectedChannelId,
-        content: message,
-      });
-    },
+    mutationFn: () => apiRequest("POST", "/api/bot/send", { channelId: selectedChannelId, content: message }),
     onSuccess: () => {
-      setLastSent({
-        channel: selectedChannel?.name ?? selectedChannelId,
-        guild: selectedGuild?.name ?? selectedGuildId,
-      });
+      setLastSent({ channel: selectedChannel?.name ?? selectedChannelId, guild: selectedGuild?.name ?? selectedGuildId });
       setMessage("");
-      toast({
-        title: "Message sent",
-        description: `Posted to #${selectedChannel?.name} in ${selectedGuild?.name}`,
-      });
+      toast({ title: "Message sent", description: `Posted to #${selectedChannel?.name} in ${selectedGuild?.name}` });
     },
     onError: (err: any) => {
-      toast({
-        title: "Failed to send",
-        description: err?.message ?? "Something went wrong.",
-        variant: "destructive",
-      });
+      toast({ title: "Failed to send", description: err?.message ?? "Something went wrong.", variant: "destructive" });
     },
   });
 
-  const statusLabel = status?.status === "online" ? "Online" : status?.status === "error" ? "Error" : "Offline";
-  const statusColor = status?.status === "online" ? "text-status-online" : status?.status === "error" ? "text-status-busy" : "text-status-offline";
+  const presenceMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", "/api/bot/presence", {
+        status: presenceStatus,
+        activityType,
+        activityName,
+      }),
+    onSuccess: () => {
+      setPresenceSaved(true);
+      qc.invalidateQueries({ queryKey: ["/api/bot/status"] });
+      toast({ title: "Presence updated", description: `Now showing as ${presenceStatus}` });
+      setTimeout(() => setPresenceSaved(false), 3000);
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to update presence", description: err?.message ?? "Something went wrong.", variant: "destructive" });
+    },
+  });
+
   const canSend = status?.online && selectedChannelId && message.trim().length > 0 && !sendMutation.isPending;
+  const canUpdatePresence = status?.online && !presenceMutation.isPending;
+
+  const statusLabel = status?.status === "online" ? "Online"
+    : status?.status === "idle" ? "Idle"
+    : status?.status === "dnd" ? "DND"
+    : status?.status === "error" ? "Error"
+    : "Offline";
+
+  const statusColor = status?.status === "online" ? "text-status-online"
+    : status?.status === "idle" ? "text-status-away"
+    : status?.status === "dnd" ? "text-status-busy"
+    : status?.status === "error" ? "text-status-busy"
+    : "text-status-offline";
 
   return (
     <div className="min-h-screen bg-background">
@@ -154,9 +205,7 @@ export default function Home() {
               <SiDiscord className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-foreground" data-testid="text-title">
-                Bubbl Manager
-              </h1>
+              <h1 className="text-xl font-semibold text-foreground" data-testid="text-title">Bubbl Manager</h1>
               <p className="text-sm text-muted-foreground">Bot Control Panel</p>
             </div>
           </div>
@@ -181,16 +230,13 @@ export default function Home() {
                   </div>
                 )}
                 <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-card border-2 border-card flex items-center justify-center">
-                  {!statusLoading && <StatusDot status={status?.status ?? "offline"} />}
+                  {!statusLoading && <StatusDot status={status?.status ?? "offline"} size="md" />}
                 </div>
               </div>
 
               <div className="flex-1 min-w-0 space-y-1">
                 {statusLoading ? (
-                  <>
-                    <Skeleton className="h-6 w-48" />
-                    <Skeleton className="h-4 w-32" />
-                  </>
+                  <><Skeleton className="h-6 w-48" /><Skeleton className="h-4 w-32 mt-1" /></>
                 ) : (
                   <>
                     <div className="flex flex-wrap items-center gap-2">
@@ -236,11 +282,9 @@ export default function Home() {
               <Activity className="w-4 h-4 text-muted-foreground" />
             </CardHeader>
             <CardContent className="pt-0">
-              {statusLoading ? (
-                <Skeleton className="h-8 w-24" />
-              ) : (
+              {statusLoading ? <Skeleton className="h-8 w-24" /> : (
                 <div className="flex items-center gap-2">
-                  <StatusDot status={status?.status ?? "offline"} />
+                  <StatusDot status={status?.status ?? "offline"} size="md" />
                   <span className={`text-2xl font-bold ${statusColor}`} data-testid="text-status-value">{statusLabel}</span>
                 </div>
               )}
@@ -253,12 +297,8 @@ export default function Home() {
               <Server className="w-4 h-4 text-muted-foreground" />
             </CardHeader>
             <CardContent className="pt-0">
-              {statusLoading ? (
-                <Skeleton className="h-8 w-16" />
-              ) : (
-                <span className="text-2xl font-bold text-foreground" data-testid="text-guild-count">
-                  {status?.guildCount ?? 0}
-                </span>
+              {statusLoading ? <Skeleton className="h-8 w-16" /> : (
+                <span className="text-2xl font-bold text-foreground" data-testid="text-guild-count">{status?.guildCount ?? 0}</span>
               )}
             </CardContent>
           </Card>
@@ -269,16 +309,116 @@ export default function Home() {
               <Clock className="w-4 h-4 text-muted-foreground" />
             </CardHeader>
             <CardContent className="pt-0">
-              {statusLoading ? (
-                <Skeleton className="h-8 w-28" />
-              ) : (
-                <span className="text-2xl font-bold text-foreground" data-testid="text-uptime">
-                  {formatUptime(status?.uptimeStart ?? null)}
-                </span>
+              {statusLoading ? <Skeleton className="h-8 w-28" /> : (
+                <span className="text-2xl font-bold text-foreground" data-testid="text-uptime">{formatUptime(status?.uptimeStart ?? null)}</span>
               )}
             </CardContent>
           </Card>
         </div>
+
+        {/* Presence Editor */}
+        <Card className="border-card-border bg-card">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+              <Zap className="w-4 h-4 text-primary" />
+              Bot Presence
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!status?.online && !statusLoading ? (
+              <div className="flex items-center gap-2 p-3 rounded-md bg-muted/40 text-sm text-muted-foreground">
+                <WifiOff className="w-4 h-4 flex-shrink-0" />
+                <span>Bot must be online to change presence.</span>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Online Status */}
+                  <div className="space-y-2">
+                    <Label className="text-sm text-muted-foreground" htmlFor="select-presence-status">
+                      Status
+                    </Label>
+                    <Select value={presenceStatus} onValueChange={setPresenceStatus} disabled={!status?.online}>
+                      <SelectTrigger data-testid="select-presence-status" id="select-presence-status" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUS_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value} data-testid={`option-status-${opt.value}`}>
+                            <div className="flex items-center gap-2">
+                              <span className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${opt.color}`} />
+                              <span>{opt.label}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Activity Type */}
+                  <div className="space-y-2">
+                    <Label className="text-sm text-muted-foreground" htmlFor="select-activity-type">
+                      Activity Type
+                    </Label>
+                    <Select value={activityType} onValueChange={setActivityType} disabled={!status?.online}>
+                      <SelectTrigger data-testid="select-activity-type" id="select-activity-type" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ACTIVITY_TYPES.map((t) => (
+                          <SelectItem key={t} value={t} data-testid={`option-activity-${t}`}>{t}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Activity Name */}
+                  <div className="space-y-2">
+                    <Label className="text-sm text-muted-foreground" htmlFor="input-activity-name">
+                      Activity Text
+                    </Label>
+                    <Input
+                      id="input-activity-name"
+                      data-testid="input-activity-name"
+                      value={activityName}
+                      onChange={(e) => setActivityName(e.target.value.slice(0, 128))}
+                      placeholder="e.g. the Archives"
+                      disabled={!status?.online}
+                      className="text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Preview + Apply */}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <StatusDot status={presenceStatus} />
+                    <span>
+                      Preview:{" "}
+                      <span className="text-foreground font-medium">
+                        {activityName.trim() ? `${activityType} ${activityName}` : "No activity"}
+                      </span>
+                    </span>
+                  </div>
+
+                  <Button
+                    data-testid="button-apply-presence"
+                    onClick={() => presenceMutation.mutate()}
+                    disabled={!canUpdatePresence}
+                  >
+                    {presenceMutation.isPending ? (
+                      <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Applying…</>
+                    ) : presenceSaved ? (
+                      <><CheckCircle2 className="w-4 h-4 mr-2 text-status-online" />Applied</>
+                    ) : (
+                      <><Zap className="w-4 h-4 mr-2" />Apply Presence</>
+                    )}
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Message Composer */}
         <Card className="border-card-border bg-card">
@@ -289,101 +429,72 @@ export default function Home() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {!status?.online && !statusLoading && (
+            {!status?.online && !statusLoading ? (
               <div className="flex items-center gap-2 p-3 rounded-md bg-muted/40 text-sm text-muted-foreground">
                 <WifiOff className="w-4 h-4 flex-shrink-0" />
                 <span>Bot must be online to send messages.</span>
               </div>
-            )}
-
-            {status?.online && (
+            ) : (
               <>
-                {/* Server + Channel selectors */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Server */}
                   <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground" htmlFor="select-server">
-                      Server
-                    </Label>
-                    {guildsLoading ? (
-                      <Skeleton className="h-9 w-full" />
-                    ) : (
-                      <Select
-                        value={selectedGuildId}
-                        onValueChange={(v) => setSelectedGuildId(v)}
-                      >
+                    <Label className="text-sm text-muted-foreground" htmlFor="select-server">Server</Label>
+                    {guildsLoading ? <Skeleton className="h-9 w-full" /> : (
+                      <Select value={selectedGuildId} onValueChange={setSelectedGuildId}>
                         <SelectTrigger data-testid="select-server" id="select-server" className="w-full">
                           <SelectValue placeholder="Select a server…" />
                         </SelectTrigger>
                         <SelectContent>
                           {guilds.length === 0 ? (
                             <SelectItem value="__none" disabled>No servers found</SelectItem>
-                          ) : (
-                            guilds.map((g) => (
-                              <SelectItem key={g.id} value={g.id} data-testid={`option-server-${g.id}`}>
-                                <div className="flex items-center gap-2">
-                                  {g.iconUrl ? (
-                                    <img src={g.iconUrl} alt={g.name} className="w-4 h-4 rounded-full object-cover" />
-                                  ) : (
-                                    <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center">
-                                      <SiDiscord className="w-2.5 h-2.5 text-muted-foreground" />
-                                    </div>
-                                  )}
-                                  <span>{g.name}</span>
-                                </div>
-                              </SelectItem>
-                            ))
-                          )}
+                          ) : guilds.map((g) => (
+                            <SelectItem key={g.id} value={g.id} data-testid={`option-server-${g.id}`}>
+                              <div className="flex items-center gap-2">
+                                {g.iconUrl ? (
+                                  <img src={g.iconUrl} alt={g.name} className="w-4 h-4 rounded-full object-cover" />
+                                ) : (
+                                  <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center">
+                                    <SiDiscord className="w-2.5 h-2.5 text-muted-foreground" />
+                                  </div>
+                                )}
+                                <span>{g.name}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     )}
                   </div>
 
-                  {/* Channel */}
                   <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground" htmlFor="select-channel">
-                      Channel
-                    </Label>
-                    {guildsLoading ? (
-                      <Skeleton className="h-9 w-full" />
-                    ) : (
-                      <Select
-                        value={selectedChannelId}
-                        onValueChange={(v) => setSelectedChannelId(v)}
-                        disabled={!selectedGuildId || (selectedGuild?.channels.length ?? 0) === 0}
-                      >
+                    <Label className="text-sm text-muted-foreground" htmlFor="select-channel">Channel</Label>
+                    {guildsLoading ? <Skeleton className="h-9 w-full" /> : (
+                      <Select value={selectedChannelId} onValueChange={setSelectedChannelId} disabled={!selectedGuildId || (selectedGuild?.channels.length ?? 0) === 0}>
                         <SelectTrigger data-testid="select-channel" id="select-channel" className="w-full">
                           <SelectValue placeholder="Select a channel…" />
                         </SelectTrigger>
                         <SelectContent>
                           {(selectedGuild?.channels ?? []).length === 0 ? (
                             <SelectItem value="__none" disabled>No text channels</SelectItem>
-                          ) : (
-                            (selectedGuild?.channels ?? []).map((ch) => (
-                              <SelectItem key={ch.id} value={ch.id} data-testid={`option-channel-${ch.id}`}>
-                                <div className="flex items-center gap-2">
-                                  {ch.type === "announcement" ? (
-                                    <Megaphone className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                                  ) : (
-                                    <Hash className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                                  )}
-                                  <span>{ch.name}</span>
-                                </div>
-                              </SelectItem>
-                            ))
-                          )}
+                          ) : (selectedGuild?.channels ?? []).map((ch) => (
+                            <SelectItem key={ch.id} value={ch.id} data-testid={`option-channel-${ch.id}`}>
+                              <div className="flex items-center gap-2">
+                                {ch.type === "announcement"
+                                  ? <Megaphone className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                                  : <Hash className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
+                                <span>{ch.name}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     )}
                   </div>
                 </div>
 
-                {/* Message input */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label className="text-sm text-muted-foreground" htmlFor="input-message">
-                      Message
-                    </Label>
+                    <Label className="text-sm text-muted-foreground" htmlFor="input-message">Message</Label>
                     <span className={`text-xs ${message.length > 1900 ? "text-status-busy" : "text-muted-foreground"}`}>
                       {message.length}/2000
                     </span>
@@ -400,33 +511,18 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Send button + last sent */}
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   {lastSent ? (
                     <div className="flex items-center gap-1.5 text-xs text-status-online">
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span data-testid="text-last-sent">
-                        Sent to #{lastSent.channel} in {lastSent.guild}
-                      </span>
+                      <span data-testid="text-last-sent">Sent to #{lastSent.channel} in {lastSent.guild}</span>
                     </div>
-                  ) : (
-                    <span />
-                  )}
-                  <Button
-                    data-testid="button-send"
-                    onClick={() => sendMutation.mutate()}
-                    disabled={!canSend}
-                  >
+                  ) : <span />}
+                  <Button data-testid="button-send" onClick={() => sendMutation.mutate()} disabled={!canSend}>
                     {sendMutation.isPending ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                        Sending…
-                      </>
+                      <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Sending…</>
                     ) : (
-                      <>
-                        <Send className="w-4 h-4 mr-2" />
-                        Send Message
-                      </>
+                      <><Send className="w-4 h-4 mr-2" />Send Message</>
                     )}
                   </Button>
                 </div>

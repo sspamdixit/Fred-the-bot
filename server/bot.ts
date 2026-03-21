@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, ActivityType, ChannelType, TextChannel } from "discord.js";
+import { Client, GatewayIntentBits, ActivityType, ChannelType, TextChannel, PresenceStatusData } from "discord.js";
 import { log } from "./index";
 
 export interface BotStatus {
@@ -78,6 +78,45 @@ export function getGuildsWithChannels(): GuildInfo[] {
       channels: textChannels,
     };
   });
+}
+
+export async function setBotPresence(
+  status: PresenceStatusData,
+  activityType: string,
+  activityName: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!client || !client.user || !botState.online) {
+    return { success: false, error: "Bot is not online." };
+  }
+
+  const typeMap: Record<string, ActivityType> = {
+    Playing: ActivityType.Playing,
+    Watching: ActivityType.Watching,
+    Listening: ActivityType.Listening,
+    Competing: ActivityType.Competing,
+    Streaming: ActivityType.Streaming,
+    Custom: ActivityType.Custom,
+  };
+
+  const resolvedType = typeMap[activityType] ?? ActivityType.Watching;
+
+  try {
+    client.user.setPresence({
+      status,
+      activities: activityName.trim()
+        ? [{ name: activityName.trim(), type: resolvedType }]
+        : [],
+    });
+
+    botState.status = status;
+    botState.activityType = activityType;
+    botState.activityName = activityName;
+
+    log(`Presence updated: ${status} — ${activityType} ${activityName}`, "discord");
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 }
 
 export async function sendMessageToChannel(
