@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, ActivityType } from "discord.js";
+import { Client, GatewayIntentBits, ActivityType, ChannelType, TextChannel } from "discord.js";
 import { log } from "./index";
 
 export interface BotStatus {
@@ -11,6 +11,19 @@ export interface BotStatus {
   activityName: string;
   activityType: string;
   lastError: string | null;
+}
+
+export interface ChannelInfo {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface GuildInfo {
+  id: string;
+  name: string;
+  iconUrl: string | null;
+  channels: ChannelInfo[];
 }
 
 let botState: BotStatus = {
@@ -35,6 +48,57 @@ export function getBotStatus(): BotStatus {
     };
   }
   return botState;
+}
+
+export function getGuildsWithChannels(): GuildInfo[] {
+  if (!client || !botState.online) return [];
+
+  return client.guilds.cache.map((guild) => {
+    const textChannels = guild.channels.cache
+      .filter(
+        (ch) =>
+          ch.type === ChannelType.GuildText ||
+          ch.type === ChannelType.GuildAnnouncement
+      )
+      .sort((a, b) => {
+        const posA = (a as TextChannel).rawPosition ?? 0;
+        const posB = (b as TextChannel).rawPosition ?? 0;
+        return posA - posB;
+      })
+      .map((ch) => ({
+        id: ch.id,
+        name: (ch as TextChannel).name,
+        type: ch.type === ChannelType.GuildAnnouncement ? "announcement" : "text",
+      }));
+
+    return {
+      id: guild.id,
+      name: guild.name,
+      iconUrl: guild.iconURL({ size: 64 }) ?? null,
+      channels: textChannels,
+    };
+  });
+}
+
+export async function sendMessageToChannel(
+  channelId: string,
+  content: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!client || !botState.online) {
+    return { success: false, error: "Bot is not online." };
+  }
+
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel || channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) {
+      return { success: false, error: "Channel not found or not a text channel." };
+    }
+    await (channel as TextChannel).send(content);
+    return { success: true };
+  } catch (err: any) {
+    log(`Failed to send message: ${err.message}`, "discord");
+    return { success: false, error: err.message };
+  }
 }
 
 export async function startBot() {
