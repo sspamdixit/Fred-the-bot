@@ -3,9 +3,12 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startBot } from "./bot";
+import { initSocket } from "./socket";
 
 const app = express();
 const httpServer = createServer(app);
+
+initSocket(httpServer);
 
 declare module "http" {
   interface IncomingMessage {

@@ -1,5 +1,14 @@
-import { Client, GatewayIntentBits, ActivityType, ChannelType, TextChannel, PresenceStatusData } from "discord.js";
+import {
+  Client,
+  GatewayIntentBits,
+  ActivityType,
+  ChannelType,
+  TextChannel,
+  PresenceStatusData,
+  Message,
+} from "discord.js";
 import { log } from "./index";
+import { getIO } from "./socket";
 
 export interface BotStatus {
   online: boolean;
@@ -24,6 +33,18 @@ export interface GuildInfo {
   name: string;
   iconUrl: string | null;
   channels: ChannelInfo[];
+}
+
+export interface LiveMessage {
+  id: string;
+  messageId: string;
+  channelId: string;
+  channelName: string;
+  guildName: string;
+  authorName: string;
+  authorAvatar: string | null;
+  content: string;
+  timestamp: number;
 }
 
 let botState: BotStatus = {
@@ -129,13 +150,56 @@ export async function sendMessageToChannel(
 
   try {
     const channel = await client.channels.fetch(channelId);
-    if (!channel || channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) {
+    if (
+      !channel ||
+      (channel.type !== ChannelType.GuildText &&
+        channel.type !== ChannelType.GuildAnnouncement)
+    ) {
       return { success: false, error: "Channel not found or not a text channel." };
     }
     await (channel as TextChannel).send(content);
     return { success: true };
   } catch (err: any) {
     log(`Failed to send message: ${err.message}`, "discord");
+    return { success: false, error: err.message };
+  }
+}
+
+export async function dispatchMessage(
+  channelId: string,
+  content: string,
+  replyToId?: string,
+  mentionUserId?: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!client || !botState.online) {
+    return { success: false, error: "Bot is not online." };
+  }
+
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (
+      !channel ||
+      (channel.type !== ChannelType.GuildText &&
+        channel.type !== ChannelType.GuildAnnouncement)
+    ) {
+      return { success: false, error: "Channel not found or not a text channel." };
+    }
+
+    const textChannel = channel as TextChannel;
+    const finalContent = mentionUserId
+      ? `<@${mentionUserId}> ${content}`
+      : content;
+
+    if (replyToId) {
+      const targetMessage = await textChannel.messages.fetch(replyToId);
+      await targetMessage.reply(finalContent);
+    } else {
+      await textChannel.send(finalContent);
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    log(`Dispatch failed: ${err.message}`, "discord");
     return { success: false, error: err.message };
   }
 }
@@ -147,7 +211,13 @@ export async function startBot() {
     return;
   }
 
-  client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  client = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+    ],
+  });
 
   client.once("ready", () => {
     if (!client?.user) return;
@@ -169,6 +239,28 @@ export async function startBot() {
       activityType: "Watching",
       lastError: null,
     };
+  });
+
+  client.on("messageCreate", (message: Message) => {
+    if (message.author.bot) return;
+
+    const io = getIO();
+    if (!io) return;
+
+    const liveMsg: LiveMessage = {
+      id: `${message.id}-${Date.now()}`,
+      messageId: message.id,
+      channelId: message.channelId,
+      channelName: (message.channel as TextChannel).name ?? "unknown",
+      guildName: message.guild?.name ?? "DM",
+      authorName: message.author.username,
+      authorAvatar: message.author.displayAvatarURL({ size: 64 }) ?? null,
+      content: message.content,
+      timestamp: message.createdTimestamp,
+    };
+
+    io.emit("liveFeed:message", liveMsg);
+    log(`[Live] ${liveMsg.authorName} in #${liveMsg.channelName}: ${liveMsg.content.slice(0, 60)}`, "discord");
   });
 
   client.on("guildCreate", () => {
