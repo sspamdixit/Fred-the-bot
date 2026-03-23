@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -98,7 +98,90 @@ function StatusDot({ status, size = "sm" }: { status: string; size?: "sm" | "md"
   );
 }
 
+function PasswordScreen({ onAuth }: { onAuth: () => void }) {
+  const [pw, setPw] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleLogin(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pw }),
+      });
+      if (res.ok) {
+        sessionStorage.setItem("bubbl-authed", "1");
+        onAuth();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Incorrect password.");
+      }
+    } catch {
+      setError("Could not reach the server. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center px-4">
+      <Card className="border-card-border bg-card w-full max-w-sm">
+        <CardContent className="p-8 space-y-6">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
+              <SiDiscord className="w-6 h-6 text-primary" />
+            </div>
+            <div className="text-center">
+              <h1 className="text-xl font-semibold text-foreground">Bubbl Manager</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">Enter your password to continue</p>
+            </div>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="pw-input" className="text-sm text-muted-foreground">Password</Label>
+              <Input
+                id="pw-input"
+                data-testid="input-password"
+                type="password"
+                placeholder="••••••••"
+                value={pw}
+                onChange={(e) => { setPw(e.target.value); setError(""); }}
+                autoFocus
+                className="text-sm"
+              />
+              {error && (
+                <p className="text-xs text-destructive flex items-center gap-1.5" data-testid="text-pw-error">
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                  {error}
+                </p>
+              )}
+            </div>
+            <Button type="submit" className="w-full" disabled={loading || pw.length === 0} data-testid="button-login">
+              {loading ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Verifying…</> : "Sign In"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function Home() {
+  const [authed, setAuthed] = useState(() => sessionStorage.getItem("bubbl-authed") === "1");
+
+  if (!authed) {
+    return <PasswordScreen onAuth={() => setAuthed(true)} />;
+  }
+
+  return <Dashboard />;
+}
+
+function Dashboard() {
   const { toast } = useToast();
   const qc = useQueryClient();
 
