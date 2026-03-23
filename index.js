@@ -2,7 +2,7 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { randomBytes, timingSafeEqual } = require('crypto');
+const { randomBytes, createHash, timingSafeEqual } = require('crypto');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 
@@ -12,6 +12,8 @@ app.use(express.static('client'));
 
 const DASHBOARD_AUTH_HEADER = 'x-dashboard-auth-token';
 const AUTH_TOKEN_TTL_MS = 1000 * 60 * 60 * 12;
+const AUTH_TOKEN_MAX_ACTIVE = 2000;
+const AUTH_TOKEN_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const authTokenExpirations = new Map();
 const apiRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -28,7 +30,30 @@ const authRateLimiter = rateLimit({
   message: { error: 'Too many login attempts. Try again later.' },
 });
 
-const createAuthToken = () => randomBytes(32).toString('hex');
+const pruneExpiredAuthTokens = () => {
+  const now = Date.now();
+  for (const [token, expiresAt] of authTokenExpirations.entries()) {
+    if (expiresAt <= now) {
+      authTokenExpirations.delete(token);
+    }
+  }
+};
+
+const createAuthToken = () => {
+  pruneExpiredAuthTokens();
+  if (authTokenExpirations.size >= AUTH_TOKEN_MAX_ACTIVE) {
+    const oldestToken = authTokenExpirations.keys().next().value;
+    if (oldestToken) {
+      authTokenExpirations.delete(oldestToken);
+    }
+  }
+  return randomBytes(32).toString('hex');
+};
+
+const tokenCleanupInterval = setInterval(pruneExpiredAuthTokens, AUTH_TOKEN_CLEANUP_INTERVAL_MS);
+if (typeof tokenCleanupInterval.unref === 'function') {
+  tokenCleanupInterval.unref();
+}
 
 const getOriginAllowlist = () =>
   (process.env.DASHBOARD_ORIGIN || '')
@@ -37,10 +62,9 @@ const getOriginAllowlist = () =>
     .filter(Boolean);
 
 const safePasswordEquals = (input, expected) => {
-  const inputBuffer = Buffer.from(input);
-  const expectedBuffer = Buffer.from(expected);
-  if (inputBuffer.length !== expectedBuffer.length) return false;
-  return timingSafeEqual(inputBuffer, expectedBuffer);
+  const inputDigest = createHash('sha256').update(input).digest();
+  const expectedDigest = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(inputDigest, expectedDigest);
 };
 
 const isAuthTokenValid = (token) => {
@@ -90,12 +114,13 @@ app.use('/api', (req, res, next) => {
 
 const server = http.createServer(app);
 const allowedOrigins = getOriginAllowlist();
+const isProduction = process.env.NODE_ENV === 'production';
 const io = new Server(server, {
   cors: {
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
+      if (!origin) return callback(null, !isProduction);
       if (allowedOrigins.length === 0) {
-        return callback(null, process.env.NODE_ENV !== 'production');
+        return callback(null, !isProduction);
       }
       return callback(null, allowedOrigins.includes(origin));
     },
@@ -160,7 +185,7 @@ app.post('/api/dispatch', async (req, res) => {
   }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(process.env.TOKEN || process.env.DISCORD_TOKEN);
 
 server.listen(process.env.PORT || 3000, () => {
   console.log("🫧 Bubbl System: Live Feed & Socket Engine Online");

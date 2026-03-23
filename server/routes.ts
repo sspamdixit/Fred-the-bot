@@ -1,6 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
-import { createServer, type Server } from "http";
-import { timingSafeEqual } from "crypto";
+import { type Server } from "http";
+import { createHash, timingSafeEqual } from "crypto";
 import rateLimit from "express-rate-limit";
 import {
   getBotStatus,
@@ -50,14 +50,9 @@ const authRateLimiter = rateLimit({
 });
 
 function safePasswordEquals(input: string, expected: string): boolean {
-  const inputBuffer = Buffer.from(input);
-  const expectedBuffer = Buffer.from(expected);
-
-  if (inputBuffer.length !== expectedBuffer.length) {
-    return false;
-  }
-
-  return timingSafeEqual(inputBuffer, expectedBuffer);
+  const inputDigest = createHash("sha256").update(input).digest();
+  const expectedDigest = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(inputDigest, expectedDigest);
 }
 
 function ensureApiAuthorized(req: Request, res: Response, next: NextFunction) {
