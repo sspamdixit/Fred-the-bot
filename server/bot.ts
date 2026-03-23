@@ -41,6 +41,7 @@ export interface LiveMessage {
   channelId: string;
   channelName: string;
   guildName: string;
+  authorId: string;
   authorName: string;
   authorAvatar: string | null;
   content: string;
@@ -253,6 +254,7 @@ export async function startBot() {
       channelId: message.channelId,
       channelName: (message.channel as TextChannel).name ?? "unknown",
       guildName: message.guild?.name ?? "DM",
+      authorId: message.author.id,
       authorName: message.author.username,
       authorAvatar: message.author.displayAvatarURL({ size: 64 }) ?? null,
       content: message.content,
