@@ -28,7 +28,7 @@ import {
   Zap,
   Lock,
 } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, DASHBOARD_AUTH_TOKEN_STORAGE_KEY } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 interface BotStatus {
@@ -96,7 +96,6 @@ function StatusDot({ status, size = "sm" }: { status: string; size?: "sm" | "md"
   );
 }
 
-/* ─── Password Screen ────────────────────────────────────────────── */
 function PasswordScreen({ onAuth }: { onAuth: () => void }) {
   const [pw, setPw]         = useState("");
   const [error, setError]   = useState("");
@@ -113,6 +112,12 @@ function PasswordScreen({ onAuth }: { onAuth: () => void }) {
         body: JSON.stringify({ password: pw }),
       });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (!data?.token || typeof data.token !== "string") {
+          setError("Invalid auth response. Try again.");
+          return;
+        }
+        sessionStorage.setItem(DASHBOARD_AUTH_TOKEN_STORAGE_KEY, data.token);
         sessionStorage.setItem("bubbl-authed", "1");
         onAuth();
       } else {
@@ -128,13 +133,11 @@ function PasswordScreen({ onAuth }: { onAuth: () => void }) {
 
   return (
     <div className="relative min-h-screen flex items-center justify-center px-4 overflow-hidden">
-      {/* Bubbles */}
       <div className="bubble" style={{ width: 420, height: 420, top: -120, right: -100, animationDuration: "14s" }} />
       <div className="bubble" style={{ width: 280, height: 280, bottom: -60, left: -80,  animationDuration: "10s", animationDelay: "2s" }} />
       <div className="bubble" style={{ width: 160, height: 160, top: "40%", left: "15%", animationDuration: "9s",  animationDelay: "1s" }} />
 
       <div className="glass-panel w-full max-w-sm p-8 space-y-7 relative z-10">
-        {/* Logo */}
         <div className="flex flex-col items-center gap-3">
           <div
             className="w-14 h-14 rounded-2xl flex items-center justify-center"
@@ -196,14 +199,17 @@ function PasswordScreen({ onAuth }: { onAuth: () => void }) {
   );
 }
 
-/* ─── Home ───────────────────────────────────────────────────────── */
 export default function Home() {
-  const [authed, setAuthed] = useState(() => sessionStorage.getItem("bubbl-authed") === "1");
+  const [authed, setAuthed] = useState(() => {
+    return (
+      sessionStorage.getItem("bubbl-authed") === "1" &&
+      !!sessionStorage.getItem(DASHBOARD_AUTH_TOKEN_STORAGE_KEY)
+    );
+  });
   if (!authed) return <PasswordScreen onAuth={() => setAuthed(true)} />;
   return <Dashboard />;
 }
 
-/* ─── Glass skeleton ─────────────────────────────────────────────── */
 function GlassSkeleton({ className }: { className?: string }) {
   return (
     <div
@@ -213,7 +219,6 @@ function GlassSkeleton({ className }: { className?: string }) {
   );
 }
 
-/* ─── Section panel ──────────────────────────────────────────────── */
 function Panel({ title, icon: Icon, children }: {
   title: string;
   icon: React.ElementType;
@@ -230,7 +235,6 @@ function Panel({ title, icon: Icon, children }: {
   );
 }
 
-/* ─── Stat card ──────────────────────────────────────────────────── */
 function StatCard({ label, icon: Icon, children }: {
   label: string;
   icon: React.ElementType;
@@ -247,7 +251,6 @@ function StatCard({ label, icon: Icon, children }: {
   );
 }
 
-/* ─── Aero label ─────────────────────────────────────────────────── */
 function AeroLabel({ htmlFor, children }: { htmlFor?: string; children: React.ReactNode }) {
   return (
     <label htmlFor={htmlFor} className="block text-xs font-semibold tracking-wider uppercase mb-1.5" style={{ color: "rgba(255,255,255,0.5)" }}>
@@ -256,7 +259,6 @@ function AeroLabel({ htmlFor, children }: { htmlFor?: string; children: React.Re
   );
 }
 
-/* ─── Dashboard ──────────────────────────────────────────────────── */
 function Dashboard() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -348,7 +350,6 @@ function Dashboard() {
 
   return (
     <div className="relative min-h-screen overflow-x-hidden">
-      {/* ── Floating bubble decorations ── */}
       <div className="bubble" style={{ width: 520, height: 520, top: -160, right: -130, animationDuration: "15s" }} />
       <div className="bubble" style={{ width: 300, height: 300, top: 350,  left: -90,  animationDuration: "11s", animationDelay: "2.5s" }} />
       <div className="bubble" style={{ width: 200, height: 200, bottom: 200, right: 220, animationDuration: "13s", animationDelay: "1s" }} />
@@ -356,8 +357,6 @@ function Dashboard() {
       <div className="bubble" style={{ width: 80,  height: 80,  bottom: 100, left: 180, animationDuration: "8s",  animationDelay: "0.5s" }} />
 
       <div className="relative z-10 max-w-4xl mx-auto px-5 py-10 space-y-5">
-
-        {/* ── Header ── */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div
@@ -387,10 +386,8 @@ function Dashboard() {
           </button>
         </div>
 
-        {/* ── Bot Identity Card ── */}
         <div className="glass-panel p-6">
           <div className="flex flex-wrap items-center gap-5">
-            {/* Avatar */}
             <div className="relative flex-shrink-0">
               {statusLoading ? (
                 <GlassSkeleton className="w-20 h-20 rounded-full" />
@@ -418,7 +415,6 @@ function Dashboard() {
               </div>
             </div>
 
-            {/* Name + activity */}
             <div className="flex-1 min-w-0 space-y-1.5">
               {statusLoading ? (
                 <><GlassSkeleton className="h-6 w-48" /><GlassSkeleton className="h-4 w-32 mt-2" /></>
@@ -450,7 +446,6 @@ function Dashboard() {
               )}
             </div>
 
-            {/* Online indicator */}
             <div className="flex-shrink-0">
               {statusLoading ? (
                 <GlassSkeleton className="w-10 h-10 rounded-xl" />
@@ -473,7 +468,6 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* ── Stats Row ── */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatCard label="Status" icon={Activity}>
             {statusLoading ? <GlassSkeleton className="h-8 w-24" /> : (
@@ -503,7 +497,6 @@ function Dashboard() {
           </StatCard>
         </div>
 
-        {/* ── Presence Editor ── */}
         <Panel title="Bot Presence" icon={Zap}>
           {!status?.online && !statusLoading ? (
             <div
@@ -516,7 +509,6 @@ function Dashboard() {
           ) : (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {/* Status */}
                 <div>
                   <AeroLabel htmlFor="select-presence-status">Status</AeroLabel>
                   <Select value={presenceStatus} onValueChange={setPresenceStatus} disabled={!status?.online}>
@@ -540,7 +532,6 @@ function Dashboard() {
                   </Select>
                 </div>
 
-                {/* Activity Type */}
                 <div>
                   <AeroLabel htmlFor="select-activity-type">Activity Type</AeroLabel>
                   <Select value={activityType} onValueChange={setActivityType} disabled={!status?.online}>
@@ -559,7 +550,6 @@ function Dashboard() {
                   </Select>
                 </div>
 
-                {/* Activity Name */}
                 <div>
                   <AeroLabel htmlFor="input-activity-name">Activity Text</AeroLabel>
                   <Input
@@ -604,7 +594,6 @@ function Dashboard() {
           )}
         </Panel>
 
-        {/* ── Message Composer ── */}
         <Panel title="Send a Message" icon={Send}>
           {!status?.online && !statusLoading ? (
             <div
@@ -617,7 +606,6 @@ function Dashboard() {
           ) : (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Server */}
                 <div>
                   <AeroLabel htmlFor="select-server">Server</AeroLabel>
                   {guildsLoading ? <GlassSkeleton className="h-10 w-full rounded-xl" /> : (
@@ -647,7 +635,6 @@ function Dashboard() {
                   )}
                 </div>
 
-                {/* Channel */}
                 <div>
                   <AeroLabel htmlFor="select-channel">Channel</AeroLabel>
                   {guildsLoading ? <GlassSkeleton className="h-10 w-full rounded-xl" /> : (
@@ -678,7 +665,6 @@ function Dashboard() {
                 </div>
               </div>
 
-              {/* Message textarea */}
               <div className="mt-4">
                 <div className="flex items-center justify-between mb-1.5">
                   <AeroLabel htmlFor="input-message">Message</AeroLabel>
@@ -724,7 +710,6 @@ function Dashboard() {
           )}
         </Panel>
 
-        {/* ── Error Panel ── */}
         {!statusLoading && (isError || status?.lastError) && (
           <div
             className="glass-panel p-4 flex items-start gap-3"

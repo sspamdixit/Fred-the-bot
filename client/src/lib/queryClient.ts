@@ -1,6 +1,33 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+const DASHBOARD_AUTH_HEADER = "x-dashboard-auth-token";
+export const DASHBOARD_AUTH_TOKEN_STORAGE_KEY = "bubbl-dashboard-auth-token";
+const DASHBOARD_AUTH_FLAG_STORAGE_KEY = "bubbl-authed";
+
+function getDashboardAuthToken(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return sessionStorage.getItem(DASHBOARD_AUTH_TOKEN_STORAGE_KEY);
+}
+
+function withDashboardAuthHeader(headers: HeadersInit = {}): HeadersInit {
+  const dashboardAuthToken = getDashboardAuthToken();
+  if (!dashboardAuthToken) {
+    return headers;
+  }
+  return {
+    ...headers,
+    [DASHBOARD_AUTH_HEADER]: dashboardAuthToken,
+  };
+}
+
 async function throwIfResNotOk(res: Response) {
+  if (res.status === 401 && typeof window !== "undefined") {
+    sessionStorage.removeItem(DASHBOARD_AUTH_TOKEN_STORAGE_KEY);
+    sessionStorage.removeItem(DASHBOARD_AUTH_FLAG_STORAGE_KEY);
+  }
+
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
@@ -14,7 +41,7 @@ export async function apiRequest(
 ): Promise<Response> {
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: withDashboardAuthHeader(data ? { "Content-Type": "application/json" } : {}),
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
@@ -30,6 +57,7 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const res = await fetch(queryKey.join("/") as string, {
+      headers: withDashboardAuthHeader(),
       credentials: "include",
     });
 
