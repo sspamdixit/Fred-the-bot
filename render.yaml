@@ -4,11 +4,16 @@ services:
     runtime: node
     buildCommand: npm install && npm run build
     startCommand: npm start
+    healthCheckPath: /
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: 20
       - key: TOKEN
         sync: false
       - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: DASHBOARD_ORIGIN
         sync: false
     autoDeploy: true
