@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: bubbl-manager
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TOKEN
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false
+    autoDeploy: true
