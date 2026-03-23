@@ -27,17 +27,18 @@ function getTokenFromHeaders(req: IncomingMessage): string | null {
 
 export function initSocket(httpServer: HttpServer): SocketIOServer {
   const allowedOrigins = getOriginAllowlist();
+  const isProduction = process.env.NODE_ENV === "production";
 
   _io = new SocketIOServer(httpServer, {
     transports: ["websocket", "polling"],
     cors: {
       origin: (origin, callback) => {
         if (!origin) {
-          return callback(null, true);
+          return callback(null, !isProduction);
         }
 
         if (allowedOrigins.length === 0) {
-          return callback(null, process.env.NODE_ENV !== "production");
+          return callback(null, !isProduction);
         }
 
         return callback(null, allowedOrigins.includes(origin));

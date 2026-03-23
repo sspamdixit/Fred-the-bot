@@ -28,8 +28,21 @@ import {
   Zap,
   Lock,
 } from "lucide-react";
-import { apiRequest, DASHBOARD_AUTH_TOKEN_STORAGE_KEY } from "@/lib/queryClient";
+import {
+  apiRequest,
+  DASHBOARD_AUTH_TOKEN_STORAGE_KEY,
+  DASHBOARD_AUTH_CHANGED_EVENT,
+} from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+
+const DASHBOARD_AUTH_FLAG_STORAGE_KEY = "bubbl-authed";
+
+function hasDashboardSession(): boolean {
+  return (
+    sessionStorage.getItem(DASHBOARD_AUTH_FLAG_STORAGE_KEY) === "1" &&
+    !!sessionStorage.getItem(DASHBOARD_AUTH_TOKEN_STORAGE_KEY)
+  );
+}
 
 interface BotStatus {
   online: boolean;
@@ -200,12 +213,27 @@ function PasswordScreen({ onAuth }: { onAuth: () => void }) {
 }
 
 export default function Home() {
-  const [authed, setAuthed] = useState(() => {
-    return (
-      sessionStorage.getItem("bubbl-authed") === "1" &&
-      !!sessionStorage.getItem(DASHBOARD_AUTH_TOKEN_STORAGE_KEY)
-    );
-  });
+  const [authed, setAuthed] = useState(() => hasDashboardSession());
+
+  useEffect(() => {
+    const syncAuth = () => {
+      setAuthed((previous) => {
+        const next = hasDashboardSession();
+        return previous === next ? previous : next;
+      });
+    };
+
+    window.addEventListener(DASHBOARD_AUTH_CHANGED_EVENT, syncAuth);
+    window.addEventListener("focus", syncAuth);
+    document.addEventListener("visibilitychange", syncAuth);
+
+    return () => {
+      window.removeEventListener(DASHBOARD_AUTH_CHANGED_EVENT, syncAuth);
+      window.removeEventListener("focus", syncAuth);
+      document.removeEventListener("visibilitychange", syncAuth);
+    };
+  }, []);
+
   if (!authed) return <PasswordScreen onAuth={() => setAuthed(true)} />;
   return <Dashboard />;
 }

@@ -3,6 +3,7 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 const DASHBOARD_AUTH_HEADER = "x-dashboard-auth-token";
 export const DASHBOARD_AUTH_TOKEN_STORAGE_KEY = "bubbl-dashboard-auth-token";
 const DASHBOARD_AUTH_FLAG_STORAGE_KEY = "bubbl-authed";
+export const DASHBOARD_AUTH_CHANGED_EVENT = "bubbl-auth-changed";
 
 function getDashboardAuthToken(): string | null {
   if (typeof window === "undefined") {
@@ -26,6 +27,7 @@ async function throwIfResNotOk(res: Response) {
   if (res.status === 401 && typeof window !== "undefined") {
     sessionStorage.removeItem(DASHBOARD_AUTH_TOKEN_STORAGE_KEY);
     sessionStorage.removeItem(DASHBOARD_AUTH_FLAG_STORAGE_KEY);
+    window.dispatchEvent(new Event(DASHBOARD_AUTH_CHANGED_EVENT));
   }
 
   if (!res.ok) {
