@@ -1,11 +1,8 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -29,6 +26,7 @@ import {
   CheckCircle2,
   Megaphone,
   Zap,
+  Lock,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -59,10 +57,10 @@ interface GuildInfo {
 }
 
 const STATUS_OPTIONS = [
-  { value: "online",    label: "Online",       color: "bg-status-online" },
-  { value: "idle",      label: "Idle",         color: "bg-status-away" },
+  { value: "online",    label: "Online",         color: "bg-status-online" },
+  { value: "idle",      label: "Idle",           color: "bg-status-away" },
   { value: "dnd",       label: "Do Not Disturb", color: "bg-status-busy" },
-  { value: "invisible", label: "Invisible",    color: "bg-status-offline" },
+  { value: "invisible", label: "Invisible",      color: "bg-status-offline" },
 ] as const;
 
 const ACTIVITY_TYPES = ["Playing", "Watching", "Listening", "Competing", "Streaming", "Custom"] as const;
@@ -72,10 +70,10 @@ function formatUptime(uptimeStart: number | null): string {
   const ms = Date.now() - uptimeStart;
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-  if (days > 0) return `${days}d ${hours % 24}h ${minutes % 60}m`;
-  if (hours > 0) return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+  const hours   = Math.floor(minutes / 60);
+  const days    = Math.floor(hours / 24);
+  if (days    > 0) return `${days}d ${hours % 24}h ${minutes % 60}m`;
+  if (hours   > 0) return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
   if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
   return `${seconds}s`;
 }
@@ -98,9 +96,10 @@ function StatusDot({ status, size = "sm" }: { status: string; size?: "sm" | "md"
   );
 }
 
+/* ─── Password Screen ────────────────────────────────────────────── */
 function PasswordScreen({ onAuth }: { onAuth: () => void }) {
-  const [pw, setPw] = useState("");
-  const [error, setError] = useState("");
+  const [pw, setPw]         = useState("");
+  const [error, setError]   = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleLogin(e: FormEvent<HTMLFormElement>) {
@@ -128,22 +127,40 @@ function PasswordScreen({ onAuth }: { onAuth: () => void }) {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-4">
-      <Card className="border-card-border bg-card w-full max-w-sm">
-        <CardContent className="p-8 space-y-6">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
-              <SiDiscord className="w-6 h-6 text-primary" />
-            </div>
-            <div className="text-center">
-              <h1 className="text-xl font-semibold text-foreground">Bubbl Manager</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">Enter your password to continue</p>
-            </div>
-          </div>
+    <div className="relative min-h-screen flex items-center justify-center px-4 overflow-hidden">
+      {/* Bubbles */}
+      <div className="bubble" style={{ width: 420, height: 420, top: -120, right: -100, animationDuration: "14s" }} />
+      <div className="bubble" style={{ width: 280, height: 280, bottom: -60, left: -80,  animationDuration: "10s", animationDelay: "2s" }} />
+      <div className="bubble" style={{ width: 160, height: 160, top: "40%", left: "15%", animationDuration: "9s",  animationDelay: "1s" }} />
 
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="pw-input" className="text-sm text-muted-foreground">Password</Label>
+      <div className="glass-panel w-full max-w-sm p-8 space-y-7 relative z-10">
+        {/* Logo */}
+        <div className="flex flex-col items-center gap-3">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center"
+            style={{
+              background: "linear-gradient(160deg, rgba(255,255,255,0.28) 0%, rgba(56,189,248,0.45) 100%)",
+              border: "1px solid rgba(255,255,255,0.4)",
+              boxShadow: "0 4px 20px rgba(56,189,248,0.3), inset 0 1px 0 rgba(255,255,255,0.5)",
+            }}
+          >
+            <SiDiscord className="w-7 h-7 text-white" />
+          </div>
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-white tracking-tight">Bubbl Manager</h1>
+            <p className="text-sm mt-0.5" style={{ color: "rgba(255,255,255,0.6)" }}>
+              Enter your password to continue
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="pw-input" className="text-xs font-semibold tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.55)" }}>
+              Password
+            </Label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "rgba(255,255,255,0.4)" }} />
               <Input
                 id="pw-input"
                 data-testid="input-password"
@@ -152,50 +169,107 @@ function PasswordScreen({ onAuth }: { onAuth: () => void }) {
                 value={pw}
                 onChange={(e) => { setPw(e.target.value); setError(""); }}
                 autoFocus
-                className="text-sm"
+                className="aero-input pl-9 h-10"
               />
-              {error && (
-                <p className="text-xs text-destructive flex items-center gap-1.5" data-testid="text-pw-error">
-                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                  {error}
-                </p>
-              )}
             </div>
-            <Button type="submit" className="w-full" disabled={loading || pw.length === 0} data-testid="button-login">
-              {loading ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Verifying…</> : "Sign In"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+            {error && (
+              <p className="text-xs flex items-center gap-1.5" style={{ color: "rgb(248,113,113)" }} data-testid="text-pw-error">
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                {error}
+              </p>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            className="aero-btn w-full justify-center h-10"
+            disabled={loading || pw.length === 0}
+            data-testid="button-login"
+          >
+            {loading
+              ? <><RefreshCw className="w-4 h-4 animate-spin" />Verifying…</>
+              : "Sign In"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
 
+/* ─── Home ───────────────────────────────────────────────────────── */
 export default function Home() {
   const [authed, setAuthed] = useState(() => sessionStorage.getItem("bubbl-authed") === "1");
-
-  if (!authed) {
-    return <PasswordScreen onAuth={() => setAuthed(true)} />;
-  }
-
+  if (!authed) return <PasswordScreen onAuth={() => setAuthed(true)} />;
   return <Dashboard />;
 }
 
+/* ─── Glass skeleton ─────────────────────────────────────────────── */
+function GlassSkeleton({ className }: { className?: string }) {
+  return (
+    <div
+      className={`rounded-lg animate-pulse ${className ?? ""}`}
+      style={{ background: "rgba(255,255,255,0.12)" }}
+    />
+  );
+}
+
+/* ─── Section panel ──────────────────────────────────────────────── */
+function Panel({ title, icon: Icon, children }: {
+  title: string;
+  icon: React.ElementType;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="glass-panel overflow-hidden">
+      <div className="px-6 py-4 flex items-center gap-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
+        <Icon className="w-4 h-4" style={{ color: "rgba(125,211,252,0.9)" }} />
+        <h3 className="text-sm font-bold tracking-wide text-white">{title}</h3>
+      </div>
+      <div className="p-6">{children}</div>
+    </div>
+  );
+}
+
+/* ─── Stat card ──────────────────────────────────────────────────── */
+function StatCard({ label, icon: Icon, children }: {
+  label: string;
+  icon: React.ElementType;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="glass-panel-sm px-5 py-4 space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.5)" }}>{label}</span>
+        <Icon className="w-4 h-4" style={{ color: "rgba(255,255,255,0.35)" }} />
+      </div>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+/* ─── Aero label ─────────────────────────────────────────────────── */
+function AeroLabel({ htmlFor, children }: { htmlFor?: string; children: React.ReactNode }) {
+  return (
+    <label htmlFor={htmlFor} className="block text-xs font-semibold tracking-wider uppercase mb-1.5" style={{ color: "rgba(255,255,255,0.5)" }}>
+      {children}
+    </label>
+  );
+}
+
+/* ─── Dashboard ──────────────────────────────────────────────────── */
 function Dashboard() {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  // Message state
-  const [selectedGuildId, setSelectedGuildId] = useState<string>("");
+  const [selectedGuildId,   setSelectedGuildId]   = useState<string>("");
   const [selectedChannelId, setSelectedChannelId] = useState<string>("");
-  const [message, setMessage] = useState<string>("");
-  const [lastSent, setLastSent] = useState<{ channel: string; guild: string } | null>(null);
+  const [message,           setMessage]           = useState<string>("");
+  const [lastSent,          setLastSent]           = useState<{ channel: string; guild: string } | null>(null);
 
-  // Presence state
   const [presenceStatus, setPresenceStatus] = useState<string>("online");
-  const [activityType, setActivityType] = useState<string>("Watching");
-  const [activityName, setActivityName] = useState<string>("the Archives");
-  const [presenceSaved, setPresenceSaved] = useState(false);
+  const [activityType,   setActivityType]   = useState<string>("Watching");
+  const [activityName,   setActivityName]   = useState<string>("the Archives");
+  const [presenceSaved,  setPresenceSaved]  = useState(false);
 
   const { data: status, isLoading: statusLoading, isError, refetch, isFetching } = useQuery<BotStatus>({
     queryKey: ["/api/bot/status"],
@@ -208,7 +282,6 @@ function Dashboard() {
     enabled: status?.online === true,
   });
 
-  // Sync presence form when status loads
   useEffect(() => {
     if (status && !presenceSaved) {
       setPresenceStatus(status.status === "error" || status.status === "offline" ? "online" : status.status);
@@ -217,7 +290,7 @@ function Dashboard() {
     }
   }, [status?.status, status?.activityType, status?.activityName]);
 
-  const selectedGuild = guilds.find((g) => g.id === selectedGuildId);
+  const selectedGuild   = guilds.find((g) => g.id === selectedGuildId);
   const selectedChannel = selectedGuild?.channels.find((c) => c.id === selectedChannelId);
 
   useEffect(() => {
@@ -246,11 +319,7 @@ function Dashboard() {
 
   const presenceMutation = useMutation({
     mutationFn: () =>
-      apiRequest("POST", "/api/bot/presence", {
-        status: presenceStatus,
-        activityType,
-        activityName,
-      }),
+      apiRequest("POST", "/api/bot/presence", { status: presenceStatus, activityType, activityName }),
     onSuccess: () => {
       setPresenceSaved(true);
       qc.invalidateQueries({ queryKey: ["/api/bot/status"] });
@@ -262,374 +331,416 @@ function Dashboard() {
     },
   });
 
-  const canSend = status?.online && selectedChannelId && message.trim().length > 0 && !sendMutation.isPending;
+  const canSend           = status?.online && selectedChannelId && message.trim().length > 0 && !sendMutation.isPending;
   const canUpdatePresence = status?.online && !presenceMutation.isPending;
 
   const statusLabel = status?.status === "online" ? "Online"
     : status?.status === "idle" ? "Idle"
-    : status?.status === "dnd" ? "DND"
+    : status?.status === "dnd"  ? "DND"
     : status?.status === "error" ? "Error"
     : "Offline";
 
-  const statusColor = status?.status === "online" ? "text-status-online"
-    : status?.status === "idle" ? "text-status-away"
-    : status?.status === "dnd" ? "text-status-busy"
-    : status?.status === "error" ? "text-status-busy"
-    : "text-status-offline";
+  const statusTextColor = status?.status === "online" ? "rgb(74,222,128)"
+    : status?.status === "idle"  ? "rgb(250,204,21)"
+    : status?.status === "dnd"   ? "rgb(248,113,113)"
+    : status?.status === "error" ? "rgb(248,113,113)"
+    : "rgb(148,163,184)";
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-4xl mx-auto px-6 py-10 space-y-6">
+    <div className="relative min-h-screen overflow-x-hidden">
+      {/* ── Floating bubble decorations ── */}
+      <div className="bubble" style={{ width: 520, height: 520, top: -160, right: -130, animationDuration: "15s" }} />
+      <div className="bubble" style={{ width: 300, height: 300, top: 350,  left: -90,  animationDuration: "11s", animationDelay: "2.5s" }} />
+      <div className="bubble" style={{ width: 200, height: 200, bottom: 200, right: 220, animationDuration: "13s", animationDelay: "1s" }} />
+      <div className="bubble" style={{ width: 130, height: 130, top: 220,  left: 320,  animationDuration: "9s",  animationDelay: "3.5s" }} />
+      <div className="bubble" style={{ width: 80,  height: 80,  bottom: 100, left: 180, animationDuration: "8s",  animationDelay: "0.5s" }} />
 
-        {/* Header */}
+      <div className="relative z-10 max-w-4xl mx-auto px-5 py-10 space-y-5">
+
+        {/* ── Header ── */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-md bg-primary/20 flex items-center justify-center">
-              <SiDiscord className="w-5 h-5 text-primary" />
+            <div
+              className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0"
+              style={{
+                background: "linear-gradient(160deg, rgba(255,255,255,0.28) 0%, rgba(56,189,248,0.45) 100%)",
+                border: "1px solid rgba(255,255,255,0.38)",
+                boxShadow: "0 4px 16px rgba(56,189,248,0.3), inset 0 1px 0 rgba(255,255,255,0.5)",
+              }}
+            >
+              <SiDiscord className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-foreground" data-testid="text-title">Bubbl Manager</h1>
-              <p className="text-sm text-muted-foreground">Bot Control Panel</p>
+              <h1 className="text-xl font-bold text-white leading-none" data-testid="text-title">Bubbl Manager</h1>
+              <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.5)" }}>Bot Control Panel</p>
             </div>
           </div>
-          <Button variant="secondary" size="sm" onClick={() => refetch()} disabled={isFetching} data-testid="button-refresh">
-            <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
+
+          <button
+            className="aero-btn aero-btn-ghost aero-btn-sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
             Refresh
-          </Button>
+          </button>
         </div>
 
-        {/* Bot Identity Card */}
-        <Card className="border-card-border bg-card">
-          <CardContent className="p-6">
-            <div className="flex flex-wrap items-center gap-5">
-              <div className="relative flex-shrink-0">
-                {statusLoading ? (
-                  <Skeleton className="w-20 h-20 rounded-full" />
-                ) : status?.avatarUrl ? (
-                  <img src={status.avatarUrl} alt="Bot avatar" data-testid="img-avatar" className="w-20 h-20 rounded-full border-2 border-primary/30 object-cover" />
-                ) : (
-                  <div className="w-20 h-20 rounded-full border-2 border-border bg-muted flex items-center justify-center">
-                    <SiDiscord className="w-9 h-9 text-muted-foreground" />
-                  </div>
-                )}
-                <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-card border-2 border-card flex items-center justify-center">
-                  {!statusLoading && <StatusDot status={status?.status ?? "offline"} size="md" />}
+        {/* ── Bot Identity Card ── */}
+        <div className="glass-panel p-6">
+          <div className="flex flex-wrap items-center gap-5">
+            {/* Avatar */}
+            <div className="relative flex-shrink-0">
+              {statusLoading ? (
+                <GlassSkeleton className="w-20 h-20 rounded-full" />
+              ) : status?.avatarUrl ? (
+                <img
+                  src={status.avatarUrl}
+                  alt="Bot avatar"
+                  data-testid="img-avatar"
+                  className="w-20 h-20 rounded-full object-cover"
+                  style={{ border: "2px solid rgba(255,255,255,0.35)", boxShadow: "0 0 0 2px rgba(56,189,248,0.4), 0 4px 16px rgba(0,0,0,0.25)" }}
+                />
+              ) : (
+                <div
+                  className="w-20 h-20 rounded-full flex items-center justify-center"
+                  style={{ background: "rgba(255,255,255,0.1)", border: "2px solid rgba(255,255,255,0.2)" }}
+                >
+                  <SiDiscord className="w-9 h-9" style={{ color: "rgba(255,255,255,0.4)" }} />
                 </div>
-              </div>
-
-              <div className="flex-1 min-w-0 space-y-1">
-                {statusLoading ? (
-                  <><Skeleton className="h-6 w-48" /><Skeleton className="h-4 w-32 mt-1" /></>
-                ) : (
-                  <>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-lg font-semibold text-foreground truncate" data-testid="text-bot-tag">
-                        {status?.tag ?? "Not connected"}
-                      </h2>
-                      <Badge variant="secondary" data-testid="badge-status" className={`text-xs font-medium ${statusColor}`}>
-                        {statusLabel}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                      <Eye className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span data-testid="text-activity">
-                        {status?.online ? `${status.activityType} ${status.activityName}` : "No activity"}
-                      </span>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className="flex-shrink-0">
-                {statusLoading ? (
-                  <Skeleton className="w-10 h-10 rounded-md" />
-                ) : status?.online ? (
-                  <div className="w-10 h-10 rounded-md bg-status-online/10 flex items-center justify-center">
-                    <Wifi className="w-5 h-5 text-status-online" />
-                  </div>
-                ) : (
-                  <div className="w-10 h-10 rounded-md bg-status-offline/10 flex items-center justify-center">
-                    <WifiOff className="w-5 h-5 text-status-offline" />
-                  </div>
-                )}
+              )}
+              <div
+                className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center"
+                style={{ background: "rgba(10,70,100,0.9)", border: "2px solid rgba(255,255,255,0.25)" }}
+              >
+                {!statusLoading && <StatusDot status={status?.status ?? "offline"} size="md" />}
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Stats Row */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Card className="border-card-border bg-card">
-            <CardHeader className="flex flex-row items-center justify-between gap-1 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Status</CardTitle>
-              <Activity className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent className="pt-0">
-              {statusLoading ? <Skeleton className="h-8 w-24" /> : (
-                <div className="flex items-center gap-2">
-                  <StatusDot status={status?.status ?? "offline"} size="md" />
-                  <span className={`text-2xl font-bold ${statusColor}`} data-testid="text-status-value">{statusLabel}</span>
+            {/* Name + activity */}
+            <div className="flex-1 min-w-0 space-y-1.5">
+              {statusLoading ? (
+                <><GlassSkeleton className="h-6 w-48" /><GlassSkeleton className="h-4 w-32 mt-2" /></>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-lg font-bold text-white truncate" data-testid="text-bot-tag">
+                      {status?.tag ?? "Not connected"}
+                    </h2>
+                    <span
+                      data-testid="badge-status"
+                      className="text-xs font-semibold px-2.5 py-0.5 rounded-full"
+                      style={{
+                        background: "rgba(255,255,255,0.12)",
+                        border: "1px solid rgba(255,255,255,0.2)",
+                        color: statusTextColor,
+                      }}
+                    >
+                      {statusLabel}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-sm" style={{ color: "rgba(255,255,255,0.55)" }}>
+                    <Eye className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span data-testid="text-activity">
+                      {status?.online ? `${status.activityType} ${status.activityName}` : "No activity"}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Online indicator */}
+            <div className="flex-shrink-0">
+              {statusLoading ? (
+                <GlassSkeleton className="w-10 h-10 rounded-xl" />
+              ) : (
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{
+                    background: status?.online
+                      ? "rgba(74,222,128,0.15)"
+                      : "rgba(148,163,184,0.1)",
+                    border: "1px solid " + (status?.online ? "rgba(74,222,128,0.3)" : "rgba(148,163,184,0.2)"),
+                  }}
+                >
+                  {status?.online
+                    ? <Wifi className="w-5 h-5" style={{ color: "rgb(74,222,128)" }} />
+                    : <WifiOff className="w-5 h-5" style={{ color: "rgb(148,163,184)" }} />}
                 </div>
               )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-card-border bg-card">
-            <CardHeader className="flex flex-row items-center justify-between gap-1 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Servers</CardTitle>
-              <Server className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent className="pt-0">
-              {statusLoading ? <Skeleton className="h-8 w-16" /> : (
-                <span className="text-2xl font-bold text-foreground" data-testid="text-guild-count">{status?.guildCount ?? 0}</span>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-card-border bg-card">
-            <CardHeader className="flex flex-row items-center justify-between gap-1 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Uptime</CardTitle>
-              <Clock className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent className="pt-0">
-              {statusLoading ? <Skeleton className="h-8 w-28" /> : (
-                <span className="text-2xl font-bold text-foreground" data-testid="text-uptime">{formatUptime(status?.uptimeStart ?? null)}</span>
-              )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
 
-        {/* Presence Editor */}
-        <Card className="border-card-border bg-card">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-              <Zap className="w-4 h-4 text-primary" />
-              Bot Presence
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {!status?.online && !statusLoading ? (
-              <div className="flex items-center gap-2 p-3 rounded-md bg-muted/40 text-sm text-muted-foreground">
-                <WifiOff className="w-4 h-4 flex-shrink-0" />
-                <span>Bot must be online to change presence.</span>
+        {/* ── Stats Row ── */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <StatCard label="Status" icon={Activity}>
+            {statusLoading ? <GlassSkeleton className="h-8 w-24" /> : (
+              <div className="flex items-center gap-2 mt-1">
+                <StatusDot status={status?.status ?? "offline"} size="md" />
+                <span className="text-2xl font-extrabold" style={{ color: statusTextColor }} data-testid="text-status-value">
+                  {statusLabel}
+                </span>
               </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {/* Online Status */}
-                  <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground" htmlFor="select-presence-status">
-                      Status
-                    </Label>
-                    <Select value={presenceStatus} onValueChange={setPresenceStatus} disabled={!status?.online}>
-                      <SelectTrigger data-testid="select-presence-status" id="select-presence-status" className="w-full">
-                        <SelectValue />
+            )}
+          </StatCard>
+
+          <StatCard label="Servers" icon={Server}>
+            {statusLoading ? <GlassSkeleton className="h-8 w-16" /> : (
+              <span className="text-2xl font-extrabold text-white" data-testid="text-guild-count">
+                {status?.guildCount ?? 0}
+              </span>
+            )}
+          </StatCard>
+
+          <StatCard label="Uptime" icon={Clock}>
+            {statusLoading ? <GlassSkeleton className="h-8 w-28" /> : (
+              <span className="text-2xl font-extrabold text-white" data-testid="text-uptime">
+                {formatUptime(status?.uptimeStart ?? null)}
+              </span>
+            )}
+          </StatCard>
+        </div>
+
+        {/* ── Presence Editor ── */}
+        <Panel title="Bot Presence" icon={Zap}>
+          {!status?.online && !statusLoading ? (
+            <div
+              className="flex items-center gap-2 p-3 rounded-xl text-sm"
+              style={{ background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)" }}
+            >
+              <WifiOff className="w-4 h-4 flex-shrink-0" />
+              <span>Bot must be online to change presence.</span>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Status */}
+                <div>
+                  <AeroLabel htmlFor="select-presence-status">Status</AeroLabel>
+                  <Select value={presenceStatus} onValueChange={setPresenceStatus} disabled={!status?.online}>
+                    <SelectTrigger
+                      data-testid="select-presence-status"
+                      id="select-presence-status"
+                      className="aero-select-trigger w-full h-10"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value} data-testid={`option-status-${opt.value}`}>
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${opt.color}`} />
+                            <span>{opt.label}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Activity Type */}
+                <div>
+                  <AeroLabel htmlFor="select-activity-type">Activity Type</AeroLabel>
+                  <Select value={activityType} onValueChange={setActivityType} disabled={!status?.online}>
+                    <SelectTrigger
+                      data-testid="select-activity-type"
+                      id="select-activity-type"
+                      className="aero-select-trigger w-full h-10"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ACTIVITY_TYPES.map((t) => (
+                        <SelectItem key={t} value={t} data-testid={`option-activity-${t}`}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Activity Name */}
+                <div>
+                  <AeroLabel htmlFor="input-activity-name">Activity Text</AeroLabel>
+                  <Input
+                    id="input-activity-name"
+                    data-testid="input-activity-name"
+                    value={activityName}
+                    onChange={(e) => setActivityName(e.target.value.slice(0, 128))}
+                    placeholder="e.g. the Archives"
+                    disabled={!status?.online}
+                    className="aero-input h-10"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 mt-5">
+                <div className="flex items-center gap-2 text-sm" style={{ color: "rgba(255,255,255,0.55)" }}>
+                  <StatusDot status={presenceStatus} />
+                  <span>
+                    Preview:{" "}
+                    <span className="text-white font-semibold">
+                      {activityName.trim() ? `${activityType} ${activityName}` : "No activity"}
+                    </span>
+                  </span>
+                </div>
+
+                <button
+                  data-testid="button-apply-presence"
+                  className="aero-btn"
+                  onClick={() => presenceMutation.mutate()}
+                  disabled={!canUpdatePresence}
+                >
+                  {presenceMutation.isPending ? (
+                    <><RefreshCw className="w-4 h-4 animate-spin" />Applying…</>
+                  ) : presenceSaved ? (
+                    <><CheckCircle2 className="w-4 h-4" style={{ color: "rgb(74,222,128)" }} />Applied!</>
+                  ) : (
+                    <><Zap className="w-4 h-4" />Apply Presence</>
+                  )}
+                </button>
+              </div>
+            </>
+          )}
+        </Panel>
+
+        {/* ── Message Composer ── */}
+        <Panel title="Send a Message" icon={Send}>
+          {!status?.online && !statusLoading ? (
+            <div
+              className="flex items-center gap-2 p-3 rounded-xl text-sm"
+              style={{ background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)" }}
+            >
+              <WifiOff className="w-4 h-4 flex-shrink-0" />
+              <span>Bot must be online to send messages.</span>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Server */}
+                <div>
+                  <AeroLabel htmlFor="select-server">Server</AeroLabel>
+                  {guildsLoading ? <GlassSkeleton className="h-10 w-full rounded-xl" /> : (
+                    <Select value={selectedGuildId} onValueChange={setSelectedGuildId}>
+                      <SelectTrigger data-testid="select-server" id="select-server" className="aero-select-trigger w-full h-10">
+                        <SelectValue placeholder="Select a server…" />
                       </SelectTrigger>
                       <SelectContent>
-                        {STATUS_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value} data-testid={`option-status-${opt.value}`}>
+                        {guilds.length === 0 ? (
+                          <SelectItem value="__none" disabled>No servers found</SelectItem>
+                        ) : guilds.map((g) => (
+                          <SelectItem key={g.id} value={g.id} data-testid={`option-server-${g.id}`}>
                             <div className="flex items-center gap-2">
-                              <span className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${opt.color}`} />
-                              <span>{opt.label}</span>
+                              {g.iconUrl ? (
+                                <img src={g.iconUrl} alt={g.name} className="w-4 h-4 rounded-full object-cover" />
+                              ) : (
+                                <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center">
+                                  <SiDiscord className="w-2.5 h-2.5 text-muted-foreground" />
+                                </div>
+                              )}
+                              <span>{g.name}</span>
                             </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
+                  )}
+                </div>
 
-                  {/* Activity Type */}
-                  <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground" htmlFor="select-activity-type">
-                      Activity Type
-                    </Label>
-                    <Select value={activityType} onValueChange={setActivityType} disabled={!status?.online}>
-                      <SelectTrigger data-testid="select-activity-type" id="select-activity-type" className="w-full">
-                        <SelectValue />
+                {/* Channel */}
+                <div>
+                  <AeroLabel htmlFor="select-channel">Channel</AeroLabel>
+                  {guildsLoading ? <GlassSkeleton className="h-10 w-full rounded-xl" /> : (
+                    <Select
+                      value={selectedChannelId}
+                      onValueChange={setSelectedChannelId}
+                      disabled={!selectedGuildId || (selectedGuild?.channels.length ?? 0) === 0}
+                    >
+                      <SelectTrigger data-testid="select-channel" id="select-channel" className="aero-select-trigger w-full h-10">
+                        <SelectValue placeholder="Select a channel…" />
                       </SelectTrigger>
                       <SelectContent>
-                        {ACTIVITY_TYPES.map((t) => (
-                          <SelectItem key={t} value={t} data-testid={`option-activity-${t}`}>{t}</SelectItem>
+                        {(selectedGuild?.channels ?? []).length === 0 ? (
+                          <SelectItem value="__none" disabled>No text channels</SelectItem>
+                        ) : (selectedGuild?.channels ?? []).map((ch) => (
+                          <SelectItem key={ch.id} value={ch.id} data-testid={`option-channel-${ch.id}`}>
+                            <div className="flex items-center gap-2">
+                              {ch.type === "announcement"
+                                ? <Megaphone className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                                : <Hash className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
+                              <span>{ch.name}</span>
+                            </div>
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
-
-                  {/* Activity Name */}
-                  <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground" htmlFor="input-activity-name">
-                      Activity Text
-                    </Label>
-                    <Input
-                      id="input-activity-name"
-                      data-testid="input-activity-name"
-                      value={activityName}
-                      onChange={(e) => setActivityName(e.target.value.slice(0, 128))}
-                      placeholder="e.g. the Archives"
-                      disabled={!status?.online}
-                      className="text-sm"
-                    />
-                  </div>
+                  )}
                 </div>
+              </div>
 
-                {/* Preview + Apply */}
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <StatusDot status={presenceStatus} />
-                    <span>
-                      Preview:{" "}
-                      <span className="text-foreground font-medium">
-                        {activityName.trim() ? `${activityType} ${activityName}` : "No activity"}
-                      </span>
-                    </span>
-                  </div>
-
-                  <Button
-                    data-testid="button-apply-presence"
-                    onClick={() => presenceMutation.mutate()}
-                    disabled={!canUpdatePresence}
+              {/* Message textarea */}
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-1.5">
+                  <AeroLabel htmlFor="input-message">Message</AeroLabel>
+                  <span
+                    className="text-xs font-medium"
+                    style={{ color: message.length > 1900 ? "rgb(248,113,113)" : "rgba(255,255,255,0.4)" }}
                   >
-                    {presenceMutation.isPending ? (
-                      <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Applying…</>
-                    ) : presenceSaved ? (
-                      <><CheckCircle2 className="w-4 h-4 mr-2 text-status-online" />Applied</>
-                    ) : (
-                      <><Zap className="w-4 h-4 mr-2" />Apply Presence</>
-                    )}
-                  </Button>
+                    {message.length}/2000
+                  </span>
                 </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Message Composer */}
-        <Card className="border-card-border bg-card">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-              <Send className="w-4 h-4 text-primary" />
-              Send a Message
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {!status?.online && !statusLoading ? (
-              <div className="flex items-center gap-2 p-3 rounded-md bg-muted/40 text-sm text-muted-foreground">
-                <WifiOff className="w-4 h-4 flex-shrink-0" />
-                <span>Bot must be online to send messages.</span>
+                <Textarea
+                  id="input-message"
+                  data-testid="input-message"
+                  placeholder={selectedChannelId ? `Message #${selectedChannel?.name ?? "channel"}` : "Select a channel first…"}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value.slice(0, 2000))}
+                  disabled={!selectedChannelId}
+                  rows={4}
+                  className="aero-input resize-none"
+                />
               </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground" htmlFor="select-server">Server</Label>
-                    {guildsLoading ? <Skeleton className="h-9 w-full" /> : (
-                      <Select value={selectedGuildId} onValueChange={setSelectedGuildId}>
-                        <SelectTrigger data-testid="select-server" id="select-server" className="w-full">
-                          <SelectValue placeholder="Select a server…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {guilds.length === 0 ? (
-                            <SelectItem value="__none" disabled>No servers found</SelectItem>
-                          ) : guilds.map((g) => (
-                            <SelectItem key={g.id} value={g.id} data-testid={`option-server-${g.id}`}>
-                              <div className="flex items-center gap-2">
-                                {g.iconUrl ? (
-                                  <img src={g.iconUrl} alt={g.name} className="w-4 h-4 rounded-full object-cover" />
-                                ) : (
-                                  <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center">
-                                    <SiDiscord className="w-2.5 h-2.5 text-muted-foreground" />
-                                  </div>
-                                )}
-                                <span>{g.name}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
+
+              <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+                {lastSent ? (
+                  <div className="flex items-center gap-1.5 text-xs" style={{ color: "rgb(74,222,128)" }}>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span data-testid="text-last-sent">Sent to #{lastSent.channel} in {lastSent.guild}</span>
                   </div>
+                ) : <span />}
 
-                  <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground" htmlFor="select-channel">Channel</Label>
-                    {guildsLoading ? <Skeleton className="h-9 w-full" /> : (
-                      <Select value={selectedChannelId} onValueChange={setSelectedChannelId} disabled={!selectedGuildId || (selectedGuild?.channels.length ?? 0) === 0}>
-                        <SelectTrigger data-testid="select-channel" id="select-channel" className="w-full">
-                          <SelectValue placeholder="Select a channel…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(selectedGuild?.channels ?? []).length === 0 ? (
-                            <SelectItem value="__none" disabled>No text channels</SelectItem>
-                          ) : (selectedGuild?.channels ?? []).map((ch) => (
-                            <SelectItem key={ch.id} value={ch.id} data-testid={`option-channel-${ch.id}`}>
-                              <div className="flex items-center gap-2">
-                                {ch.type === "announcement"
-                                  ? <Megaphone className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                                  : <Hash className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
-                                <span>{ch.name}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                </div>
+                <button
+                  data-testid="button-send"
+                  className="aero-btn"
+                  onClick={() => sendMutation.mutate()}
+                  disabled={!canSend}
+                >
+                  {sendMutation.isPending
+                    ? <><RefreshCw className="w-4 h-4 animate-spin" />Sending…</>
+                    : <><Send className="w-4 h-4" />Send Message</>}
+                </button>
+              </div>
+            </>
+          )}
+        </Panel>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm text-muted-foreground" htmlFor="input-message">Message</Label>
-                    <span className={`text-xs ${message.length > 1900 ? "text-status-busy" : "text-muted-foreground"}`}>
-                      {message.length}/2000
-                    </span>
-                  </div>
-                  <Textarea
-                    id="input-message"
-                    data-testid="input-message"
-                    placeholder={selectedChannelId ? `Message #${selectedChannel?.name ?? "channel"}` : "Select a channel first…"}
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value.slice(0, 2000))}
-                    disabled={!selectedChannelId}
-                    rows={4}
-                    className="resize-none text-sm"
-                  />
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  {lastSent ? (
-                    <div className="flex items-center gap-1.5 text-xs text-status-online">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span data-testid="text-last-sent">Sent to #{lastSent.channel} in {lastSent.guild}</span>
-                    </div>
-                  ) : <span />}
-                  <Button data-testid="button-send" onClick={() => sendMutation.mutate()} disabled={!canSend}>
-                    {sendMutation.isPending ? (
-                      <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Sending…</>
-                    ) : (
-                      <><Send className="w-4 h-4 mr-2" />Send Message</>
-                    )}
-                  </Button>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Error panel */}
+        {/* ── Error Panel ── */}
         {!statusLoading && (isError || status?.lastError) && (
-          <Card className="border-destructive/40 bg-destructive/5">
-            <CardContent className="p-4 flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-destructive">Connection error</p>
-                <p className="text-sm text-muted-foreground" data-testid="text-error-message">
-                  {status?.lastError ?? "Could not reach the bot. Check that your TOKEN is valid."}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          <div
+            className="glass-panel p-4 flex items-start gap-3"
+            style={{ borderColor: "rgba(248,113,113,0.4)", background: "rgba(220,38,38,0.1)" }}
+          >
+            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: "rgb(248,113,113)" }} />
+            <div className="space-y-1">
+              <p className="text-sm font-semibold" style={{ color: "rgb(248,113,113)" }}>Connection error</p>
+              <p className="text-sm" style={{ color: "rgba(255,255,255,0.55)" }} data-testid="text-error-message">
+                {status?.lastError ?? "Could not reach the bot. Check that your TOKEN is valid."}
+              </p>
+            </div>
+          </div>
         )}
 
-        <p className="text-center text-xs text-muted-foreground" data-testid="text-footer">
+        <p className="text-center text-xs" style={{ color: "rgba(255,255,255,0.3)" }} data-testid="text-footer">
           Status refreshes automatically every 5 seconds
         </p>
       </div>
