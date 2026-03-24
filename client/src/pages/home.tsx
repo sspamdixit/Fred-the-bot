@@ -307,15 +307,17 @@ function Dashboard() {
   const { data: aiStatus, isLoading: aiLoading } = useQuery<{
     geminiEnabled: boolean;
     groqEnabled: boolean;
+    hackclubEnabled: boolean;
     hasGeminiKey: boolean;
     hasGroqKey: boolean;
+    hasHackclubKey: boolean;
   }>({
     queryKey: ["/api/ai/status"],
     refetchInterval: 10000,
   });
 
   const aiToggleMutation = useMutation({
-    mutationFn: ({ provider, enabled }: { provider: "gemini" | "groq"; enabled: boolean }) =>
+    mutationFn: ({ provider, enabled }: { provider: "gemini" | "groq" | "hackclub"; enabled: boolean }) =>
       apiRequest("POST", "/api/ai/toggle", { provider, enabled }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/ai/status"] });
@@ -731,15 +733,56 @@ function Dashboard() {
               </div>
             </div>
 
-            {/* Warning if both are off */}
-            {aiStatus && !aiStatus.geminiEnabled && !aiStatus.groqEnabled && (
+            {/* Hackclub toggle */}
+            <div
+              className="rounded-xl p-4 space-y-3"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-semibold text-white">Tertiary AI Fallback</p>
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                    Last resort — used when Gemini and Groq are off or exhausted.
+                  </p>
+                </div>
+                {aiLoading ? (
+                  <GlassSkeleton className="w-11 h-6 rounded-full" />
+                ) : (
+                  <Switch
+                    data-testid="switch-hackclub-enabled"
+                    checked={aiStatus?.hackclubEnabled ?? false}
+                    disabled={aiToggleMutation.isPending}
+                    onCheckedChange={(val) => aiToggleMutation.mutate({ provider: "hackclub", enabled: val })}
+                  />
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                <KeyRound
+                  className="w-3.5 h-3.5 flex-shrink-0"
+                  style={{ color: aiStatus?.hasHackclubKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                />
+                <span>
+                  API key:{" "}
+                  <span
+                    className="font-semibold"
+                    style={{ color: aiStatus?.hasHackclubKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                    data-testid="text-hackclub-key-status"
+                  >
+                    {aiLoading ? "checking…" : aiStatus?.hasHackclubKey ? "Configured" : "Not set"}
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            {/* Warning if all are off */}
+            {aiStatus && !aiStatus.geminiEnabled && !aiStatus.groqEnabled && !aiStatus.hackclubEnabled && (
               <div
                 className="flex items-start gap-2 px-4 py-3 rounded-xl text-sm"
                 style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)" }}
               >
                 <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "rgb(248,113,113)" }} />
                 <span style={{ color: "rgba(255,255,255,0.65)" }}>
-                  Both AI providers are disabled — the bot will not reply to mentions.
+                  All AI providers are disabled — the bot will not reply to mentions.
                 </span>
               </div>
             )}

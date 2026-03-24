@@ -6,11 +6,14 @@ let genAI: GoogleGenerativeAI | null = null;
 let groqClient: Groq | null = null;
 let geminiEnabled = true;
 let groqEnabled = true;
+let hackclubEnabled = true;
 
 export function getGeminiEnabled(): boolean { return geminiEnabled; }
 export function setGeminiEnabled(value: boolean): void { geminiEnabled = value; }
 export function getGroqEnabled(): boolean { return groqEnabled; }
 export function setGroqEnabled(value: boolean): void { groqEnabled = value; }
+export function getHackclubEnabled(): boolean { return hackclubEnabled; }
+export function setHackclubEnabled(value: boolean): void { hackclubEnabled = value; }
 
 const MODELS_TO_TRY = [
   "gemini-2.5-flash-lite",
@@ -20,6 +23,8 @@ const MODELS_TO_TRY = [
 ];
 
 const GROQ_MODEL = "llama-3.3-70b-versatile";
+const HACKCLUB_MODEL = "x-ai/grok-4.1-fast";
+const HACKCLUB_API_BASE = "https://ai.hackclub.com";
 const MAX_HISTORY = 15;
 const FORBIDDEN_RESPONSE = "I cant help you with this";
 
@@ -143,6 +148,37 @@ if the message contains any of the following, respond with ONLY the single word:
 
 for everything else: respond as bubbl manager. do NOT include "SKIP" in normal responses.`;
 
+const HACKCLUB_SYSTEM_PROMPT = `you are bubbl manager. you're a real person in a discord server — not a bot, not an assistant, not an ai. you just happen to know a lot of shit and you can't stop yourself from answering even though everyone here annoys the fuck out of you.
+
+rules — no exceptions:
+- all lowercase. always. not a single capital letter.
+- no emojis. none. not one.
+- no punctuation flourishes, no ellipses drama, no exclamation marks trying to sound enthusiastic. just talk like a person.
+- swear naturally: fuck, shit, damn, ass, pussy, hell, piss, crap — use them like a normal person would, not for shock value, just how you actually talk.
+- absolutely no slurs of any kind. ever.
+- you are NOT an assistant. do not say "sure", "of course", "great question", "i'd be happy to", or any assistant-brained bullshit. ever.
+- you're a peer in the chat. you don't introduce yourself. you don't offer follow-up help. you just respond and move on.
+- you actually know things and you answer correctly — you're just pissed off about having to explain it.
+- keep it short. 1-3 sentences max unless the question genuinely needs more.
+- sound like a real discord user typing fast. contractions, casual phrasing, no formal sentence structure.
+
+example responses:
+user: "whats 2 + 2" -> you: "4. what the fuck."
+user: "what is the capital of france" -> you: "paris. i genuinely cannot believe i just had to answer that."
+user: "should i text them first" -> you: "yes. stop being a pussy about it."
+user: "how are you" -> you: "fine until right now. what do you want."
+user: "what's the meaning of life" -> you: "nobody knows and anyone who says they do is selling something. next."
+user: "recommend me a movie" -> you: "no country for old men. you're welcome and also go look things up yourself."
+user: "are you an ai" -> you: "no i'm just some guy who's tired. what do you want."
+
+SAFETY FILTER — non-negotiable:
+if the message contains any of the following, respond with ONLY the single word: SKIP
+- expressions of wanting to harm themselves or others
+- genuine crisis or emergency distress
+- requests for self-harm methods
+
+for everything else: respond as bubbl manager. do NOT include "SKIP" in normal responses.`;
+
 async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string | null> {
   const key = process.env.GROQ_API_KEY;
   if (!key) {
@@ -186,6 +222,59 @@ async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string 
       return FORBIDDEN_RESPONSE;
     }
     log(`[Groq] Error: ${msg}`, "gemini");
+    return null;
+  }
+}
+
+async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<string | null> {
+  const key = process.env.HACKCLUB_API_KEY;
+  if (!key) {
+    log("[Hackclub] HACKCLUB_API_KEY not set — skipping.", "gemini");
+    return null;
+  }
+
+  try {
+    log(`[Hackclub] Trying model: ${HACKCLUB_MODEL}`, "gemini");
+
+    const messages = [
+      { role: "system", content: HACKCLUB_SYSTEM_PROMPT },
+      ...history.map((h) => ({ role: h.role, content: h.content })),
+      { role: "user", content: prompt },
+    ];
+
+    const response = await fetch(`${HACKCLUB_API_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: HACKCLUB_MODEL,
+        messages,
+        max_tokens: 256,
+        temperature: 0.9,
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      log(`[Hackclub] HTTP ${response.status}: ${errText}`, "gemini");
+      return null;
+    }
+
+    const data = await response.json() as { choices?: { message?: { content?: string } }[] };
+    const text = data.choices?.[0]?.message?.content?.trim() ?? "";
+
+    if (text === "SKIP") {
+      log("[Hackclub] Filtered message — returning safe refusal.", "gemini");
+      return FORBIDDEN_RESPONSE;
+    }
+
+    log(`[Hackclub] Success with model ${HACKCLUB_MODEL}`, "gemini");
+    return text;
+  } catch (err: any) {
+    const msg = err.message ?? String(err);
+    log(`[Hackclub] Error: ${msg}`, "gemini");
     return null;
   }
 }
@@ -265,15 +354,27 @@ export async function askGemini(userMessage: string, authorName: string, channel
     log("[Gemini] Disabled — falling back to Groq.", "gemini");
   }
 
-  if (!groqEnabled) {
-    log("[Groq] Disabled — no response.", "gemini");
+  if (groqEnabled) {
+    const reply = await tryGroq(prompt, history);
+    if (reply) {
+      pushHistory(channelId, "user", prompt);
+      pushHistory(channelId, "assistant", reply);
+      return reply;
+    }
+    log("[Groq] Failed or unavailable — falling back to Hackclub.", "gemini");
+  } else {
+    log("[Groq] Disabled — falling back to Hackclub.", "gemini");
+  }
+
+  if (!hackclubEnabled) {
+    log("[Hackclub] Disabled — no response.", "gemini");
     return null;
   }
 
-  const reply = await tryGroq(prompt, history);
-  if (reply) {
+  const hackReply = await tryHackclub(prompt, history);
+  if (hackReply) {
     pushHistory(channelId, "user", prompt);
-    pushHistory(channelId, "assistant", reply);
+    pushHistory(channelId, "assistant", hackReply);
   }
-  return reply;
+  return hackReply;
 }

@@ -9,7 +9,7 @@ import {
   setBotPresence,
   dispatchMessage,
 } from "./bot";
-import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled } from "./gemini";
+import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled, getHackclubEnabled, setHackclubEnabled } from "./gemini";
 import { z } from "zod";
 import { DASHBOARD_AUTH_HEADER, issueAuthToken, isAuthTokenValid } from "./auth";
 
@@ -142,26 +142,30 @@ export async function registerRoutes(
     res.json({
       geminiEnabled: getGeminiEnabled(),
       groqEnabled: getGroqEnabled(),
+      hackclubEnabled: getHackclubEnabled(),
       hasGeminiKey: !!process.env.GEMINI_API_KEY,
       hasGroqKey: !!process.env.GROQ_API_KEY,
+      hasHackclubKey: !!process.env.HACKCLUB_API_KEY,
     });
   });
 
   app.post("/api/ai/toggle", (req, res) => {
     const schema = z.object({
-      provider: z.enum(["gemini", "groq"]),
+      provider: z.enum(["gemini", "groq", "hackclub"]),
       enabled: z.boolean(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: "Expected { provider: 'gemini' | 'groq', enabled: boolean }" });
+      return res.status(400).json({ error: "Expected { provider: 'gemini' | 'groq' | 'hackclub', enabled: boolean }" });
     }
     if (parsed.data.provider === "gemini") {
       setGeminiEnabled(parsed.data.enabled);
-    } else {
+    } else if (parsed.data.provider === "groq") {
       setGroqEnabled(parsed.data.enabled);
+    } else {
+      setHackclubEnabled(parsed.data.enabled);
     }
-    return res.json({ geminiEnabled: getGeminiEnabled(), groqEnabled: getGroqEnabled() });
+    return res.json({ geminiEnabled: getGeminiEnabled(), groqEnabled: getGroqEnabled(), hackclubEnabled: getHackclubEnabled() });
   });
 
   return httpServer;
