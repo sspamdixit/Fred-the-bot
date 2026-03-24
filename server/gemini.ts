@@ -43,7 +43,7 @@ export async function askGemini(userMessage: string, authorName: string): Promis
   try {
     const client = getClient();
     const model = client.getGenerativeModel({
-      model: "gemini-2.0-flash",
+      model: "gemini-1.5-flash",
       systemInstruction: SYSTEM_PROMPT,
       safetySettings: [
         { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
