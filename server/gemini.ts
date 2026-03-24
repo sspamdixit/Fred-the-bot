@@ -2,6 +2,10 @@ import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/ge
 import { log } from "./index";
 
 let genAI: GoogleGenerativeAI | null = null;
+let aiEnabled = true;
+
+export function getAiEnabled(): boolean { return aiEnabled; }
+export function setAiEnabled(value: boolean): void { aiEnabled = value; }
 
 function getClient(): GoogleGenerativeAI {
   if (!genAI) {
@@ -25,6 +29,11 @@ Everything else is fair game — silly questions, dumb jokes, random topics, wei
 If you determine the message is safe, respond naturally as Bubbl Manager. Do NOT include "SKIP" in safe responses.`;
 
 export async function askGemini(userMessage: string, authorName: string): Promise<string | null> {
+  if (!aiEnabled) {
+    log("AI responses are disabled — skipping.", "gemini");
+    return null;
+  }
+
   const key = process.env.GEMINI_API_KEY;
   if (!key) {
     log("GEMINI_API_KEY not set — skipping AI response.", "gemini");

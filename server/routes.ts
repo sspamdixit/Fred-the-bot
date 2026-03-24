@@ -9,6 +9,7 @@ import {
   setBotPresence,
   dispatchMessage,
 } from "./bot";
+import { getAiEnabled, setAiEnabled } from "./gemini";
 import { z } from "zod";
 import { DASHBOARD_AUTH_HEADER, issueAuthToken, isAuthTokenValid } from "./auth";
 
@@ -135,6 +136,23 @@ export async function registerRoutes(
     const result = await dispatchMessage(channelId, content, replyToId, mentionUserId);
     if (!result.success) return res.status(500).json({ error: result.error });
     return res.json({ success: true });
+  });
+
+  app.get("/api/ai/status", (_req, res) => {
+    res.json({
+      enabled: getAiEnabled(),
+      hasApiKey: !!process.env.GEMINI_API_KEY,
+    });
+  });
+
+  app.post("/api/ai/toggle", (req, res) => {
+    const schema = z.object({ enabled: z.boolean() });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Expected { enabled: boolean }" });
+    }
+    setAiEnabled(parsed.data.enabled);
+    return res.json({ enabled: getAiEnabled() });
   });
 
   return httpServer;

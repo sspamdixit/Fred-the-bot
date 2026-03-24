@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SiDiscord } from "react-icons/si";
+import { Switch } from "@/components/ui/switch";
 import {
   Server,
   Clock,
@@ -27,6 +28,8 @@ import {
   Megaphone,
   Zap,
   Lock,
+  Bot,
+  KeyRound,
 } from "lucide-react";
 import {
   apiRequest,
@@ -300,6 +303,21 @@ function Dashboard() {
   const [activityType,   setActivityType]   = useState<string>("Watching");
   const [activityName,   setActivityName]   = useState<string>("the Archives");
   const [presenceSaved,  setPresenceSaved]  = useState(false);
+
+  const { data: aiStatus, isLoading: aiLoading } = useQuery<{ enabled: boolean; hasApiKey: boolean }>({
+    queryKey: ["/api/ai/status"],
+    refetchInterval: 10000,
+  });
+
+  const aiToggleMutation = useMutation({
+    mutationFn: (enabled: boolean) => apiRequest("POST", "/api/ai/toggle", { enabled }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/ai/status"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to toggle AI", description: err?.message ?? "Something went wrong.", variant: "destructive" });
+    },
+  });
 
   const { data: status, isLoading: statusLoading, isError, refetch, isFetching } = useQuery<BotStatus>({
     queryKey: ["/api/bot/status"],
@@ -620,6 +638,58 @@ function Dashboard() {
               </div>
             </>
           )}
+        </Panel>
+
+        <Panel title="AI Responses" icon={Bot}>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <p className="text-sm font-semibold text-white">Enable Gemini AI</p>
+                <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                  When on, the bot replies to @mentions using Gemini.
+                </p>
+              </div>
+              {aiLoading ? (
+                <GlassSkeleton className="w-11 h-6 rounded-full" />
+              ) : (
+                <Switch
+                  data-testid="switch-ai-enabled"
+                  checked={aiStatus?.enabled ?? false}
+                  disabled={aiToggleMutation.isPending}
+                  onCheckedChange={(val) => aiToggleMutation.mutate(val)}
+                />
+              )}
+            </div>
+
+            <div
+              className="flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm"
+              style={{ background: "rgba(255,255,255,0.07)" }}
+            >
+              <KeyRound className="w-4 h-4 flex-shrink-0" style={{ color: aiStatus?.hasApiKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }} />
+              <span style={{ color: "rgba(255,255,255,0.65)" }}>
+                Gemini API key:{" "}
+                <span
+                  className="font-semibold"
+                  style={{ color: aiStatus?.hasApiKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                  data-testid="text-ai-key-status"
+                >
+                  {aiLoading ? "checking…" : aiStatus?.hasApiKey ? "Configured" : "Not set"}
+                </span>
+              </span>
+            </div>
+
+            {aiStatus?.enabled && !aiStatus?.hasApiKey && (
+              <div
+                className="flex items-start gap-2 px-4 py-3 rounded-xl text-sm"
+                style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)" }}
+              >
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "rgb(248,113,113)" }} />
+                <span style={{ color: "rgba(255,255,255,0.65)" }}>
+                  AI is enabled but no API key is set. Add <code className="text-white">GEMINI_API_KEY</code> to your secrets.
+                </span>
+              </div>
+            )}
+          </div>
         </Panel>
 
         <Panel title="Send a Message" icon={Send}>
