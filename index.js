@@ -7,8 +7,13 @@ const rateLimit = require('express-rate-limit');
 const path = require('path');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '16kb' }));
+app.use(express.urlencoded({ extended: false, limit: '16kb' }));
 app.use(express.static('client'));
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 
 const DASHBOARD_AUTH_HEADER = 'x-dashboard-auth-token';
 const AUTH_TOKEN_TTL_MS = 1000 * 60 * 60 * 12;
@@ -174,9 +179,19 @@ app.post('/api/dispatch', async (req, res) => {
 
     if (replyToId) {
       const target = await channel.messages.fetch(replyToId);
-      await target.reply(payload);
+      await target.reply({
+        content: payload,
+        allowedMentions: userId
+          ? { parse: [], users: [userId], repliedUser: false }
+          : { parse: [], repliedUser: false },
+      });
     } else {
-      await channel.send(payload);
+      await channel.send({
+        content: payload,
+        allowedMentions: userId
+          ? { parse: [], users: [userId], repliedUser: false }
+          : { parse: [] },
+      });
     }
     res.json({ success: true });
   } catch (error) {

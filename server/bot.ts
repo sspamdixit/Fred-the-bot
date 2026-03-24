@@ -164,7 +164,10 @@ export async function sendMessageToChannel(
     ) {
       return { success: false, error: "Channel not found or not a text channel." };
     }
-    await (channel as TextChannel).send(content);
+    await (channel as TextChannel).send({
+      content,
+      allowedMentions: { parse: [] },
+    });
     return { success: true };
   } catch (err: any) {
     log(`Failed to send message: ${err.message}`, "discord");
@@ -196,12 +199,21 @@ export async function dispatchMessage(
     const finalContent = mentionUserId
       ? `<@${mentionUserId}> ${content}`
       : content;
+    const allowedMentions = mentionUserId
+      ? { parse: [], users: [mentionUserId], repliedUser: false }
+      : { parse: [], repliedUser: false };
 
     if (replyToId) {
       const targetMessage = await textChannel.messages.fetch(replyToId);
-      await targetMessage.reply(finalContent);
+      await targetMessage.reply({
+        content: finalContent,
+        allowedMentions,
+      });
     } else {
-      await textChannel.send(finalContent);
+      await textChannel.send({
+        content: finalContent,
+        allowedMentions,
+      });
     }
 
     return { success: true };
@@ -297,7 +309,10 @@ export async function startBot() {
         await (message.channel as TextChannel).sendTyping();
         const reply = await askGemini(cleanContent, message.author.username);
         if (reply) {
-          await message.reply(reply);
+          await message.reply({
+            content: reply,
+            allowedMentions: { parse: [], repliedUser: false },
+          });
         }
       } catch (err: any) {
         log(`[Gemini] Failed to reply: ${err.message}`, "discord");
