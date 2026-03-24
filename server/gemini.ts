@@ -21,6 +21,7 @@ const MODELS_TO_TRY = [
 
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 const MAX_HISTORY = 15;
+const FORBIDDEN_RESPONSE = "I cant help you with this";
 
 interface HistoryEntry {
   role: "user" | "assistant";
@@ -40,6 +41,10 @@ function pushHistory(channelId: string, role: "user" | "assistant", content: str
   channelHistories.set(channelId, history);
 }
 
+function clearHistory(channelId: string): void {
+  channelHistories.delete(channelId);
+}
+
 function getGeminiHistory(history: HistoryEntry[]) {
   const normalized = [...history];
 
@@ -51,6 +56,16 @@ function getGeminiHistory(history: HistoryEntry[]) {
     role: entry.role === "assistant" ? "model" : "user",
     parts: [{ text: entry.content }],
   }));
+}
+
+function isSafetyBlockedError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("safety") ||
+    normalized.includes("blocked") ||
+    normalized.includes("content policy") ||
+    normalized.includes("candidate")
+  );
 }
 
 function getClient(): GoogleGenerativeAI {
@@ -158,14 +173,19 @@ async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string 
     const text = completion.choices[0]?.message?.content?.trim() ?? "";
 
     if (text === "SKIP") {
-      log("[Groq] Filtered message — skipping response.", "gemini");
-      return null;
+      log("[Groq] Filtered message — returning safe refusal.", "gemini");
+      return FORBIDDEN_RESPONSE;
     }
 
     log(`[Groq] Success with model ${GROQ_MODEL}`, "gemini");
     return text;
   } catch (err: any) {
-    log(`[Groq] Error: ${err.message ?? err}`, "gemini");
+    const msg = err.message ?? String(err);
+    if (isSafetyBlockedError(msg)) {
+      log("[Groq] Safety blocked content — returning safe refusal.", "gemini");
+      return FORBIDDEN_RESPONSE;
+    }
+    log(`[Groq] Error: ${msg}`, "gemini");
     return null;
   }
 }
@@ -201,8 +221,8 @@ export async function askGemini(userMessage: string, authorName: string, channel
           const text = result.response.text().trim();
 
           if (text === "SKIP") {
-            log(`[Gemini] Filtered message from ${authorName} — skipping response.`, "gemini");
-            return null;
+            log(`[Gemini] Filtered message from ${authorName} — returning safe refusal.`, "gemini");
+            return FORBIDDEN_RESPONSE;
           }
 
           log(`[Gemini] Success with model ${modelName}`, "gemini");
@@ -213,14 +233,27 @@ export async function askGemini(userMessage: string, authorName: string, channel
           const msg: string = err.message ?? "";
           const isQuota = msg.includes("429") || msg.includes("quota");
           const isNotFound = msg.includes("404") || msg.includes("not found");
+          const isRoleOrderError = msg.includes("First content should be with role 'user'");
+          const isSafetyBlocked = isSafetyBlockedError(msg);
 
           if (isQuota || isNotFound) {
             log(`[Gemini] Model ${modelName} failed (${isQuota ? "quota" : "not found"}) — trying next.`, "gemini");
             continue;
           }
 
-          log(`[Gemini] Error: ${msg}`, "gemini");
-          return null;
+          if (isRoleOrderError) {
+            log("[Gemini] History ordering invalid — clearing channel history and trying next model.", "gemini");
+            clearHistory(channelId);
+            continue;
+          }
+
+          if (isSafetyBlocked) {
+            log("[Gemini] Safety blocked content — returning safe refusal.", "gemini");
+            return FORBIDDEN_RESPONSE;
+          }
+
+          log(`[Gemini] Error: ${msg} — trying next model.`, "gemini");
+          continue;
         }
       }
 
