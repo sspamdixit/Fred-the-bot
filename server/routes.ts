@@ -9,7 +9,7 @@ import {
   setBotPresence,
   dispatchMessage,
 } from "./bot";
-import { getAiEnabled, setAiEnabled } from "./gemini";
+import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled } from "./gemini";
 import { z } from "zod";
 import { DASHBOARD_AUTH_HEADER, issueAuthToken, isAuthTokenValid } from "./auth";
 
@@ -140,19 +140,28 @@ export async function registerRoutes(
 
   app.get("/api/ai/status", (_req, res) => {
     res.json({
-      enabled: getAiEnabled(),
-      hasApiKey: !!process.env.GEMINI_API_KEY,
+      geminiEnabled: getGeminiEnabled(),
+      groqEnabled: getGroqEnabled(),
+      hasGeminiKey: !!process.env.GEMINI_API_KEY,
+      hasGroqKey: !!process.env.GROQ_API_KEY,
     });
   });
 
   app.post("/api/ai/toggle", (req, res) => {
-    const schema = z.object({ enabled: z.boolean() });
+    const schema = z.object({
+      provider: z.enum(["gemini", "groq"]),
+      enabled: z.boolean(),
+    });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: "Expected { enabled: boolean }" });
+      return res.status(400).json({ error: "Expected { provider: 'gemini' | 'groq', enabled: boolean }" });
     }
-    setAiEnabled(parsed.data.enabled);
-    return res.json({ enabled: getAiEnabled() });
+    if (parsed.data.provider === "gemini") {
+      setGeminiEnabled(parsed.data.enabled);
+    } else {
+      setGroqEnabled(parsed.data.enabled);
+    }
+    return res.json({ geminiEnabled: getGeminiEnabled(), groqEnabled: getGroqEnabled() });
   });
 
   return httpServer;
