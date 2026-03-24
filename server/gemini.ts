@@ -7,6 +7,12 @@ let aiEnabled = true;
 export function getAiEnabled(): boolean { return aiEnabled; }
 export function setAiEnabled(value: boolean): void { aiEnabled = value; }
 
+const MODELS_TO_TRY = [
+  "gemini-2.0-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash-latest",
+];
+
 function getClient(): GoogleGenerativeAI {
   if (!genAI) {
     const key = process.env.GEMINI_API_KEY;
@@ -40,31 +46,48 @@ export async function askGemini(userMessage: string, authorName: string): Promis
     return null;
   }
 
-  try {
-    const client = getClient();
-    const model = client.getGenerativeModel({
-      model: "gemini-1.5-flash",
-      systemInstruction: SYSTEM_PROMPT,
-      safetySettings: [
-        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-      ],
-    });
+  const client = getClient();
+  const prompt = `${authorName} says: ${userMessage}`;
 
-    const prompt = `${authorName} says: ${userMessage}`;
-    const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
+  for (const modelName of MODELS_TO_TRY) {
+    try {
+      log(`[Gemini] Trying model: ${modelName}`, "gemini");
+      const model = client.getGenerativeModel({
+        model: modelName,
+        systemInstruction: SYSTEM_PROMPT,
+        safetySettings: [
+          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+        ],
+      });
 
-    if (text === "SKIP") {
-      log(`[Gemini] Filtered message from ${authorName} — skipping response.`, "gemini");
+      const result = await model.generateContent(prompt);
+      const text = result.response.text().trim();
+
+      if (text === "SKIP") {
+        log(`[Gemini] Filtered message from ${authorName} — skipping response.`, "gemini");
+        return null;
+      }
+
+      log(`[Gemini] Success with model ${modelName}`, "gemini");
+      return text;
+    } catch (err: any) {
+      const msg: string = err.message ?? "";
+      const isQuota = msg.includes("429") || msg.includes("quota");
+      const isNotFound = msg.includes("404") || msg.includes("not found");
+
+      if (isQuota || isNotFound) {
+        log(`[Gemini] Model ${modelName} failed (${isQuota ? "quota" : "not found"}) — trying next.`, "gemini");
+        continue;
+      }
+
+      log(`[Gemini] Error: ${msg}`, "gemini");
       return null;
     }
-
-    return text;
-  } catch (err: any) {
-    log(`[Gemini] Error: ${err.message}`, "gemini");
-    return null;
   }
+
+  log("[Gemini] All models failed. Check your API key quota at https://aistudio.google.com", "gemini");
+  return null;
 }
