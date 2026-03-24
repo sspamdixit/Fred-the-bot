@@ -40,6 +40,19 @@ function pushHistory(channelId: string, role: "user" | "assistant", content: str
   channelHistories.set(channelId, history);
 }
 
+function getGeminiHistory(history: HistoryEntry[]) {
+  const normalized = [...history];
+
+  while (normalized.length > 0 && normalized[0]?.role !== "user") {
+    normalized.shift();
+  }
+
+  return normalized.map((entry) => ({
+    role: entry.role === "assistant" ? "model" : "user",
+    parts: [{ text: entry.content }],
+  }));
+}
+
 function getClient(): GoogleGenerativeAI {
   if (!genAI) {
     const key = process.env.GEMINI_API_KEY;
@@ -181,10 +194,7 @@ export async function askGemini(userMessage: string, authorName: string, channel
           });
 
           const chat = model.startChat({
-            history: history.map((h) => ({
-              role: h.role === "assistant" ? "model" : "user",
-              parts: [{ text: h.content }],
-            })),
+            history: getGeminiHistory(history),
           });
 
           const result = await chat.sendMessage(prompt);
