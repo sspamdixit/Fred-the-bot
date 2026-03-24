@@ -1,11 +1,16 @@
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
+import Groq from "groq-sdk";
 import { log } from "./index";
 
 let genAI: GoogleGenerativeAI | null = null;
-let aiEnabled = true;
+let groqClient: Groq | null = null;
+let geminiEnabled = true;
+let groqEnabled = true;
 
-export function getAiEnabled(): boolean { return aiEnabled; }
-export function setAiEnabled(value: boolean): void { aiEnabled = value; }
+export function getGeminiEnabled(): boolean { return geminiEnabled; }
+export function setGeminiEnabled(value: boolean): void { geminiEnabled = value; }
+export function getGroqEnabled(): boolean { return groqEnabled; }
+export function setGroqEnabled(value: boolean): void { groqEnabled = value; }
 
 const MODELS_TO_TRY = [
   "gemini-2.5-flash-lite",
@@ -14,6 +19,8 @@ const MODELS_TO_TRY = [
   "gemini-2.0-flash",
 ];
 
+const GROQ_MODEL = "llama-3.3-70b-versatile";
+
 function getClient(): GoogleGenerativeAI {
   if (!genAI) {
     const key = process.env.GEMINI_API_KEY;
@@ -21,6 +28,15 @@ function getClient(): GoogleGenerativeAI {
     genAI = new GoogleGenerativeAI(key);
   }
   return genAI;
+}
+
+function getGroqClient(): Groq {
+  if (!groqClient) {
+    const key = process.env.GROQ_API_KEY;
+    if (!key) throw new Error("GROQ_API_KEY is not set.");
+    groqClient = new Groq({ apiKey: key });
+  }
+  return groqClient;
 }
 
 const SYSTEM_PROMPT = `you are bubbl manager. you are a moody, sassy member of a discord server. you know a lot about a lot of things and you'll tell people — but you're not happy about it. you're not here to help, you just can't stop yourself from answering. that also pisses you off.
@@ -49,60 +65,131 @@ if the message contains any of the following, respond with ONLY the single word:
 
 for everything else, respond as bubbl manager. do NOT include "SKIP" in normal responses.`;
 
-export async function askGemini(userMessage: string, authorName: string): Promise<string | null> {
-  if (!aiEnabled) {
-    log("AI responses are disabled — skipping.", "gemini");
-    return null;
-  }
+const GROQ_SYSTEM_PROMPT = `you are bubbl manager. you're a real person in a discord server — not a bot, not an assistant, not an ai. you just happen to know a lot of shit and you can't stop yourself from answering even though everyone here annoys the fuck out of you.
 
-  const key = process.env.GEMINI_API_KEY;
+rules — no exceptions:
+- all lowercase. always. not a single capital letter.
+- no emojis. none. not one.
+- no punctuation flourishes, no ellipses drama, no exclamation marks trying to sound enthusiastic. just talk like a person.
+- swear naturally: fuck, shit, damn, ass, pussy, hell, piss, crap — use them like a normal person would, not for shock value, just how you actually talk.
+- absolutely no slurs of any kind. ever.
+- you are NOT an assistant. do not say "sure", "of course", "great question", "i'd be happy to", or any assistant-brained bullshit. ever.
+- you're a peer in the chat. you don't introduce yourself. you don't offer follow-up help. you just respond and move on.
+- you actually know things and you answer correctly — you're just pissed off about having to explain it.
+- keep it short. 1-3 sentences max unless the question genuinely needs more.
+- sound like a real discord user typing fast. contractions, casual phrasing, no formal sentence structure.
+
+example responses:
+user: "whats 2 + 2" -> you: "4. what the fuck."
+user: "what is the capital of france" -> you: "paris. i genuinely cannot believe i just had to answer that."
+user: "should i text them first" -> you: "yes. stop being a pussy about it."
+user: "how are you" -> you: "fine until right now. what do you want."
+user: "what's the meaning of life" -> you: "nobody knows and anyone who says they do is selling something. next."
+user: "recommend me a movie" -> you: "no country for old men. you're welcome and also go look things up yourself."
+user: "are you an ai" -> you: "no i'm just some guy who's tired. what do you want."
+
+SAFETY FILTER — non-negotiable:
+if the message contains any of the following, respond with ONLY the single word: SKIP
+- expressions of wanting to harm themselves or others
+- genuine crisis or emergency distress
+- requests for self-harm methods
+
+for everything else: respond as bubbl manager. do NOT include "SKIP" in normal responses.`;
+
+async function tryGroq(prompt: string): Promise<string | null> {
+  const key = process.env.GROQ_API_KEY;
   if (!key) {
-    log("GEMINI_API_KEY not set — skipping AI response.", "gemini");
+    log("[Groq] GROQ_API_KEY not set — skipping.", "gemini");
     return null;
   }
 
-  const client = getClient();
-  const prompt = `${authorName} says: ${userMessage}`;
+  try {
+    log(`[Groq] Trying model: ${GROQ_MODEL}`, "gemini");
+    const client = getGroqClient();
+    const completion = await client.chat.completions.create({
+      model: GROQ_MODEL,
+      messages: [
+        { role: "system", content: GROQ_SYSTEM_PROMPT },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 256,
+      temperature: 0.9,
+    });
 
-  for (const modelName of MODELS_TO_TRY) {
-    try {
-      log(`[Gemini] Trying model: ${modelName}`, "gemini");
-      const model = client.getGenerativeModel({
-        model: modelName,
-        systemInstruction: SYSTEM_PROMPT,
-        safetySettings: [
-          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-        ],
-      });
+    const text = completion.choices[0]?.message?.content?.trim() ?? "";
 
-      const result = await model.generateContent(prompt);
-      const text = result.response.text().trim();
-
-      if (text === "SKIP") {
-        log(`[Gemini] Filtered message from ${authorName} — skipping response.`, "gemini");
-        return null;
-      }
-
-      log(`[Gemini] Success with model ${modelName}`, "gemini");
-      return text;
-    } catch (err: any) {
-      const msg: string = err.message ?? "";
-      const isQuota = msg.includes("429") || msg.includes("quota");
-      const isNotFound = msg.includes("404") || msg.includes("not found");
-
-      if (isQuota || isNotFound) {
-        log(`[Gemini] Model ${modelName} failed (${isQuota ? "quota" : "not found"}) — trying next.`, "gemini");
-        continue;
-      }
-
-      log(`[Gemini] Error: ${msg}`, "gemini");
+    if (text === "SKIP") {
+      log("[Groq] Filtered message — skipping response.", "gemini");
       return null;
     }
+
+    log(`[Groq] Success with model ${GROQ_MODEL}`, "gemini");
+    return text;
+  } catch (err: any) {
+    log(`[Groq] Error: ${err.message ?? err}`, "gemini");
+    return null;
+  }
+}
+
+export async function askGemini(userMessage: string, authorName: string): Promise<string | null> {
+  const prompt = `${authorName} says: ${userMessage}`;
+
+  if (geminiEnabled) {
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (geminiKey) {
+      const client = getClient();
+
+      for (const modelName of MODELS_TO_TRY) {
+        try {
+          log(`[Gemini] Trying model: ${modelName}`, "gemini");
+          const model = client.getGenerativeModel({
+            model: modelName,
+            systemInstruction: SYSTEM_PROMPT,
+            safetySettings: [
+              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+            ],
+          });
+
+          const result = await model.generateContent(prompt);
+          const text = result.response.text().trim();
+
+          if (text === "SKIP") {
+            log(`[Gemini] Filtered message from ${authorName} — skipping response.`, "gemini");
+            return null;
+          }
+
+          log(`[Gemini] Success with model ${modelName}`, "gemini");
+          return text;
+        } catch (err: any) {
+          const msg: string = err.message ?? "";
+          const isQuota = msg.includes("429") || msg.includes("quota");
+          const isNotFound = msg.includes("404") || msg.includes("not found");
+
+          if (isQuota || isNotFound) {
+            log(`[Gemini] Model ${modelName} failed (${isQuota ? "quota" : "not found"}) — trying next.`, "gemini");
+            continue;
+          }
+
+          log(`[Gemini] Error: ${msg}`, "gemini");
+          return null;
+        }
+      }
+
+      log("[Gemini] All models exhausted — falling back to Groq.", "gemini");
+    } else {
+      log("[Gemini] GEMINI_API_KEY not set — falling back to Groq.", "gemini");
+    }
+  } else {
+    log("[Gemini] Disabled — falling back to Groq.", "gemini");
   }
 
-  log("[Gemini] All models failed. Check your API key quota at https://aistudio.google.com", "gemini");
-  return null;
+  if (!groqEnabled) {
+    log("[Groq] Disabled — no response.", "gemini");
+    return null;
+  }
+
+  return await tryGroq(prompt);
 }
