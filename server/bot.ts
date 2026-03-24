@@ -271,18 +271,27 @@ export async function startBot() {
     }
     log(`[Live] ${liveMsg.authorName} in #${liveMsg.channelName}: ${liveMsg.content.slice(0, 60)}`, "discord");
 
-    const isMentioned =
-      client?.user && message.mentions.users.has(client.user.id);
+    const isMentioned = client?.user && message.mentions.users.has(client.user.id);
+    const COMMAND_PREFIX = /^!bubbl\s*/i;
+    const isPrefixed = COMMAND_PREFIX.test(message.content);
 
-    if (isMentioned && client?.user) {
-      const cleanContent = message.content
-        .replace(new RegExp(`<@!?${client.user.id}>`, "g"), "")
-        .replace(/@bubbl\s*manager/gi, "")
-        .trim();
+    if ((isMentioned || isPrefixed) && client?.user) {
+      let cleanContent = message.content;
 
+      if (isMentioned) {
+        cleanContent = cleanContent
+          .replace(new RegExp(`<@!?${client.user.id}>`, "g"), "")
+          .replace(/@bubbl\s*manager/gi, "");
+      }
+
+      if (isPrefixed) {
+        cleanContent = cleanContent.replace(COMMAND_PREFIX, "");
+      }
+
+      cleanContent = cleanContent.trim();
       if (!cleanContent) return;
 
-      log(`[Gemini] Handling mention from ${message.author.username}: ${cleanContent.slice(0, 80)}`, "discord");
+      log(`[Gemini] Handling from ${message.author.username}: ${cleanContent.slice(0, 80)}`, "discord");
 
       try {
         await (message.channel as TextChannel).sendTyping();
