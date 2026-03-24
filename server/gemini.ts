@@ -8,9 +8,10 @@ export function getAiEnabled(): boolean { return aiEnabled; }
 export function setAiEnabled(value: boolean): void { aiEnabled = value; }
 
 const MODELS_TO_TRY = [
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-flash",
   "gemini-2.0-flash-lite",
   "gemini-2.0-flash",
-  "gemini-1.5-flash-latest",
 ];
 
 function getClient(): GoogleGenerativeAI {
