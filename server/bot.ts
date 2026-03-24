@@ -55,8 +55,8 @@ let botState: BotStatus = {
   guildCount: 0,
   uptimeStart: null,
   status: "offline",
-  activityName: "the Archives",
-  activityType: "Watching",
+  activityName: "Under Maintenance!",
+  activityType: "Custom",
   lastError: null,
 };
 
@@ -121,13 +121,18 @@ export async function setBotPresence(
   };
 
   const resolvedType = typeMap[activityType] ?? ActivityType.Watching;
+  const trimmedActivityName = activityName.trim();
 
   try {
+    const activities = !trimmedActivityName
+      ? []
+      : resolvedType === ActivityType.Custom
+        ? [{ name: "Custom Status", type: ActivityType.Custom, state: trimmedActivityName }]
+        : [{ name: trimmedActivityName, type: resolvedType }];
+
     client.user.setPresence({
       status,
-      activities: activityName.trim()
-        ? [{ name: activityName.trim(), type: resolvedType }]
-        : [],
+      activities,
     });
 
     botState.status = status;
@@ -225,8 +230,8 @@ export async function startBot() {
     log(`${client.user.tag} is now active in the Lab.`, "discord");
 
     client.user.setPresence({
-      activities: [{ name: "the Archives", type: ActivityType.Watching }],
-      status: "online",
+      activities: [{ name: "Custom Status", type: ActivityType.Custom, state: "Under Maintenance!" }],
+      status: "dnd",
     });
 
     botState = {
@@ -235,9 +240,9 @@ export async function startBot() {
       avatarUrl: client.user.displayAvatarURL({ size: 256 }),
       guildCount: client.guilds.cache.size,
       uptimeStart: Date.now(),
-      status: "online",
-      activityName: "the Archives",
-      activityType: "Watching",
+      status: "dnd",
+      activityName: "Under Maintenance!",
+      activityType: "Custom",
       lastError: null,
     };
   });
