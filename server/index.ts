@@ -9,9 +9,7 @@ const app = express();
 const httpServer = createServer(app);
 
 app.disable("x-powered-by");
-if (process.env.NODE_ENV === "production") {
-  app.set("trust proxy", 1);
-}
+app.set("trust proxy", 1);
 
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");

@@ -36,6 +36,13 @@ export interface GuildInfo {
   channels: ChannelInfo[];
 }
 
+export interface LiveAttachment {
+  name: string;
+  url: string;
+  contentType: string | null;
+  size: number;
+}
+
 export interface LiveMessage {
   id: string;
   messageId: string;
@@ -46,6 +53,7 @@ export interface LiveMessage {
   authorName: string;
   authorAvatar: string | null;
   content: string;
+  attachments: LiveAttachment[];
   timestamp: number;
 }
 
@@ -281,6 +289,12 @@ export async function startBot() {
       authorName: message.author.username,
       authorAvatar: message.author.displayAvatarURL({ size: 64 }) ?? null,
       content: message.content,
+      attachments: message.attachments.map((a) => ({
+        name: a.name,
+        url: a.url,
+        contentType: a.contentType ?? null,
+        size: a.size,
+      })),
       timestamp: message.createdTimestamp,
     };
 

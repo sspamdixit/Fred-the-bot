@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,7 +30,10 @@ import {
   Lock,
   Bot,
   KeyRound,
+  Radio,
+  Paperclip,
 } from "lucide-react";
+import { useLiveFeed } from "@/hooks/useLiveFeed";
 import {
   apiRequest,
   DASHBOARD_AUTH_TOKEN_STORAGE_KEY,
@@ -386,6 +389,9 @@ function Dashboard() {
       toast({ title: "Failed to update presence", description: err?.message ?? "Something went wrong.", variant: "destructive" });
     },
   });
+
+  const { messages: liveMessages, connected: liveConnected } = useLiveFeed();
+  const feedRef = useRef<HTMLDivElement>(null);
 
   const canSend           = status?.online && selectedChannelId && message.trim().length > 0 && !sendMutation.isPending;
   const canUpdatePresence = status?.online && !presenceMutation.isPending;
@@ -789,6 +795,8 @@ function Dashboard() {
           </div>
         </Panel>
 
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+
         <Panel title="Send a Message" icon={Send}>
           {!status?.online && !statusLoading ? (
             <div
@@ -904,6 +912,117 @@ function Dashboard() {
             </>
           )}
         </Panel>
+
+        {/* Live Feed panel */}
+        <div className="glass-panel overflow-hidden flex flex-col" style={{ minHeight: 420 }}>
+          <div className="px-6 py-4 flex items-center justify-between flex-shrink-0" style={{ borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
+            <div className="flex items-center gap-2">
+              <Radio className="w-4 h-4" style={{ color: "rgba(125,211,252,0.9)" }} />
+              <h3 className="text-sm font-bold tracking-wide text-white">Live Feed</h3>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${liveConnected ? "bg-status-online pulse-dot" : "bg-status-offline"}`}
+              />
+              <span className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
+                {liveConnected ? "Connected" : "Disconnected"}
+              </span>
+            </div>
+          </div>
+
+          <div
+            ref={feedRef}
+            data-testid="div-live-feed"
+            className="flex-1 overflow-y-auto p-3 space-y-2"
+            style={{ maxHeight: 420 }}
+          >
+            {liveMessages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full py-10 gap-2" style={{ color: "rgba(255,255,255,0.3)" }}>
+                <Radio className="w-8 h-8 opacity-30" />
+                <p className="text-xs text-center">Waiting for messages…<br />Activity will appear here in real time.</p>
+              </div>
+            ) : (
+              liveMessages.map((msg) => (
+                <div
+                  key={msg.id}
+                  data-testid={`msg-live-${msg.messageId}`}
+                  className="rounded-xl p-3 space-y-1.5"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    {msg.authorAvatar ? (
+                      <img
+                        src={msg.authorAvatar}
+                        alt={msg.authorName}
+                        className="w-6 h-6 rounded-full flex-shrink-0 object-cover"
+                        style={{ border: "1px solid rgba(255,255,255,0.2)" }}
+                      />
+                    ) : (
+                      <div
+                        className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white"
+                        style={{ background: "rgba(56,189,248,0.3)" }}
+                      >
+                        {msg.authorName[0]?.toUpperCase()}
+                      </div>
+                    )}
+                    <span className="text-xs font-semibold text-white truncate">{msg.authorName}</span>
+                    <span className="text-xs flex-shrink-0" style={{ color: "rgba(255,255,255,0.35)" }}>
+                      #{msg.channelName}
+                    </span>
+                    <span className="text-xs flex-shrink-0 ml-auto" style={{ color: "rgba(255,255,255,0.3)" }}>
+                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </div>
+
+                  {msg.content && (
+                    <p className="text-xs leading-relaxed break-words" style={{ color: "rgba(255,255,255,0.75)" }}>
+                      {msg.content}
+                    </p>
+                  )}
+
+                  {msg.attachments.length > 0 && (
+                    <div className="space-y-1.5 pt-0.5">
+                      {msg.attachments.map((att, i) => {
+                        const isImage = att.contentType?.startsWith("image/");
+                        return isImage ? (
+                          <a
+                            key={i}
+                            href={att.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            data-testid={`attachment-img-${msg.messageId}-${i}`}
+                          >
+                            <img
+                              src={att.url}
+                              alt={att.name}
+                              className="rounded-lg max-h-32 object-cover"
+                              style={{ border: "1px solid rgba(255,255,255,0.12)" }}
+                            />
+                          </a>
+                        ) : (
+                          <a
+                            key={i}
+                            href={att.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            data-testid={`attachment-file-${msg.messageId}-${i}`}
+                            className="flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1.5 hover:opacity-80 transition-opacity"
+                            style={{ background: "rgba(255,255,255,0.08)", color: "rgba(125,211,252,0.9)", border: "1px solid rgba(255,255,255,0.1)" }}
+                          >
+                            <Paperclip className="w-3 h-3 flex-shrink-0" />
+                            <span className="truncate">{att.name}</span>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        </div>{/* end send+feed grid */}
 
         {!statusLoading && (isError || status?.lastError) && (
           <div
