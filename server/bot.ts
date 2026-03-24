@@ -230,6 +230,12 @@ export async function startBot() {
     return;
   }
 
+  if (client) {
+    log("Destroying existing client before restarting.", "discord");
+    client.destroy();
+    client = null;
+  }
+
   client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
