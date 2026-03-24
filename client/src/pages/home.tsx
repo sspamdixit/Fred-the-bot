@@ -304,13 +304,19 @@ function Dashboard() {
   const [activityName,   setActivityName]   = useState<string>("the Archives");
   const [presenceSaved,  setPresenceSaved]  = useState(false);
 
-  const { data: aiStatus, isLoading: aiLoading } = useQuery<{ enabled: boolean; hasApiKey: boolean }>({
+  const { data: aiStatus, isLoading: aiLoading } = useQuery<{
+    geminiEnabled: boolean;
+    groqEnabled: boolean;
+    hasGeminiKey: boolean;
+    hasGroqKey: boolean;
+  }>({
     queryKey: ["/api/ai/status"],
     refetchInterval: 10000,
   });
 
   const aiToggleMutation = useMutation({
-    mutationFn: (enabled: boolean) => apiRequest("POST", "/api/ai/toggle", { enabled }),
+    mutationFn: ({ provider, enabled }: { provider: "gemini" | "groq"; enabled: boolean }) =>
+      apiRequest("POST", "/api/ai/toggle", { provider, enabled }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/ai/status"] });
     },
@@ -642,50 +648,98 @@ function Dashboard() {
 
         <Panel title="AI Responses" icon={Bot}>
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <p className="text-sm font-semibold text-white">Enable Gemini AI</p>
-                <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                  When on, the bot replies to @mentions using Gemini.
-                </p>
-              </div>
-              {aiLoading ? (
-                <GlassSkeleton className="w-11 h-6 rounded-full" />
-              ) : (
-                <Switch
-                  data-testid="switch-ai-enabled"
-                  checked={aiStatus?.enabled ?? false}
-                  disabled={aiToggleMutation.isPending}
-                  onCheckedChange={(val) => aiToggleMutation.mutate(val)}
-                />
-              )}
-            </div>
 
+            {/* Gemini toggle */}
             <div
-              className="flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm"
-              style={{ background: "rgba(255,255,255,0.07)" }}
+              className="rounded-xl p-4 space-y-3"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
             >
-              <KeyRound className="w-4 h-4 flex-shrink-0" style={{ color: aiStatus?.hasApiKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }} />
-              <span style={{ color: "rgba(255,255,255,0.65)" }}>
-                Gemini API key:{" "}
-                <span
-                  className="font-semibold"
-                  style={{ color: aiStatus?.hasApiKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                  data-testid="text-ai-key-status"
-                >
-                  {aiLoading ? "checking…" : aiStatus?.hasApiKey ? "Configured" : "Not set"}
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-semibold text-white">Gemini</p>
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                    Primary AI — tried first on every mention.
+                  </p>
+                </div>
+                {aiLoading ? (
+                  <GlassSkeleton className="w-11 h-6 rounded-full" />
+                ) : (
+                  <Switch
+                    data-testid="switch-gemini-enabled"
+                    checked={aiStatus?.geminiEnabled ?? false}
+                    disabled={aiToggleMutation.isPending}
+                    onCheckedChange={(val) => aiToggleMutation.mutate({ provider: "gemini", enabled: val })}
+                  />
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                <KeyRound
+                  className="w-3.5 h-3.5 flex-shrink-0"
+                  style={{ color: aiStatus?.hasGeminiKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                />
+                <span>
+                  API key:{" "}
+                  <span
+                    className="font-semibold"
+                    style={{ color: aiStatus?.hasGeminiKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                    data-testid="text-gemini-key-status"
+                  >
+                    {aiLoading ? "checking…" : aiStatus?.hasGeminiKey ? "Configured" : "Not set"}
+                  </span>
                 </span>
-              </span>
+              </div>
             </div>
 
-            {aiStatus?.enabled && !aiStatus?.hasApiKey && (
+            {/* Groq toggle */}
+            <div
+              className="rounded-xl p-4 space-y-3"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-semibold text-white">Groq</p>
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                    Fallback AI — used when Gemini is off or exhausted.
+                  </p>
+                </div>
+                {aiLoading ? (
+                  <GlassSkeleton className="w-11 h-6 rounded-full" />
+                ) : (
+                  <Switch
+                    data-testid="switch-groq-enabled"
+                    checked={aiStatus?.groqEnabled ?? false}
+                    disabled={aiToggleMutation.isPending}
+                    onCheckedChange={(val) => aiToggleMutation.mutate({ provider: "groq", enabled: val })}
+                  />
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                <KeyRound
+                  className="w-3.5 h-3.5 flex-shrink-0"
+                  style={{ color: aiStatus?.hasGroqKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                />
+                <span>
+                  API key:{" "}
+                  <span
+                    className="font-semibold"
+                    style={{ color: aiStatus?.hasGroqKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                    data-testid="text-groq-key-status"
+                  >
+                    {aiLoading ? "checking…" : aiStatus?.hasGroqKey ? "Configured" : "Not set"}
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            {/* Warning if both are off */}
+            {aiStatus && !aiStatus.geminiEnabled && !aiStatus.groqEnabled && (
               <div
                 className="flex items-start gap-2 px-4 py-3 rounded-xl text-sm"
                 style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)" }}
               >
                 <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "rgb(248,113,113)" }} />
                 <span style={{ color: "rgba(255,255,255,0.65)" }}>
-                  AI is enabled but no API key is set. Add <code className="text-white">GEMINI_API_KEY</code> to your secrets.
+                  Both AI providers are disabled — the bot will not reply to mentions.
                 </span>
               </div>
             )}
