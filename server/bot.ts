@@ -9,6 +9,7 @@ import {
 } from "discord.js";
 import { log } from "./index";
 import { getIO } from "./socket";
+import { askGemini } from "./gemini";
 
 export interface BotStatus {
   online: boolean;
@@ -247,11 +248,10 @@ export async function startBot() {
     };
   });
 
-  client.on("messageCreate", (message: Message) => {
+  client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
 
     const io = getIO();
-    if (!io) return;
 
     const liveMsg: LiveMessage = {
       id: `${message.id}-${Date.now()}`,
@@ -266,8 +266,34 @@ export async function startBot() {
       timestamp: message.createdTimestamp,
     };
 
-    io.emit("liveFeed:message", liveMsg);
+    if (io) {
+      io.emit("liveFeed:message", liveMsg);
+    }
     log(`[Live] ${liveMsg.authorName} in #${liveMsg.channelName}: ${liveMsg.content.slice(0, 60)}`, "discord");
+
+    const isMentioned =
+      client?.user && message.mentions.users.has(client.user.id);
+
+    if (isMentioned && client?.user) {
+      const cleanContent = message.content
+        .replace(new RegExp(`<@!?${client.user.id}>`, "g"), "")
+        .replace(/@bubbl\s*manager/gi, "")
+        .trim();
+
+      if (!cleanContent) return;
+
+      log(`[Gemini] Handling mention from ${message.author.username}: ${cleanContent.slice(0, 80)}`, "discord");
+
+      try {
+        await (message.channel as TextChannel).sendTyping();
+        const reply = await askGemini(cleanContent, message.author.username);
+        if (reply) {
+          await message.reply(reply);
+        }
+      } catch (err: any) {
+        log(`[Gemini] Failed to reply: ${err.message}`, "discord");
+      }
+    }
   });
 
   client.on("guildCreate", () => {
