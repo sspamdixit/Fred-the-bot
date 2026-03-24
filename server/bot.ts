@@ -313,7 +313,7 @@ export async function startBot() {
 
       try {
         await (message.channel as TextChannel).sendTyping();
-        const reply = await askGemini(cleanContent, message.author.username);
+        const reply = await askGemini(cleanContent, message.author.username, message.channelId);
         if (reply) {
           await message.reply({
             content: reply,
