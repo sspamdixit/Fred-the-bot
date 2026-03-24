@@ -20,6 +20,25 @@ const MODELS_TO_TRY = [
 ];
 
 const GROQ_MODEL = "llama-3.3-70b-versatile";
+const MAX_HISTORY = 15;
+
+interface HistoryEntry {
+  role: "user" | "assistant";
+  content: string;
+}
+
+const channelHistories = new Map<string, HistoryEntry[]>();
+
+function getHistory(channelId: string): HistoryEntry[] {
+  return channelHistories.get(channelId) ?? [];
+}
+
+function pushHistory(channelId: string, role: "user" | "assistant", content: string): void {
+  const history = channelHistories.get(channelId) ?? [];
+  history.push({ role, content });
+  if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
+  channelHistories.set(channelId, history);
+}
 
 function getClient(): GoogleGenerativeAI {
   if (!genAI) {
@@ -96,7 +115,7 @@ if the message contains any of the following, respond with ONLY the single word:
 
 for everything else: respond as bubbl manager. do NOT include "SKIP" in normal responses.`;
 
-async function tryGroq(prompt: string): Promise<string | null> {
+async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string | null> {
   const key = process.env.GROQ_API_KEY;
   if (!key) {
     log("[Groq] GROQ_API_KEY not set — skipping.", "gemini");
@@ -106,12 +125,19 @@ async function tryGroq(prompt: string): Promise<string | null> {
   try {
     log(`[Groq] Trying model: ${GROQ_MODEL}`, "gemini");
     const client = getGroqClient();
+
+    const messages: Groq.Chat.ChatCompletionMessageParam[] = [
+      { role: "system", content: GROQ_SYSTEM_PROMPT },
+      ...history.map((h) => ({
+        role: h.role as "user" | "assistant",
+        content: h.content,
+      })),
+      { role: "user", content: prompt },
+    ];
+
     const completion = await client.chat.completions.create({
       model: GROQ_MODEL,
-      messages: [
-        { role: "system", content: GROQ_SYSTEM_PROMPT },
-        { role: "user", content: prompt },
-      ],
+      messages,
       max_tokens: 256,
       temperature: 0.9,
     });
@@ -131,8 +157,9 @@ async function tryGroq(prompt: string): Promise<string | null> {
   }
 }
 
-export async function askGemini(userMessage: string, authorName: string): Promise<string | null> {
+export async function askGemini(userMessage: string, authorName: string, channelId: string): Promise<string | null> {
   const prompt = `${authorName} says: ${userMessage}`;
+  const history = getHistory(channelId);
 
   if (geminiEnabled) {
     const geminiKey = process.env.GEMINI_API_KEY;
@@ -153,7 +180,14 @@ export async function askGemini(userMessage: string, authorName: string): Promis
             ],
           });
 
-          const result = await model.generateContent(prompt);
+          const chat = model.startChat({
+            history: history.map((h) => ({
+              role: h.role === "assistant" ? "model" : "user",
+              parts: [{ text: h.content }],
+            })),
+          });
+
+          const result = await chat.sendMessage(prompt);
           const text = result.response.text().trim();
 
           if (text === "SKIP") {
@@ -162,6 +196,8 @@ export async function askGemini(userMessage: string, authorName: string): Promis
           }
 
           log(`[Gemini] Success with model ${modelName}`, "gemini");
+          pushHistory(channelId, "user", prompt);
+          pushHistory(channelId, "assistant", text);
           return text;
         } catch (err: any) {
           const msg: string = err.message ?? "";
@@ -191,5 +227,10 @@ export async function askGemini(userMessage: string, authorName: string): Promis
     return null;
   }
 
-  return await tryGroq(prompt);
+  const reply = await tryGroq(prompt, history);
+  if (reply) {
+    pushHistory(channelId, "user", prompt);
+    pushHistory(channelId, "assistant", reply);
+  }
+  return reply;
 }
