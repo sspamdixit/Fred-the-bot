@@ -399,3 +399,67 @@ export async function askGemini(userMessage: string, authorName: string, channel
   }
   return hackReply;
 }
+
+const QOTD_OPEN_PROMPT = `Generate a single Question of the Day for a Discord server. Requirements:
+- Open-ended (NOT yes/no, NOT two-choice)
+- Funny, chaotic, controversial, absurd, or genuinely thought-provoking
+- Could be a hypothetical, unpopular opinion prompt, weird scenario, or philosophical chaos
+- Should spark discussion and multiple different answers
+- Keep it to 1-2 sentences max
+Reply with ONLY the question itself. No quotation marks, no intro text, no explanation.`;
+
+const QOTD_POLL_PROMPT = `Generate a "would you rather" or "this or that" question for a Discord poll. Requirements:
+- Exactly TWO choices only
+- Funny, chaotic, controversial, absurd, or mildly spicy
+- Both options should feel like genuine dilemmas — no obvious right answer
+- Keep each option short (under 55 characters)
+Reply with ONLY valid JSON in this exact format, no markdown, no code blocks:
+{"question":"...","optionA":"...","optionB":"..."}`;
+
+export async function generateForQotd(type: "open" | "poll"): Promise<string | null> {
+  const prompt = type === "open" ? QOTD_OPEN_PROMPT : QOTD_POLL_PROMPT;
+
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    const client = getClient();
+    for (const modelName of MODELS_TO_TRY) {
+      try {
+        const model = client.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(prompt);
+        const text = result.response.text().trim();
+        if (text) {
+          log(`[QOTD] Generated ${type} via Gemini (${modelName})`, "qotd");
+          return text;
+        }
+      } catch (err: any) {
+        const msg = err.message ?? "";
+        if (msg.includes("429") || msg.includes("quota") || msg.includes("404")) continue;
+        log(`[QOTD] Gemini error: ${msg}`, "qotd");
+        continue;
+      }
+    }
+  }
+
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey) {
+    try {
+      const client = getGroqClient();
+      const completion = await client.chat.completions.create({
+        model: GROQ_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 200,
+        temperature: 1.1,
+      });
+      const text = completion.choices[0]?.message?.content?.trim() ?? "";
+      if (text) {
+        log(`[QOTD] Generated ${type} via Groq`, "qotd");
+        return text;
+      }
+    } catch (err: any) {
+      log(`[QOTD] Groq error: ${err.message}`, "qotd");
+    }
+  }
+
+  log(`[QOTD] All providers failed for type: ${type}`, "qotd");
+  return null;
+}

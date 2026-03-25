@@ -10,6 +10,7 @@ import {
 import { log } from "./index";
 import { getIO } from "./socket";
 import { askGemini, getAIStats } from "./gemini";
+import { startQotd } from "./qotd";
 
 export interface BotStatus {
   online: boolean;
@@ -252,26 +253,27 @@ export async function startBot() {
     ],
   });
 
-  client.once("ready", () => {
-    if (!client?.user) return;
-    log(`${client.user.tag} is now active in the Lab.`, "discord");
+  client.once("ready", (readyClient) => {
+    log(`${readyClient.user.tag} is now active in the Lab.`, "discord");
 
-    client.user.setPresence({
+    readyClient.user.setPresence({
       activities: [{ name: "Custom Status", type: ActivityType.Custom, state: "Under Maintenance!" }],
       status: "dnd",
     });
 
     botState = {
       online: true,
-      tag: client.user.tag,
-      avatarUrl: client.user.displayAvatarURL({ size: 256 }),
-      guildCount: client.guilds.cache.size,
+      tag: readyClient.user.tag,
+      avatarUrl: readyClient.user.displayAvatarURL({ size: 256 }),
+      guildCount: readyClient.guilds.cache.size,
       uptimeStart: Date.now(),
       status: "dnd",
       activityName: "Under Maintenance!",
       activityType: "Custom",
       lastError: null,
     };
+
+    startQotd(readyClient);
   });
 
   client.on("messageCreate", async (message: Message) => {
