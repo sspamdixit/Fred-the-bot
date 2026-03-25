@@ -35,6 +35,24 @@ interface HistoryEntry {
 
 const channelHistories = new Map<string, HistoryEntry[]>();
 
+export interface AIStats {
+  lastUsedProvider: string | null;
+  lastUsedModel: string | null;
+  totalRequests: number;
+  totalTokens: { gemini: number; groq: number; hackclub: number };
+}
+
+const stats: AIStats = {
+  lastUsedProvider: null,
+  lastUsedModel: null,
+  totalRequests: 0,
+  totalTokens: { gemini: 0, groq: 0, hackclub: 0 },
+};
+
+export function getAIStats(): AIStats {
+  return { ...stats, totalTokens: { ...stats.totalTokens } };
+}
+
 function getHistory(channelId: string): HistoryEntry[] {
   return channelHistories.get(channelId) ?? [];
 }
@@ -167,6 +185,12 @@ async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string 
       return FORBIDDEN_RESPONSE;
     }
 
+    const tokens = completion.usage?.total_tokens ?? 0;
+    stats.totalTokens.groq += tokens;
+    stats.lastUsedProvider = "Groq";
+    stats.lastUsedModel = GROQ_MODEL;
+    stats.totalRequests++;
+
     log(`[Groq] Success with model ${GROQ_MODEL}`, "gemini");
     return text;
   } catch (err: any) {
@@ -224,6 +248,12 @@ async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<str
       return FORBIDDEN_RESPONSE;
     }
 
+    const tokens = (data as any).usage?.total_tokens ?? 0;
+    stats.totalTokens.hackclub += tokens;
+    stats.lastUsedProvider = "Grok (Hackclub)";
+    stats.lastUsedModel = HACKCLUB_MODEL;
+    stats.totalRequests++;
+
     log(`[Hackclub] Success with model ${HACKCLUB_MODEL}`, "gemini");
     return text;
   } catch (err: any) {
@@ -267,6 +297,12 @@ export async function askGemini(userMessage: string, authorName: string, channel
             log(`[Gemini] Filtered message from ${authorName} — returning safe refusal.`, "gemini");
             return FORBIDDEN_RESPONSE;
           }
+
+          const tokens = result.response.usageMetadata?.totalTokenCount ?? 0;
+          stats.totalTokens.gemini += tokens;
+          stats.lastUsedProvider = "Gemini";
+          stats.lastUsedModel = modelName;
+          stats.totalRequests++;
 
           log(`[Gemini] Success with model ${modelName}`, "gemini");
           pushHistory(channelId, "user", prompt);

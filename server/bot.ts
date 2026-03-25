@@ -9,7 +9,7 @@ import {
 } from "discord.js";
 import { log } from "./index";
 import { getIO } from "./socket";
-import { askGemini } from "./gemini";
+import { askGemini, getAIStats } from "./gemini";
 
 export interface BotStatus {
   online: boolean;
@@ -307,6 +307,86 @@ export async function startBot() {
     const COMMAND_PREFIX = /^!bubbl\s*/i;
     const isPrefixed = COMMAND_PREFIX.test(message.content);
 
+    // Standalone commands (no prefix/mention required)
+    const rawContent = message.content.trim();
+    const standaloneCmd = rawContent.toLowerCase();
+
+    if (standaloneCmd === "!info") {
+      await message.reply({
+        content: [
+          "**bubbl manager** — discord bot + ai hybrid thing.",
+          "",
+          "what it does:",
+          "- responds when you ping it or use `!bubbl <message>`",
+          "- runs on gemini first, falls back to groq, then grok via hackclub if needed",
+          "- has memory per channel (last 15 messages)",
+          "- streams live messages to a dashboard",
+          "- lets admins control presence, send messages, and manage settings",
+          "",
+          "commands: `!info` `!status` `!help` `!ping`",
+          "or just `!bubbl <anything>` to talk to it.",
+        ].join("\n"),
+        allowedMentions: { parse: [], repliedUser: false },
+      });
+      return;
+    }
+
+    if (standaloneCmd === "!status") {
+      const s = getAIStats();
+      const uptime = botState.uptimeStart
+        ? Math.floor((Date.now() - botState.uptimeStart) / 1000)
+        : null;
+      const uptimeStr = uptime != null
+        ? `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${uptime % 60}s`
+        : "unknown";
+      const totalTokens = s.totalTokens.gemini + s.totalTokens.groq + s.totalTokens.hackclub;
+
+      await message.reply({
+        content: [
+          "**bot status**",
+          `online: ${botState.online ? "yes" : "no"}`,
+          `uptime: ${uptimeStr}`,
+          `servers: ${botState.guildCount}`,
+          "",
+          "**ai usage (this session)**",
+          `last provider: ${s.lastUsedProvider ?? "none yet"}`,
+          `last model: ${s.lastUsedModel ?? "none yet"}`,
+          `total requests: ${s.totalRequests}`,
+          `total tokens: ${totalTokens.toLocaleString()} (gemini: ${s.totalTokens.gemini.toLocaleString()} | groq: ${s.totalTokens.groq.toLocaleString()} | grok: ${s.totalTokens.hackclub.toLocaleString()})`,
+        ].join("\n"),
+        allowedMentions: { parse: [], repliedUser: false },
+      });
+      return;
+    }
+
+    if (standaloneCmd === "!help") {
+      await message.reply({
+        content: [
+          "**commands**",
+          "`!info` — what this bot is and does",
+          "`!status` — current model, token usage, uptime",
+          "`!help` — this list",
+          "`!ping` — check if the bot is alive",
+          "`!bubbl <message>` — talk to the ai",
+          `or just ping <@${client?.user?.id}> with your message`,
+        ].join("\n"),
+        allowedMentions: { parse: [], repliedUser: false },
+      });
+      return;
+    }
+
+    if (standaloneCmd === "!ping") {
+      const start = Date.now();
+      const sent = await message.reply({
+        content: "pong.",
+        allowedMentions: { parse: [], repliedUser: false },
+      });
+      const latency = Date.now() - start;
+      const wsLatency = client?.ws.ping ?? -1;
+      await sent.edit(`pong. roundtrip: **${latency}ms** | ws: **${wsLatency}ms**`);
+      return;
+    }
+
     if ((isMentioned || isPrefixed) && client?.user) {
       let cleanContent = message.content;
 
@@ -322,6 +402,16 @@ export async function startBot() {
 
       cleanContent = cleanContent.trim();
       if (!cleanContent) return;
+
+      // Also handle !bubbl info/status/help/ping as subcommands
+      const sub = cleanContent.toLowerCase();
+      if (sub === "info" || sub === "status" || sub === "help" || sub === "ping") {
+        await message.reply({
+          content: `use \`!${sub}\` directly instead of \`!bubbl ${sub}\`. easier.`,
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+        return;
+      }
 
       log(`[Gemini] Handling from ${message.author.username}: ${cleanContent.slice(0, 80)}`, "discord");
 
