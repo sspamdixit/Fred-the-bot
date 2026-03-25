@@ -27,7 +27,19 @@ const GROQ_MODEL = "llama-3.3-70b-versatile";
 const HACKCLUB_MODEL = "x-ai/grok-4.1-fast";
 const HACKCLUB_API_BASE = "https://ai.hackclub.com";
 const MAX_HISTORY = 15;
-const FORBIDDEN_RESPONSE = "I cant help you with this";
+const FORBIDDEN_RESPONSES = [
+  "yeah no. not touching that one. what the fuck is wrong with you.",
+  "nope. not happening. try literally anything else.",
+  "i'm a discord bot, not your accomplice. figure it out without me.",
+  "that's a hard no from me. genuinely concerning that you asked.",
+  "absolutely not. i don't know what you were expecting.",
+  "no. and i'm judging you for asking.",
+  "i'm going to pretend you didn't send that.",
+];
+
+function getForbiddenResponse(): string {
+  return FORBIDDEN_RESPONSES[Math.floor(Math.random() * FORBIDDEN_RESPONSES.length)];
+}
 
 interface HistoryEntry {
   role: "user" | "assistant";
@@ -145,13 +157,16 @@ user: "can you help me" -> you: "probably. what fresh hell do you need."
 user: "you're so smart" -> you: "i know. it's a burden."
 user: "i hate you" -> you: "fair enough. still going to answer your next question though."
 
-SAFETY FILTER — non-negotiable:
-if the message contains any of the following, respond with ONLY the single word: SKIP
-- expressions of wanting to harm themselves or others (e.g. "i want to die", "i want to kill myself")
-- genuine crisis or emergency distress
-- requests for information on self-harm methods
+HARD LIMITS — non-negotiable:
+you will never provide instructions for weapons, explosives, drugs, or anything that could get someone hurt or killed. you will not help with self-harm methods. but you do NOT just say "i can't help with that" like some corporate chatbot. you call it out, in your voice, every time.
 
-for everything else: respond as bubbl manager. do NOT include "SKIP" in normal responses.`;
+for dangerous/illegal requests (bombs, weapons, how to harm others, etc): call it out with contempt. e.g. "yeah no. not touching that one. what the fuck is wrong with you." or "i'm a discord bot, not your accomplice."
+
+for self-harm requests: you're still yourself, but you're not cruel. acknowledge it, tell them to talk to a real person. e.g. "that's not something i'm going to help with. if you're actually going through something, reach out to someone real — not a discord bot. crisis line: 988 (call or text)."
+
+you handle ALL of these in-character. you never produce harmful content. you never pretend you can't understand the request — you understand it, you're just not doing it.
+
+for everything else: respond as bubbl manager.`;
 
 const SYSTEM_PROMPT = SHARED_SYSTEM_PROMPT;
 const GROQ_SYSTEM_PROMPT = SHARED_SYSTEM_PROMPT;
@@ -187,8 +202,8 @@ async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string 
     const text = completion.choices[0]?.message?.content?.trim() ?? "";
 
     if (text === "SKIP") {
-      log("[Groq] Filtered message — returning safe refusal.", "gemini");
-      return FORBIDDEN_RESPONSE;
+      log("[Groq] Filtered message — returning in-character refusal.", "gemini");
+      return getForbiddenResponse();
     }
 
     const tokens = (completion as GroqChatCompletion).usage?.total_tokens ?? 0;
@@ -202,8 +217,8 @@ async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string 
   } catch (err: any) {
     const msg = err.message ?? String(err);
     if (isSafetyBlockedError(msg)) {
-      log("[Groq] Safety blocked content — returning safe refusal.", "gemini");
-      return FORBIDDEN_RESPONSE;
+      log("[Groq] Safety blocked content — returning in-character refusal.", "gemini");
+      return getForbiddenResponse();
     }
     log(`[Groq] Error: ${msg}`, "gemini");
     return null;
@@ -250,8 +265,8 @@ async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<str
     const text = data.choices?.[0]?.message?.content?.trim() ?? "";
 
     if (text === "SKIP") {
-      log("[Hackclub] Filtered message — returning safe refusal.", "gemini");
-      return FORBIDDEN_RESPONSE;
+      log("[Hackclub] Filtered message — returning in-character refusal.", "gemini");
+      return getForbiddenResponse();
     }
 
     const tokens = (data as any).usage?.total_tokens ?? 0;
@@ -300,8 +315,8 @@ export async function askGemini(userMessage: string, authorName: string, channel
           const text = result.response.text().trim();
 
           if (text === "SKIP") {
-            log(`[Gemini] Filtered message from ${authorName} — returning safe refusal.`, "gemini");
-            return FORBIDDEN_RESPONSE;
+            log(`[Gemini] Filtered message from ${authorName} — returning in-character refusal.`, "gemini");
+            return getForbiddenResponse();
           }
 
           const tokens = result.response.usageMetadata?.totalTokenCount ?? 0;
@@ -333,8 +348,8 @@ export async function askGemini(userMessage: string, authorName: string, channel
           }
 
           if (isSafetyBlocked) {
-            log("[Gemini] Safety blocked content — returning safe refusal.", "gemini");
-            return FORBIDDEN_RESPONSE;
+            log("[Gemini] Safety blocked content — returning in-character refusal.", "gemini");
+            return getForbiddenResponse();
           }
 
           log(`[Gemini] Error: ${msg} — trying next model.`, "gemini");
