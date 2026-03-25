@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import Groq from "groq-sdk";
+import type { ChatCompletion as GroqChatCompletion } from "groq-sdk/resources/chat/completions";
 import { log } from "./index";
 
 let genAI: GoogleGenerativeAI | null = null;
@@ -185,7 +186,7 @@ async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string 
       return FORBIDDEN_RESPONSE;
     }
 
-    const tokens = completion.usage?.total_tokens ?? 0;
+    const tokens = (completion as GroqChatCompletion).usage?.total_tokens ?? 0;
     stats.totalTokens.groq += tokens;
     stats.lastUsedProvider = "Groq";
     stats.lastUsedModel = GROQ_MODEL;
