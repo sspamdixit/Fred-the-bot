@@ -1,17 +1,36 @@
-import { Client, TextChannel, ChannelType, EmbedBuilder } from "discord.js";
-import { desc } from "drizzle-orm";
+import { Client, TextChannel, ChannelType, EmbedBuilder, Role } from "discord.js";
 import { log } from "./index";
-import { db } from "./db";
-import { qotdLog } from "@shared/schema";
 import { generateForQotd } from "./gemini";
+
+interface QotdEntry {
+  type: "open" | "poll";
+  question: string;
+  optionA?: string;
+  optionB?: string;
+  sentAt: string;
+  messageId: string;
+  channelId: string;
+}
+
+let _lastEntry: QotdEntry | null = null;
+
+export function getQotdStatus(): {
+  last: QotdEntry | null;
+  nextType: "open" | "poll";
+  nextAt: string;
+} {
+  const nextType: "open" | "poll" = _lastEntry?.type === "open" ? "poll" : "open";
+  const now = new Date();
+  const nextAt = new Date(Date.UTC(
+    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0,
+  )).toISOString();
+  return { last: _lastEntry, nextType, nextAt };
+}
 
 function msUntilNextUtcMidnight(): number {
   const now = new Date();
   const next = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate() + 1,
-    0, 0, 0, 0,
+    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0,
   ));
   return next.getTime() - now.getTime();
 }
@@ -26,14 +45,10 @@ async function findQotdChannel(client: Client): Promise<TextChannel | null> {
   return null;
 }
 
-async function getLastQotdType(): Promise<"open" | "poll" | null> {
-  const rows = await db
-    .select({ type: qotdLog.type })
-    .from(qotdLog)
-    .orderBy(desc(qotdLog.sentAt))
-    .limit(1);
-  const t = rows[0]?.type;
-  return t === "open" || t === "poll" ? t : null;
+function findQotdRole(channel: TextChannel): Role | null {
+  return channel.guild.roles.cache.find(
+    (r) => r.name.toLowerCase() === "qotd",
+  ) ?? null;
 }
 
 async function sendOpenQotd(channel: TextChannel): Promise<void> {
@@ -43,6 +58,9 @@ async function sendOpenQotd(channel: TextChannel): Promise<void> {
     return;
   }
 
+  const role = findQotdRole(channel);
+  const ping = role ? `<@&${role.id}>` : null;
+
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
     .setAuthor({ name: "❓ Question of the Day" })
@@ -50,14 +68,18 @@ async function sendOpenQotd(channel: TextChannel): Promise<void> {
     .setFooter({ text: "Drop your answer below ↓" })
     .setTimestamp();
 
-  const msg = await channel.send({ embeds: [embed] });
+  const msg = await channel.send({
+    content: ping ?? undefined,
+    embeds: [embed],
+  });
 
-  await db.insert(qotdLog).values({
+  _lastEntry = {
     type: "open",
     question,
+    sentAt: new Date().toISOString(),
     messageId: msg.id,
     channelId: channel.id,
-  });
+  };
 
   log(`Open QOTD sent → ${question.slice(0, 80)}`, "qotd");
 }
@@ -83,6 +105,13 @@ async function sendPollQotd(channel: TextChannel): Promise<void> {
     return;
   }
 
+  const role = findQotdRole(channel);
+  const ping = role ? `<@&${role.id}>` : null;
+
+  if (ping) {
+    await channel.send({ content: ping });
+  }
+
   const msg = await channel.send({
     poll: {
       question: { text: parsed.question },
@@ -95,14 +124,15 @@ async function sendPollQotd(channel: TextChannel): Promise<void> {
     },
   });
 
-  await db.insert(qotdLog).values({
+  _lastEntry = {
     type: "poll",
     question: parsed.question,
     optionA: parsed.optionA,
     optionB: parsed.optionB,
+    sentAt: new Date().toISOString(),
     messageId: msg.id,
     channelId: channel.id,
-  });
+  };
 
   log(`Poll QOTD sent → ${parsed.question.slice(0, 80)}`, "qotd");
 }
@@ -114,8 +144,7 @@ async function runDailyQotd(client: Client): Promise<void> {
     return;
   }
 
-  const lastType = await getLastQotdType();
-  const nextType: "open" | "poll" = lastType === "open" ? "poll" : "open";
+  const nextType: "open" | "poll" = _lastEntry?.type === "open" ? "poll" : "open";
   log(`Running daily QOTD — type: ${nextType}`, "qotd");
 
   if (nextType === "open") {
@@ -132,8 +161,7 @@ export async function triggerQotdNow(): Promise<{ ok: boolean; type?: string; er
   try {
     const channel = await findQotdChannel(_botClient);
     if (!channel) return { ok: false, error: "Could not find a #qotd channel." };
-    const lastType = await getLastQotdType();
-    const nextType: "open" | "poll" = lastType === "open" ? "poll" : "open";
+    const nextType: "open" | "poll" = _lastEntry?.type === "open" ? "poll" : "open";
     if (nextType === "open") {
       await sendOpenQotd(channel);
     } else {

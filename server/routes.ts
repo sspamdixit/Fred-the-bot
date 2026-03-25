@@ -10,10 +10,7 @@ import {
   dispatchMessage,
 } from "./bot";
 import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled, getHackclubEnabled, setHackclubEnabled, askGemini } from "./gemini";
-import { triggerQotdNow } from "./qotd";
-import { db } from "./db";
-import { qotdLog } from "@shared/schema";
-import { desc } from "drizzle-orm";
+import { triggerQotdNow, getQotdStatus } from "./qotd";
 import { z } from "zod";
 import { DASHBOARD_AUTH_HEADER, issueAuthToken, isAuthTokenValid } from "./auth";
 
@@ -182,13 +179,8 @@ export async function registerRoutes(
     return res.json({ reply: reply ?? "(no response from AI)" });
   });
 
-  app.get("/api/qotd/status", async (_req, res) => {
-    const rows = await db.select().from(qotdLog).orderBy(desc(qotdLog.sentAt)).limit(1);
-    const last = rows[0] ?? null;
-    const nextType = last?.type === "open" ? "poll" : "open";
-    const now = new Date();
-    const nextAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
-    return res.json({ last, nextType, nextAt: nextAt.toISOString() });
+  app.get("/api/qotd/status", (_req, res) => {
+    return res.json(getQotdStatus());
   });
 
   app.post("/api/qotd/trigger", async (_req, res) => {
