@@ -10,7 +10,17 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  // Vite hashes asset filenames — cache them for 1 year
+  app.use(
+    "/assets",
+    express.static(path.join(distPath, "assets"), {
+      maxAge: "1y",
+      immutable: true,
+    }),
+  );
+
+  // Everything else: no cache (index.html, etc.)
+  app.use(express.static(distPath, { maxAge: 0 }));
 
   app.use("/{*path}", (_req, res) => {
     res.sendFile(path.resolve(distPath, "index.html"));

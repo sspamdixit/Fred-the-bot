@@ -2,16 +2,27 @@ services:
   - type: web
     name: bubbl-manager
     runtime: node
+    plan: free
     buildCommand: npm install --include=dev && npm run build
-    startCommand: npm start
-    healthCheckPath: /
+    startCommand: node --max-old-space-size=460 dist/index.cjs
+    healthCheckPath: /health
+    autoDeploy: true
     envVars:
+      - key: NODE_ENV
+        value: production
       - key: NODE_VERSION
         value: 20
       - key: TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: HACKCLUB_API_KEY
+        sync: false
+      - key: DATABASE_URL
         sync: false
       - key: DASHBOARD_PASSWORD
         sync: false
       - key: DASHBOARD_ORIGIN
         sync: false
-    autoDeploy: true

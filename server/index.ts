@@ -45,6 +45,10 @@ app.use(
 
 app.use(express.urlencoded({ extended: false, limit: "16kb" }));
 
+app.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 app.use("/api", (_req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   next();
@@ -110,4 +114,16 @@ app.use((req, res, next) => {
       startBot();
     },
   );
+
+  const shutdown = () => {
+    log("SIGTERM received — shutting down gracefully.", "express");
+    httpServer.close(() => {
+      log("HTTP server closed.", "express");
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10_000);
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 })();
