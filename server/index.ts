@@ -2,7 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { startBot } from "./bot";
+import { startBot, getBotStatus } from "./bot";
 import { initSocket } from "./socket";
 
 const app = express();
@@ -46,7 +46,17 @@ app.use(
 app.use(express.urlencoded({ extended: false, limit: "16kb" }));
 
 app.get("/health", (_req, res) => {
-  res.status(200).json({ status: "ok" });
+  const bot = getBotStatus();
+  res.status(200).json({
+    status: "ok",
+    bot: {
+      online: bot.online,
+      status: bot.status,
+      tag: bot.tag,
+      uptime: bot.uptimeStart ? Math.floor((Date.now() - bot.uptimeStart) / 1000) : null,
+    },
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.use("/api", (_req, res, next) => {
@@ -78,6 +88,28 @@ app.use((req, res, next) => {
 
   next();
 });
+
+function startKeepAlive() {
+  const serviceUrl = process.env.RENDER_EXTERNAL_URL;
+  if (!serviceUrl) {
+    log("RENDER_EXTERNAL_URL not set — keep-alive disabled.", "keep-alive");
+    return;
+  }
+
+  const pingUrl = `${serviceUrl.replace(/\/$/, "")}/health`;
+  const INTERVAL_MS = 10 * 60 * 1000;
+
+  log(`Keep-alive active → pinging ${pingUrl} every 10 min`, "keep-alive");
+
+  setInterval(async () => {
+    try {
+      const res = await fetch(pingUrl, { signal: AbortSignal.timeout(15_000) });
+      log(`Keep-alive ping → ${res.status}`, "keep-alive");
+    } catch (err: any) {
+      log(`Keep-alive ping failed: ${err.message}`, "keep-alive");
+    }
+  }, INTERVAL_MS);
+}
 
 (async () => {
   await registerRoutes(httpServer, app);
@@ -112,6 +144,9 @@ app.use((req, res, next) => {
     () => {
       log(`serving on port ${port}`);
       startBot();
+      if (process.env.NODE_ENV === "production") {
+        startKeepAlive();
+      }
     },
   );
 

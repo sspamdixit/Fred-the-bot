@@ -442,6 +442,27 @@ export async function startBot() {
     }
   });
 
+  client.on("shardDisconnect", (_event, shardId) => {
+    log(`Shard ${shardId} disconnected from gateway.`, "discord");
+    botState.online = false;
+    botState.status = "offline";
+  });
+
+  client.on("shardReconnecting", (shardId) => {
+    log(`Shard ${shardId} reconnecting to gateway…`, "discord");
+    botState.status = "reconnecting";
+  });
+
+  client.on("shardResume", (shardId, replayedEvents) => {
+    log(`Shard ${shardId} resumed (replayed ${replayedEvents} events).`, "discord");
+    if (client?.user) {
+      botState.online = true;
+      botState.status = "online";
+      botState.guildCount = client.guilds.cache.size;
+      botState.lastError = null;
+    }
+  });
+
   client.on("error", (err) => {
     log(`Discord client error: ${err.message}`, "discord");
     botState.lastError = err.message;
@@ -456,5 +477,9 @@ export async function startBot() {
     botState.lastError = err.message;
     botState.online = false;
     botState.status = "error";
+
+    const RETRY_DELAY_MS = 30_000;
+    log(`Retrying login in ${RETRY_DELAY_MS / 1000}s…`, "discord");
+    setTimeout(() => startBot(), RETRY_DELAY_MS);
   }
 }
