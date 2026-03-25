@@ -30,10 +30,13 @@ import {
   Lock,
   Bot,
   KeyRound,
-  Radio,
-  Paperclip,
+  MessageSquare,
+  CalendarClock,
+  ShieldCheck,
+  Play,
+  FlaskConical,
+  XCircle,
 } from "lucide-react";
-import { useLiveFeed } from "@/hooks/useLiveFeed";
 import {
   apiRequest,
   DASHBOARD_AUTH_TOKEN_STORAGE_KEY,
@@ -390,8 +393,49 @@ function Dashboard() {
     },
   });
 
-  const { messages: liveMessages, connected: liveConnected } = useLiveFeed();
-  const feedRef = useRef<HTMLDivElement>(null);
+  const [testHistory, setTestHistory] = useState<Array<{ role: "user" | "bot"; text: string }>>([]);
+  const [testInput, setTestInput] = useState("");
+  const testScrollRef = useRef<HTMLDivElement>(null);
+
+  const { data: qotdStatus } = useQuery<{
+    last: { type: string; question: string; optionA?: string; optionB?: string; sentAt: string } | null;
+    nextType: string;
+    nextAt: string;
+  }>({ queryKey: ["/api/qotd/status"], refetchInterval: 60_000 });
+
+  const { data: serviceHealth } = useQuery<{
+    processStartTime: number;
+    keepAliveEnabled: boolean;
+    renderUrl: string | null;
+  }>({ queryKey: ["/api/service/health"], refetchInterval: 30_000 });
+
+  const qotdTriggerMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/qotd/trigger", {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/qotd/status"] });
+      toast({ title: "QOTD sent!", description: "Check #qotd in Discord." });
+    },
+    onError: (err: any) => {
+      toast({ title: "QOTD failed", description: err?.message ?? "Something went wrong.", variant: "destructive" });
+    },
+  });
+
+  const aiTestMutation = useMutation({
+    mutationFn: async (msg: string) => {
+      const res = await apiRequest("POST", "/api/ai/test", { message: msg });
+      return res.json() as Promise<{ reply: string }>;
+    },
+    onSuccess: (data, msg) => {
+      setTestHistory((prev) => [...prev, { role: "user", text: msg }, { role: "bot", text: data.reply }]);
+      setTestInput("");
+      setTimeout(() => {
+        testScrollRef.current?.scrollTo({ top: testScrollRef.current.scrollHeight, behavior: "smooth" });
+      }, 50);
+    },
+    onError: (err: any) => {
+      toast({ title: "AI test failed", description: err?.message ?? "Something went wrong.", variant: "destructive" });
+    },
+  });
 
   const canSend           = status?.online && selectedChannelId && message.trim().length > 0 && !sendMutation.isPending;
   const canUpdatePresence = status?.online && !presenceMutation.isPending;
@@ -913,116 +957,209 @@ function Dashboard() {
           )}
         </Panel>
 
-        {/* Live Feed panel */}
+        {/* AI Test Console */}
         <div className="glass-panel overflow-hidden flex flex-col" style={{ minHeight: 420 }}>
           <div className="px-6 py-4 flex items-center justify-between flex-shrink-0" style={{ borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
             <div className="flex items-center gap-2">
-              <Radio className="w-4 h-4" style={{ color: "rgba(125,211,252,0.9)" }} />
-              <h3 className="text-sm font-bold tracking-wide text-white">Live Feed</h3>
+              <FlaskConical className="w-4 h-4" style={{ color: "rgba(125,211,252,0.9)" }} />
+              <h3 className="text-sm font-bold tracking-wide text-white">AI Test Console</h3>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span
-                className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${liveConnected ? "bg-status-online pulse-dot" : "bg-status-offline"}`}
-              />
-              <span className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>
-                {liveConnected ? "Connected" : "Disconnected"}
-              </span>
-            </div>
+            {testHistory.length > 0 && (
+              <button
+                className="aero-btn aero-btn-ghost aero-btn-sm"
+                onClick={() => setTestHistory([])}
+                data-testid="button-clear-test"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                Clear
+              </button>
+            )}
           </div>
 
           <div
-            ref={feedRef}
-            data-testid="div-live-feed"
+            ref={testScrollRef}
+            data-testid="div-ai-test-feed"
             className="flex-1 overflow-y-auto p-3 space-y-2"
-            style={{ maxHeight: 420 }}
+            style={{ maxHeight: 300 }}
           >
-            {liveMessages.length === 0 ? (
+            {testHistory.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full py-10 gap-2" style={{ color: "rgba(255,255,255,0.3)" }}>
-                <Radio className="w-8 h-8 opacity-30" />
-                <p className="text-xs text-center">Waiting for messages…<br />Activity will appear here in real time.</p>
+                <FlaskConical className="w-8 h-8 opacity-30" />
+                <p className="text-xs text-center">Type a message below to test the AI.<br />Responses use the same pipeline as Discord.</p>
               </div>
             ) : (
-              liveMessages.map((msg) => (
+              testHistory.map((entry, i) => (
                 <div
-                  key={msg.id}
-                  data-testid={`msg-live-${msg.messageId}`}
-                  className="rounded-xl p-3 space-y-1.5"
-                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
+                  key={i}
+                  data-testid={`test-msg-${i}`}
+                  className={`rounded-xl px-3 py-2 text-xs leading-relaxed max-w-[90%] ${entry.role === "user" ? "ml-auto" : "mr-auto"}`}
+                  style={
+                    entry.role === "user"
+                      ? { background: "rgba(56,189,248,0.18)", border: "1px solid rgba(56,189,248,0.3)", color: "rgba(255,255,255,0.9)" }
+                      : { background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.8)" }
+                  }
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    {msg.authorAvatar ? (
-                      <img
-                        src={msg.authorAvatar}
-                        alt={msg.authorName}
-                        className="w-6 h-6 rounded-full flex-shrink-0 object-cover"
-                        style={{ border: "1px solid rgba(255,255,255,0.2)" }}
-                      />
-                    ) : (
-                      <div
-                        className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white"
-                        style={{ background: "rgba(56,189,248,0.3)" }}
-                      >
-                        {msg.authorName[0]?.toUpperCase()}
-                      </div>
-                    )}
-                    <span className="text-xs font-semibold text-white truncate">{msg.authorName}</span>
-                    <span className="text-xs flex-shrink-0" style={{ color: "rgba(255,255,255,0.35)" }}>
-                      #{msg.channelName}
-                    </span>
-                    <span className="text-xs flex-shrink-0 ml-auto" style={{ color: "rgba(255,255,255,0.3)" }}>
-                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  </div>
-
-                  {msg.content && (
-                    <p className="text-xs leading-relaxed break-words" style={{ color: "rgba(255,255,255,0.75)" }}>
-                      {msg.content}
-                    </p>
-                  )}
-
-                  {msg.attachments.length > 0 && (
-                    <div className="space-y-1.5 pt-0.5">
-                      {msg.attachments.map((att, i) => {
-                        const isImage = att.contentType?.startsWith("image/");
-                        return isImage ? (
-                          <a
-                            key={i}
-                            href={att.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            data-testid={`attachment-img-${msg.messageId}-${i}`}
-                          >
-                            <img
-                              src={att.url}
-                              alt={att.name}
-                              className="rounded-lg max-h-32 object-cover"
-                              style={{ border: "1px solid rgba(255,255,255,0.12)" }}
-                            />
-                          </a>
-                        ) : (
-                          <a
-                            key={i}
-                            href={att.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            data-testid={`attachment-file-${msg.messageId}-${i}`}
-                            className="flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1.5 hover:opacity-80 transition-opacity"
-                            style={{ background: "rgba(255,255,255,0.08)", color: "rgba(125,211,252,0.9)", border: "1px solid rgba(255,255,255,0.1)" }}
-                          >
-                            <Paperclip className="w-3 h-3 flex-shrink-0" />
-                            <span className="truncate">{att.name}</span>
-                          </a>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <span className="block text-xs font-semibold mb-1" style={{ color: entry.role === "user" ? "rgba(125,211,252,0.8)" : "rgba(255,255,255,0.4)" }}>
+                    {entry.role === "user" ? "You" : "bubbl manager"}
+                  </span>
+                  {entry.text}
                 </div>
               ))
             )}
+            {aiTestMutation.isPending && (
+              <div className="rounded-xl px-3 py-2 text-xs mr-auto" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.4)" }}>
+                <span className="block text-xs font-semibold mb-1" style={{ color: "rgba(255,255,255,0.4)" }}>bubbl manager</span>
+                thinking…
+              </div>
+            )}
+          </div>
+
+          <div className="p-3 flex-shrink-0" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+            <div className="flex gap-2">
+              <Input
+                data-testid="input-ai-test"
+                placeholder="Type a test message…"
+                value={testInput}
+                onChange={(e) => setTestInput(e.target.value.slice(0, 500))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && testInput.trim() && !aiTestMutation.isPending) {
+                    e.preventDefault();
+                    aiTestMutation.mutate(testInput.trim());
+                  }
+                }}
+                disabled={aiTestMutation.isPending}
+                className="aero-input h-9 text-xs"
+              />
+              <button
+                data-testid="button-send-test"
+                className="aero-btn flex-shrink-0 h-9 px-3"
+                disabled={!testInput.trim() || aiTestMutation.isPending}
+                onClick={() => aiTestMutation.mutate(testInput.trim())}
+              >
+                {aiTestMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              </button>
+            </div>
           </div>
         </div>
 
-        </div>{/* end send+feed grid */}
+        </div>{/* end send+test grid */}
+
+        {/* QOTD + Service Health row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+
+        <Panel title="QOTD Control" icon={CalendarClock}>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl px-4 py-3" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                <p className="text-xs font-semibold tracking-wider uppercase mb-1" style={{ color: "rgba(255,255,255,0.45)" }}>Next Type</p>
+                <p className="text-sm font-bold text-white capitalize" data-testid="text-qotd-next-type">
+                  {qotdStatus ? (qotdStatus.nextType === "open" ? "Open Question" : "Poll (2 choices)") : "—"}
+                </p>
+              </div>
+              <div className="rounded-xl px-4 py-3" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                <p className="text-xs font-semibold tracking-wider uppercase mb-1" style={{ color: "rgba(255,255,255,0.45)" }}>Next Post</p>
+                <p className="text-sm font-bold text-white" data-testid="text-qotd-next-at">
+                  {qotdStatus ? new Date(qotdStatus.nextAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZoneName: "short" }) : "—"}
+                </p>
+              </div>
+            </div>
+
+            {qotdStatus?.last ? (
+              <div className="rounded-xl p-3 space-y-1" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                <p className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.4)" }}>
+                  Last sent · <span className="normal-case capitalize">{qotdStatus.last.type}</span> · {new Date(qotdStatus.last.sentAt).toLocaleDateString()}
+                </p>
+                <p className="text-sm text-white leading-snug" data-testid="text-qotd-last-question">
+                  {qotdStatus.last.question}
+                </p>
+                {qotdStatus.last.optionA && (
+                  <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.5)" }}>
+                    {qotdStatus.last.optionA} vs {qotdStatus.last.optionB}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-xl p-3 text-xs" style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.35)" }}>
+                No QOTD sent yet. Use the button below to send the first one.
+              </div>
+            )}
+
+            <button
+              data-testid="button-trigger-qotd"
+              className="aero-btn w-full justify-center"
+              onClick={() => qotdTriggerMutation.mutate()}
+              disabled={!status?.online || qotdTriggerMutation.isPending}
+            >
+              {qotdTriggerMutation.isPending
+                ? <><RefreshCw className="w-4 h-4 animate-spin" />Sending…</>
+                : <><Play className="w-4 h-4" />Send QOTD Now</>}
+            </button>
+            <p className="text-xs text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
+              Sends next type immediately · resets 24h timer
+            </p>
+          </div>
+        </Panel>
+
+        <Panel title="Service Health" icon={ShieldCheck}>
+          <div className="space-y-3">
+            <div className="rounded-xl p-3 space-y-3" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>Process uptime</span>
+                <span className="text-sm font-bold text-white" data-testid="text-process-uptime">
+                  {serviceHealth ? formatUptime(serviceHealth.processStartTime) : "—"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>Keep-alive pings</span>
+                <span
+                  className="text-sm font-bold"
+                  style={{ color: serviceHealth?.keepAliveEnabled ? "rgb(74,222,128)" : "rgb(250,204,21)" }}
+                  data-testid="text-keepalive-status"
+                >
+                  {serviceHealth ? (serviceHealth.keepAliveEnabled ? "Active" : "Dev mode") : "—"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>Bot connection</span>
+                <span
+                  className="text-sm font-bold flex items-center gap-1.5"
+                  style={{ color: status?.online ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                  data-testid="text-health-bot-status"
+                >
+                  <StatusDot status={status?.status ?? "offline"} />
+                  {status?.online ? "Online" : "Offline"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>Health endpoint</span>
+                <a
+                  href="/health"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-semibold"
+                  style={{ color: "rgba(125,211,252,0.8)" }}
+                  data-testid="link-health-endpoint"
+                >
+                  /health ↗
+                </a>
+              </div>
+            </div>
+
+            {!serviceHealth?.keepAliveEnabled && (
+              <div className="rounded-xl px-3 py-2 flex items-start gap-2 text-xs" style={{ background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.2)", color: "rgba(255,255,255,0.6)" }}>
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: "rgb(250,204,21)" }} />
+                Keep-alive pings are inactive. Set <code className="mx-1 px-1 rounded" style={{ background: "rgba(255,255,255,0.1)" }}>RENDER_EXTERNAL_URL</code> on Render to enable them.
+              </div>
+            )}
+
+            <div className="rounded-xl px-3 py-2 flex items-start gap-2 text-xs" style={{ background: "rgba(56,189,248,0.06)", border: "1px solid rgba(56,189,248,0.15)", color: "rgba(255,255,255,0.5)" }}>
+              <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: "rgba(125,211,252,0.7)" }} />
+              Bot commands: <code className="mx-1">!ping</code> <code className="mx-1">!status</code> <code className="mx-1">!info</code> <code className="mx-1">!help</code> <code className="mx-1">!bubbl &lt;msg&gt;</code>
+            </div>
+          </div>
+        </Panel>
+
+        </div>{/* end qotd+health grid */}
 
         {!statusLoading && (isError || status?.lastError) && (
           <div
@@ -1040,7 +1177,7 @@ function Dashboard() {
         )}
 
         <p className="text-center text-xs" style={{ color: "rgba(255,255,255,0.3)" }} data-testid="text-footer">
-          Status refreshes automatically every 5 seconds
+          Status · 5s &nbsp;·&nbsp; QOTD · 60s &nbsp;·&nbsp; Health · 30s
         </p>
       </div>
     </div>

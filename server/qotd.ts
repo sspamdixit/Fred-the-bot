@@ -125,7 +125,29 @@ async function runDailyQotd(client: Client): Promise<void> {
   }
 }
 
+let _botClient: Client | null = null;
+
+export async function triggerQotdNow(): Promise<{ ok: boolean; type?: string; error?: string }> {
+  if (!_botClient) return { ok: false, error: "Bot client not initialized." };
+  try {
+    const channel = await findQotdChannel(_botClient);
+    if (!channel) return { ok: false, error: "Could not find a #qotd channel." };
+    const lastType = await getLastQotdType();
+    const nextType: "open" | "poll" = lastType === "open" ? "poll" : "open";
+    if (nextType === "open") {
+      await sendOpenQotd(channel);
+    } else {
+      await sendPollQotd(channel);
+    }
+    return { ok: true, type: nextType };
+  } catch (err: any) {
+    return { ok: false, error: err.message };
+  }
+}
+
 export function startQotd(client: Client): void {
+  _botClient = client;
+
   const scheduleNext = () => {
     const delay = msUntilNextUtcMidnight();
     const mins = Math.round(delay / 60_000);

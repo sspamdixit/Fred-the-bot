@@ -9,9 +9,15 @@ import {
   setBotPresence,
   dispatchMessage,
 } from "./bot";
-import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled, getHackclubEnabled, setHackclubEnabled } from "./gemini";
+import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled, getHackclubEnabled, setHackclubEnabled, askGemini } from "./gemini";
+import { triggerQotdNow } from "./qotd";
+import { db } from "./db";
+import { qotdLog } from "@shared/schema";
+import { desc } from "drizzle-orm";
 import { z } from "zod";
 import { DASHBOARD_AUTH_HEADER, issueAuthToken, isAuthTokenValid } from "./auth";
+
+const PROCESS_START_TIME = Date.now();
 
 const sendMessageSchema = z.object({
   channelId: z.string().min(1),
@@ -166,6 +172,37 @@ export async function registerRoutes(
       setHackclubEnabled(parsed.data.enabled);
     }
     return res.json({ geminiEnabled: getGeminiEnabled(), groqEnabled: getGroqEnabled(), hackclubEnabled: getHackclubEnabled() });
+  });
+
+  app.post("/api/ai/test", async (req, res) => {
+    const schema = z.object({ message: z.string().min(1).max(500) });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Message required (max 500 chars)." });
+    const reply = await askGemini(parsed.data.message, "Dashboard", "dashboard-ai-test");
+    return res.json({ reply: reply ?? "(no response from AI)" });
+  });
+
+  app.get("/api/qotd/status", async (_req, res) => {
+    const rows = await db.select().from(qotdLog).orderBy(desc(qotdLog.sentAt)).limit(1);
+    const last = rows[0] ?? null;
+    const nextType = last?.type === "open" ? "poll" : "open";
+    const now = new Date();
+    const nextAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
+    return res.json({ last, nextType, nextAt: nextAt.toISOString() });
+  });
+
+  app.post("/api/qotd/trigger", async (_req, res) => {
+    const result = await triggerQotdNow();
+    if (!result.ok) return res.status(500).json({ error: result.error });
+    return res.json({ ok: true, type: result.type });
+  });
+
+  app.get("/api/service/health", (_req, res) => {
+    return res.json({
+      processStartTime: PROCESS_START_TIME,
+      keepAliveEnabled: !!process.env.RENDER_EXTERNAL_URL,
+      renderUrl: process.env.RENDER_EXTERNAL_URL ?? null,
+    });
   });
 
   return httpServer;
