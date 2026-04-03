@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -30,3 +30,16 @@ export const qotdLog = pgTable("qotd_log", {
 
 export type QotdEntry = typeof qotdLog.$inferSelect;
 export type InsertQotdEntry = typeof qotdLog.$inferInsert;
+
+/** Ordered AI provider chain (dashboard-managed keys + priority). */
+export const aiProviderChain = pgTable("ai_provider_chain", {
+  id: serial("id").primaryKey(),
+  sortOrder: integer("sort_order").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model"),
+  apiKey: text("api_key"),
+  enabled: boolean("enabled").notNull().default(true),
+});
+
+export type AiProviderChainRow = typeof aiProviderChain.$inferSelect;
+export type InsertAiProviderChainRow = typeof aiProviderChain.$inferInsert;

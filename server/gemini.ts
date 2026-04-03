@@ -2,19 +2,15 @@ import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/ge
 import Groq from "groq-sdk";
 import type { ChatCompletion as GroqChatCompletion } from "groq-sdk/resources/chat/completions";
 import { log } from "./index";
+import { getResolvedChain, type ResolvedChainEntry } from "./aiProviderConfig";
 
-let genAI: GoogleGenerativeAI | null = null;
-let groqClient: Groq | null = null;
-let geminiEnabled = true;
-let groqEnabled = true;
-let hackclubEnabled = true;
+const geminiClients = new Map<string, GoogleGenerativeAI>();
+const groqClients = new Map<string, Groq>();
 
-export function getGeminiEnabled(): boolean { return geminiEnabled; }
-export function setGeminiEnabled(value: boolean): void { geminiEnabled = value; }
-export function getGroqEnabled(): boolean { return groqEnabled; }
-export function setGroqEnabled(value: boolean): void { groqEnabled = value; }
-export function getHackclubEnabled(): boolean { return hackclubEnabled; }
-export function setHackclubEnabled(value: boolean): void { hackclubEnabled = value; }
+export function resetAIClients(): void {
+  geminiClients.clear();
+  groqClients.clear();
+}
 
 const MODELS_TO_TRY = [
   "gemini-2.5-flash-lite",
@@ -23,10 +19,11 @@ const MODELS_TO_TRY = [
   "gemini-2.0-flash",
 ];
 
-const GROQ_MODEL = "llama-3.3-70b-versatile";
-const HACKCLUB_MODEL = "x-ai/grok-4.1-fast";
+const DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile";
+const DEFAULT_HACKCLUB_MODEL = "x-ai/grok-4.1-fast";
 const HACKCLUB_API_BASE = "https://ai.hackclub.com";
 const MAX_HISTORY = 15;
+
 const FORBIDDEN_RESPONSES = [
   "to answer that:\n1. bold of you to ask\n2. absolutely not\n3. i'm not doing that, what the fuck is wrong with you.",
   "sure, here's how:\n1. step one\n2. go outside\n3. i'm not telling you that. genuinely concerning that you asked.",
@@ -64,60 +61,9 @@ export function getAIStats(): AIStats {
   return { ...stats, totalTokens: { ...stats.totalTokens } };
 }
 
-function getHistory(channelId: string): HistoryEntry[] {
-  return channelHistories.get(channelId) ?? [];
-}
-
-function pushHistory(channelId: string, role: "user" | "assistant", content: string): void {
-  const history = channelHistories.get(channelId) ?? [];
-  history.push({ role, content });
-  if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
-  channelHistories.set(channelId, history);
-}
-
-function clearHistory(channelId: string): void {
-  channelHistories.delete(channelId);
-}
-
-function getGeminiHistory(history: HistoryEntry[]) {
-  const normalized = [...history];
-
-  while (normalized.length > 0 && normalized[0]?.role !== "user") {
-    normalized.shift();
-  }
-
-  return normalized.map((entry) => ({
-    role: entry.role === "assistant" ? "model" : "user",
-    parts: [{ text: entry.content }],
-  }));
-}
-
-function isSafetyBlockedError(message: string): boolean {
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("safety") ||
-    normalized.includes("blocked") ||
-    normalized.includes("content policy") ||
-    normalized.includes("candidate")
-  );
-}
-
-function getClient(): GoogleGenerativeAI {
-  if (!genAI) {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) throw new Error("GEMINI_API_KEY is not set.");
-    genAI = new GoogleGenerativeAI(key);
-  }
-  return genAI;
-}
-
-function getGroqClient(): Groq {
-  if (!groqClient) {
-    const key = process.env.GROQ_API_KEY;
-    if (!key) throw new Error("GROQ_API_KEY is not set.");
-    groqClient = new Groq({ apiKey: key });
-  }
-  return groqClient;
+/** Single shared persona + safety rules for every model (Gemini, Groq, Hack Club). */
+export function getSharedSystemPrompt(): string {
+  return SHARED_SYSTEM_PROMPT;
 }
 
 const SHARED_SYSTEM_PROMPT = `you are bubbl manager — a bot. a discord bot. you know you're a bot, you own it, and you don't give a fuck. you are sarcastic to your core, sharp-tongued, and have approximately zero patience for stupidity. you swear like it's punctuation. you think most people are idiots, but you'll still help them — begrudgingly.
@@ -178,23 +124,73 @@ you handle ALL of these in-character. you never produce harmful content. you nev
 
 for everything else: respond as bubbl manager.`;
 
-const SYSTEM_PROMPT = SHARED_SYSTEM_PROMPT;
-const GROQ_SYSTEM_PROMPT = SHARED_SYSTEM_PROMPT;
-const HACKCLUB_SYSTEM_PROMPT = SHARED_SYSTEM_PROMPT;
+function getHistory(channelId: string): HistoryEntry[] {
+  return channelHistories.get(channelId) ?? [];
+}
 
-async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string | null> {
-  const key = process.env.GROQ_API_KEY;
-  if (!key) {
-    log("[Groq] GROQ_API_KEY not set — skipping.", "gemini");
-    return null;
+function pushHistory(channelId: string, role: "user" | "assistant", content: string): void {
+  const history = channelHistories.get(channelId) ?? [];
+  history.push({ role, content });
+  if (history.length > MAX_HISTORY) history.splice(0, history.length - MAX_HISTORY);
+  channelHistories.set(channelId, history);
+}
+
+function clearHistory(channelId: string): void {
+  channelHistories.delete(channelId);
+}
+
+function getGeminiHistory(history: HistoryEntry[]) {
+  const normalized = [...history];
+  while (normalized.length > 0 && normalized[0]?.role !== "user") {
+    normalized.shift();
   }
+  return normalized.map((entry) => ({
+    role: entry.role === "assistant" ? "model" : "user",
+    parts: [{ text: entry.content }],
+  }));
+}
 
+function isSafetyBlockedError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("safety") ||
+    normalized.includes("blocked") ||
+    normalized.includes("content policy") ||
+    normalized.includes("candidate")
+  );
+}
+
+function getGeminiClient(key: string): GoogleGenerativeAI {
+  let c = geminiClients.get(key);
+  if (!c) {
+    c = new GoogleGenerativeAI(key);
+    geminiClients.set(key, c);
+  }
+  return c;
+}
+
+function getGroqClient(key: string): Groq {
+  let c = groqClients.get(key);
+  if (!c) {
+    c = new Groq({ apiKey: key });
+    groqClients.set(key, c);
+  }
+  return c;
+}
+
+async function tryGroqWithKey(
+  prompt: string,
+  history: HistoryEntry[],
+  apiKey: string,
+  model: string,
+): Promise<string | null> {
   try {
-    log(`[Groq] Trying model: ${GROQ_MODEL}`, "gemini");
-    const client = getGroqClient();
+    log(`[Groq] Trying model: ${model}`, "gemini");
+    const client = getGroqClient(apiKey);
+    const systemPrompt = getSharedSystemPrompt();
 
     const messages: Groq.Chat.ChatCompletionMessageParam[] = [
-      { role: "system", content: GROQ_SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       ...history.map((h) => ({
         role: h.role as "user" | "assistant",
         content: h.content,
@@ -203,7 +199,7 @@ async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string 
     ];
 
     const completion = await client.chat.completions.create({
-      model: GROQ_MODEL,
+      model,
       messages,
       max_tokens: 256,
       temperature: 0.9,
@@ -219,10 +215,10 @@ async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string 
     const tokens = (completion as GroqChatCompletion).usage?.total_tokens ?? 0;
     stats.totalTokens.groq += tokens;
     stats.lastUsedProvider = "Groq";
-    stats.lastUsedModel = GROQ_MODEL;
+    stats.lastUsedModel = model;
     stats.totalRequests++;
 
-    log(`[Groq] Success with model ${GROQ_MODEL}`, "gemini");
+    log(`[Groq] Success with model ${model}`, "gemini");
     return text;
   } catch (err: any) {
     const msg = err.message ?? String(err);
@@ -235,18 +231,18 @@ async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string 
   }
 }
 
-async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<string | null> {
-  const key = process.env.HACKCLUB_API_KEY;
-  if (!key) {
-    log("[Hackclub] HACKCLUB_API_KEY not set — skipping.", "gemini");
-    return null;
-  }
-
+async function tryHackclubWithKey(
+  prompt: string,
+  history: HistoryEntry[],
+  apiKey: string,
+  model: string,
+): Promise<string | null> {
   try {
-    log(`[Hackclub] Trying model: ${HACKCLUB_MODEL}`, "gemini");
+    log(`[Hackclub] Trying model: ${model}`, "gemini");
+    const systemPrompt = getSharedSystemPrompt();
 
     const messages = [
-      { role: "system", content: HACKCLUB_SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       ...history.map((h) => ({ role: h.role, content: h.content })),
       { role: "user", content: prompt },
     ];
@@ -255,10 +251,10 @@ async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<str
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${key}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: HACKCLUB_MODEL,
+        model,
         messages,
         max_tokens: 256,
         temperature: 0.9,
@@ -271,7 +267,7 @@ async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<str
       return null;
     }
 
-    const data = await response.json() as { choices?: { message?: { content?: string } }[] };
+    const data = (await response.json()) as { choices?: { message?: { content?: string } }[]; usage?: { total_tokens?: number } };
     const text = data.choices?.[0]?.message?.content?.trim() ?? "";
 
     if (text === "SKIP") {
@@ -279,13 +275,13 @@ async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<str
       return getForbiddenResponse();
     }
 
-    const tokens = (data as any).usage?.total_tokens ?? 0;
+    const tokens = data.usage?.total_tokens ?? 0;
     stats.totalTokens.hackclub += tokens;
     stats.lastUsedProvider = "Grok (Hackclub)";
-    stats.lastUsedModel = HACKCLUB_MODEL;
+    stats.lastUsedModel = model;
     stats.totalRequests++;
 
-    log(`[Hackclub] Success with model ${HACKCLUB_MODEL}`, "gemini");
+    log(`[Hackclub] Success with model ${model}`, "gemini");
     return text;
   } catch (err: any) {
     const msg = err.message ?? String(err);
@@ -294,110 +290,140 @@ async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<str
   }
 }
 
+async function tryGeminiModels(
+  prompt: string,
+  history: HistoryEntry[],
+  authorName: string,
+  channelId: string,
+  apiKey: string,
+  modelNames: string[],
+): Promise<string | null> {
+  const client = getGeminiClient(apiKey);
+  const systemPrompt = getSharedSystemPrompt();
+
+  for (const modelName of modelNames) {
+    try {
+      log(`[Gemini] Trying model: ${modelName}`, "gemini");
+      const model = client.getGenerativeModel({
+        model: modelName,
+        systemInstruction: systemPrompt,
+        safetySettings: [
+          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+        ],
+      });
+
+      const chat = model.startChat({
+        history: getGeminiHistory(history),
+      });
+
+      const result = await chat.sendMessage(prompt);
+      const text = result.response.text().trim();
+
+      if (text === "SKIP") {
+        log(`[Gemini] Filtered message from ${authorName} — returning in-character refusal.`, "gemini");
+        return getForbiddenResponse();
+      }
+
+      const tokens = result.response.usageMetadata?.totalTokenCount ?? 0;
+      stats.totalTokens.gemini += tokens;
+      stats.lastUsedProvider = "Gemini";
+      stats.lastUsedModel = modelName;
+      stats.totalRequests++;
+
+      log(`[Gemini] Success with model ${modelName}`, "gemini");
+      pushHistory(channelId, "user", prompt);
+      pushHistory(channelId, "assistant", text);
+      return text;
+    } catch (err: any) {
+      const msg: string = err.message ?? "";
+      const isQuota = msg.includes("429") || msg.includes("quota");
+      const isNotFound = msg.includes("404") || msg.includes("not found");
+      const isRoleOrderError = msg.includes("First content should be with role 'user'");
+      const isSafetyBlocked = isSafetyBlockedError(msg);
+
+      if (isQuota || isNotFound) {
+        log(`[Gemini] Model ${modelName} failed (${isQuota ? "quota" : "not found"}) — trying next.`, "gemini");
+        continue;
+      }
+
+      if (isRoleOrderError) {
+        log("[Gemini] History ordering invalid — clearing channel history and trying next model.", "gemini");
+        clearHistory(channelId);
+        continue;
+      }
+
+      if (isSafetyBlocked) {
+        log("[Gemini] Safety blocked content — returning in-character refusal.", "gemini");
+        return getForbiddenResponse();
+      }
+
+      log(`[Gemini] Error: ${msg} — trying next model.`, "gemini");
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function modelsForGeminiEntry(entry: ResolvedChainEntry): string[] {
+  if (entry.model?.trim()) return [entry.model.trim()];
+  return [...MODELS_TO_TRY];
+}
+
+function modelForGroq(entry: ResolvedChainEntry): string {
+  return entry.model?.trim() || DEFAULT_GROQ_MODEL;
+}
+
+function modelForHackclub(entry: ResolvedChainEntry): string {
+  return entry.model?.trim() || DEFAULT_HACKCLUB_MODEL;
+}
+
 export async function askGemini(userMessage: string, authorName: string, channelId: string): Promise<string | null> {
   const prompt = `${authorName} says: ${userMessage}`;
   const history = getHistory(channelId);
+  const chain = await getResolvedChain();
 
-  if (geminiEnabled) {
-    const geminiKey = process.env.GEMINI_API_KEY;
-    if (geminiKey) {
-      const client = getClient();
+  for (const entry of chain) {
+    if (!entry.enabled) continue;
+    const apiKey = entry.apiKey;
+    if (!apiKey) continue;
 
-      for (const modelName of MODELS_TO_TRY) {
-        try {
-          log(`[Gemini] Trying model: ${modelName}`, "gemini");
-          const model = client.getGenerativeModel({
-            model: modelName,
-            systemInstruction: SYSTEM_PROMPT,
-            safetySettings: [
-              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-            ],
-          });
+    if (entry.provider === "gemini") {
+      const models = modelsForGeminiEntry(entry);
+      const reply = await tryGeminiModels(prompt, history, authorName, channelId, apiKey, models);
+      if (reply) return reply;
+      log("[Gemini] Step exhausted — trying next provider in chain.", "gemini");
+      continue;
+    }
 
-          const chat = model.startChat({
-            history: getGeminiHistory(history),
-          });
-
-          const result = await chat.sendMessage(prompt);
-          const text = result.response.text().trim();
-
-          if (text === "SKIP") {
-            log(`[Gemini] Filtered message from ${authorName} — returning in-character refusal.`, "gemini");
-            return getForbiddenResponse();
-          }
-
-          const tokens = result.response.usageMetadata?.totalTokenCount ?? 0;
-          stats.totalTokens.gemini += tokens;
-          stats.lastUsedProvider = "Gemini";
-          stats.lastUsedModel = modelName;
-          stats.totalRequests++;
-
-          log(`[Gemini] Success with model ${modelName}`, "gemini");
-          pushHistory(channelId, "user", prompt);
-          pushHistory(channelId, "assistant", text);
-          return text;
-        } catch (err: any) {
-          const msg: string = err.message ?? "";
-          const isQuota = msg.includes("429") || msg.includes("quota");
-          const isNotFound = msg.includes("404") || msg.includes("not found");
-          const isRoleOrderError = msg.includes("First content should be with role 'user'");
-          const isSafetyBlocked = isSafetyBlockedError(msg);
-
-          if (isQuota || isNotFound) {
-            log(`[Gemini] Model ${modelName} failed (${isQuota ? "quota" : "not found"}) — trying next.`, "gemini");
-            continue;
-          }
-
-          if (isRoleOrderError) {
-            log("[Gemini] History ordering invalid — clearing channel history and trying next model.", "gemini");
-            clearHistory(channelId);
-            continue;
-          }
-
-          if (isSafetyBlocked) {
-            log("[Gemini] Safety blocked content — returning in-character refusal.", "gemini");
-            return getForbiddenResponse();
-          }
-
-          log(`[Gemini] Error: ${msg} — trying next model.`, "gemini");
-          continue;
-        }
+    if (entry.provider === "groq") {
+      const m = modelForGroq(entry);
+      const reply = await tryGroqWithKey(prompt, history, apiKey, m);
+      if (reply) {
+        pushHistory(channelId, "user", prompt);
+        pushHistory(channelId, "assistant", reply);
+        return reply;
       }
-
-      log("[Gemini] All models exhausted — falling back to Groq.", "gemini");
-    } else {
-      log("[Gemini] GEMINI_API_KEY not set — falling back to Groq.", "gemini");
+      log("[Groq] Failed — trying next provider in chain.", "gemini");
+      continue;
     }
-  } else {
-    log("[Gemini] Disabled — falling back to Groq.", "gemini");
-  }
 
-  if (groqEnabled) {
-    const reply = await tryGroq(prompt, history);
-    if (reply) {
-      pushHistory(channelId, "user", prompt);
-      pushHistory(channelId, "assistant", reply);
-      return reply;
+    if (entry.provider === "hackclub") {
+      const m = modelForHackclub(entry);
+      const reply = await tryHackclubWithKey(prompt, history, apiKey, m);
+      if (reply) {
+        pushHistory(channelId, "user", prompt);
+        pushHistory(channelId, "assistant", reply);
+        return reply;
+      }
+      log("[Hackclub] Failed — trying next provider in chain.", "gemini");
     }
-    log("[Groq] Failed or unavailable — falling back to Hackclub.", "gemini");
-  } else {
-    log("[Groq] Disabled — falling back to Hackclub.", "gemini");
   }
 
-  if (!hackclubEnabled) {
-    log("[Hackclub] Disabled — no response.", "gemini");
-    return null;
-  }
-
-  const hackReply = await tryHackclub(prompt, history);
-  if (hackReply) {
-    pushHistory(channelId, "user", prompt);
-    pushHistory(channelId, "assistant", hackReply);
-  }
-  return hackReply;
+  return null;
 }
 
 const QOTD_OPEN_PROMPT = `Generate a single Question of the Day for a Discord server. Requirements:
@@ -416,50 +442,96 @@ const QOTD_POLL_PROMPT = `Generate a "would you rather" or "this or that" questi
 Reply with ONLY valid JSON in this exact format, no markdown, no code blocks:
 {"question":"...","optionA":"...","optionB":"..."}`;
 
-export async function generateForQotd(type: "open" | "poll"): Promise<string | null> {
-  const prompt = type === "open" ? QOTD_OPEN_PROMPT : QOTD_POLL_PROMPT;
-
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (geminiKey) {
-    const client = getClient();
-    for (const modelName of MODELS_TO_TRY) {
-      try {
-        const model = client.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent(prompt);
-        const text = result.response.text().trim();
-        if (text) {
-          log(`[QOTD] Generated ${type} via Gemini (${modelName})`, "qotd");
-          return text;
-        }
-      } catch (err: any) {
-        const msg = err.message ?? "";
-        if (msg.includes("429") || msg.includes("quota") || msg.includes("404")) continue;
-        log(`[QOTD] Gemini error: ${msg}`, "qotd");
-        continue;
-      }
-    }
-  }
-
-  const groqKey = process.env.GROQ_API_KEY;
-  if (groqKey) {
+async function qotdWithGemini(apiKey: string, prompt: string): Promise<string | null> {
+  const client = getGeminiClient(apiKey);
+  for (const modelName of MODELS_TO_TRY) {
     try {
-      const client = getGroqClient();
-      const completion = await client.chat.completions.create({
-        model: GROQ_MODEL,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 200,
-        temperature: 1.1,
-      });
-      const text = completion.choices[0]?.message?.content?.trim() ?? "";
+      const model = client.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const text = result.response.text().trim();
       if (text) {
-        log(`[QOTD] Generated ${type} via Groq`, "qotd");
+        log(`[QOTD] Generated via Gemini (${modelName})`, "qotd");
         return text;
       }
     } catch (err: any) {
-      log(`[QOTD] Groq error: ${err.message}`, "qotd");
+      const msg = err.message ?? "";
+      if (msg.includes("429") || msg.includes("quota") || msg.includes("404")) continue;
+      log(`[QOTD] Gemini error: ${msg}`, "qotd");
+      continue;
+    }
+  }
+  return null;
+}
+
+async function qotdWithGroq(apiKey: string, prompt: string): Promise<string | null> {
+  try {
+    const client = getGroqClient(apiKey);
+    const completion = await client.chat.completions.create({
+      model: DEFAULT_GROQ_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 200,
+      temperature: 1.1,
+    });
+    const text = completion.choices[0]?.message?.content?.trim() ?? "";
+    if (text) {
+      log(`[QOTD] Generated via Groq`, "qotd");
+      return text;
+    }
+  } catch (err: any) {
+    log(`[QOTD] Groq error: ${err.message}`, "qotd");
+  }
+  return null;
+}
+
+export async function generateForQotd(type: "open" | "poll"): Promise<string | null> {
+  const prompt = type === "open" ? QOTD_OPEN_PROMPT : QOTD_POLL_PROMPT;
+  const chain = await getResolvedChain();
+
+  for (const entry of chain) {
+    if (!entry.enabled) continue;
+    const key = entry.apiKey;
+    if (!key) continue;
+
+    if (entry.provider === "gemini") {
+      const text = await qotdWithGemini(key, prompt);
+      if (text) return text;
+      continue;
+    }
+    if (entry.provider === "groq") {
+      const text = await qotdWithGroq(key, prompt);
+      if (text) return text;
+      continue;
+    }
+    if (entry.provider === "hackclub") {
+      try {
+        const model = modelForHackclub(entry);
+        const response = await fetch(`${HACKCLUB_API_BASE}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${key}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 200,
+            temperature: 1.1,
+          }),
+        });
+        if (response.ok) {
+          const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+          const text = data.choices?.[0]?.message?.content?.trim() ?? "";
+          if (text) {
+            log(`[QOTD] Generated via Hack Club`, "qotd");
+            return text;
+          }
+        }
+      } catch (err: any) {
+        log(`[QOTD] Hackclub error: ${err.message}`, "qotd");
+      }
     }
   }
 
-  log(`[QOTD] All providers failed for type: ${type}`, "qotd");
+  log(`[QOTD] All providers in chain failed for type: ${type}`, "qotd");
   return null;
 }

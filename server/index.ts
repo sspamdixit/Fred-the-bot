@@ -139,7 +139,7 @@ function startKeepAlive() {
     {
       port,
       host: "0.0.0.0",
-      reusePort: true,
+      ...(process.platform !== "win32" ? { reusePort: true as const } : {}),
     },
     () => {
       log(`serving on port ${port}`);

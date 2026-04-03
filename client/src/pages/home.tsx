@@ -36,6 +36,10 @@ import {
   Play,
   FlaskConical,
   XCircle,
+  ChevronUp,
+  ChevronDown,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import {
   apiRequest,
@@ -86,6 +90,41 @@ const STATUS_OPTIONS = [
 ] as const;
 
 const ACTIVITY_TYPES = ["Playing", "Watching", "Listening", "Competing", "Streaming", "Custom"] as const;
+
+type AiProviderKind = "gemini" | "groq" | "hackclub";
+
+interface AiProviderRowApi {
+  id: number;
+  sortOrder: number;
+  provider: AiProviderKind;
+  model: string | null;
+  enabled: boolean;
+  keyHint: string | null;
+  keySource: "db" | "env" | "none";
+}
+
+interface AiProviderDraft {
+  /** Stable key for React list (reorder-safe). */
+  localId: string;
+  id?: number;
+  provider: AiProviderKind;
+  model: string;
+  enabled: boolean;
+  newKey: string;
+  clearStoredKey: boolean;
+}
+
+const PROVIDER_LABEL: Record<AiProviderKind, string> = {
+  gemini: "Gemini (Google)",
+  groq: "Groq",
+  hackclub: "Hack Club (Grok)",
+};
+
+const MODEL_PLACEHOLDER: Record<AiProviderKind, string> = {
+  gemini: "default: tries flash models in order",
+  groq: "default: llama-3.3-70b-versatile",
+  hackclub: "default: x-ai/grok-4.1-fast",
+};
 
 function formatUptime(uptimeStart: number | null): string {
   if (!uptimeStart) return "—";
@@ -310,26 +349,50 @@ function Dashboard() {
   const [activityName,   setActivityName]   = useState<string>("the Archives");
   const [presenceSaved,  setPresenceSaved]  = useState(false);
 
-  const { data: aiStatus, isLoading: aiLoading } = useQuery<{
-    geminiEnabled: boolean;
-    groqEnabled: boolean;
-    hackclubEnabled: boolean;
-    hasGeminiKey: boolean;
-    hasGroqKey: boolean;
-    hasHackclubKey: boolean;
-  }>({
-    queryKey: ["/api/ai/status"],
-    refetchInterval: 10000,
+  const { data: aiProvidersData, isLoading: aiLoading } = useQuery<{ providers: AiProviderRowApi[] }>({
+    queryKey: ["/api/ai/providers"],
+    refetchInterval: false,
   });
 
-  const aiToggleMutation = useMutation({
-    mutationFn: ({ provider, enabled }: { provider: "gemini" | "groq" | "hackclub"; enabled: boolean }) =>
-      apiRequest("POST", "/api/ai/toggle", { provider, enabled }),
+  const [aiDraft, setAiDraft] = useState<AiProviderDraft[] | null>(null);
+
+  useEffect(() => {
+    if (!aiProvidersData?.providers) return;
+    setAiDraft(
+      aiProvidersData.providers.map((p) => ({
+        localId: `s-${p.id}`,
+        id: p.id,
+        provider: p.provider,
+        model: p.model ?? "",
+        enabled: p.enabled,
+        newKey: "",
+        clearStoredKey: false,
+      })),
+    );
+  }, [aiProvidersData]);
+
+  const aiSaveMutation = useMutation({
+    mutationFn: async () => {
+      if (!aiDraft?.length) throw new Error("Nothing to save.");
+      const body = {
+        providers: aiDraft.map(({ localId: _lid, ...r }) => ({
+          id: r.id,
+          provider: r.provider,
+          model: r.model.trim() || null,
+          enabled: r.enabled,
+          ...(r.clearStoredKey ? { apiKey: "" } : r.newKey.trim() ? { apiKey: r.newKey.trim() } : {}),
+        })),
+      };
+      const res = await apiRequest("PUT", "/api/ai/providers", body);
+      return res.json() as Promise<{ providers: AiProviderRowApi[] }>;
+    },
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/ai/providers"] });
       qc.invalidateQueries({ queryKey: ["/api/ai/status"] });
+      toast({ title: "AI settings saved", description: "Provider order and keys updated." });
     },
     onError: (err: any) => {
-      toast({ title: "Failed to toggle AI", description: err?.message ?? "Something went wrong.", variant: "destructive" });
+      toast({ title: "Save failed", description: err?.message ?? "Something went wrong.", variant: "destructive" });
     },
   });
 
@@ -481,7 +544,10 @@ function Dashboard() {
 
           <button
             className="aero-btn aero-btn-ghost aero-btn-sm"
-            onClick={() => refetch()}
+            onClick={() => {
+              refetch();
+              qc.invalidateQueries({ queryKey: ["/api/ai/providers"] });
+            }}
             disabled={isFetching}
             data-testid="button-refresh"
           >
@@ -700,139 +766,252 @@ function Dashboard() {
 
         <Panel title="AI Responses" icon={Bot}>
           <div className="space-y-4">
+            <p className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.5)" }}>
+              Providers are tried from top to bottom. The same system instructions (persona + safety rules) apply to every model.
+              Keys are stored in the database. Leave the key field blank when saving to keep the current key; use &quot;Use env only&quot; to clear a stored key and use the server environment variable instead.
+            </p>
 
-            {/* Gemini toggle */}
-            <div
-              className="rounded-xl p-4 space-y-3"
-              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <p className="text-sm font-semibold text-white">Gemini</p>
-                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                    Primary AI — tried first on every mention.
-                  </p>
-                </div>
-                {aiLoading ? (
-                  <GlassSkeleton className="w-11 h-6 rounded-full" />
-                ) : (
-                  <Switch
-                    data-testid="switch-gemini-enabled"
-                    checked={aiStatus?.geminiEnabled ?? false}
-                    disabled={aiToggleMutation.isPending}
-                    onCheckedChange={(val) => aiToggleMutation.mutate({ provider: "gemini", enabled: val })}
-                  />
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                <KeyRound
-                  className="w-3.5 h-3.5 flex-shrink-0"
-                  style={{ color: aiStatus?.hasGeminiKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                />
-                <span>
-                  API key:{" "}
-                  <span
-                    className="font-semibold"
-                    style={{ color: aiStatus?.hasGeminiKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                    data-testid="text-gemini-key-status"
+            {aiLoading || !aiDraft ? (
+              <GlassSkeleton className="h-48 w-full rounded-xl" />
+            ) : (
+              <>
+                {aiDraft.map((row, idx) => {
+                  const serverRow = aiProvidersData?.providers.find((p) => p.id === row.id);
+                  const keyOk = serverRow && (serverRow.keySource !== "none" || row.newKey.trim().length > 0);
+                  const keyColor = keyOk ? "rgb(74,222,128)" : "rgb(248,113,113)";
+                  return (
+                    <div
+                      key={row.localId}
+                      className="rounded-xl p-4 space-y-3"
+                      style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
+                    >
+                      <div className="flex flex-wrap items-start gap-3">
+                        <div className="flex flex-col gap-1">
+                          <button
+                            type="button"
+                            className="aero-btn aero-btn-ghost aero-btn-sm px-2 py-1"
+                            disabled={idx === 0 || aiSaveMutation.isPending}
+                            aria-label="Move up"
+                            onClick={() => {
+                              setAiDraft((d) => {
+                                if (!d || idx === 0) return d;
+                                const next = [...d];
+                                [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                                return next;
+                              });
+                            }}
+                          >
+                            <ChevronUp className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            className="aero-btn aero-btn-ghost aero-btn-sm px-2 py-1"
+                            disabled={idx >= aiDraft.length - 1 || aiSaveMutation.isPending}
+                            aria-label="Move down"
+                            onClick={() => {
+                              setAiDraft((d) => {
+                                if (!d || idx >= d.length - 1) return d;
+                                const next = [...d];
+                                [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+                                return next;
+                              });
+                            }}
+                          >
+                            <ChevronDown className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        <div className="flex-1 min-w-[200px] space-y-3">
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span
+                              className="text-xs font-bold uppercase tracking-wider"
+                              style={{ color: "rgba(255,255,255,0.45)" }}
+                            >
+                              #{idx + 1}
+                            </span>
+                            <Select
+                              value={row.provider}
+                              onValueChange={(v) => {
+                                const pv = v as AiProviderKind;
+                                setAiDraft((d) => {
+                                  if (!d) return d;
+                                  const next = [...d];
+                                  next[idx] = { ...next[idx], provider: pv };
+                                  return next;
+                                });
+                              }}
+                              disabled={aiSaveMutation.isPending}
+                            >
+                              <SelectTrigger className="aero-select-trigger w-[220px] h-9" data-testid={`select-ai-provider-${idx}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="gemini">{PROVIDER_LABEL.gemini}</SelectItem>
+                                <SelectItem value="groq">{PROVIDER_LABEL.groq}</SelectItem>
+                                <SelectItem value="hackclub">{PROVIDER_LABEL.hackclub}</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }}>On</span>
+                              <Switch
+                                checked={row.enabled}
+                                disabled={aiSaveMutation.isPending}
+                                onCheckedChange={(checked) => {
+                                  setAiDraft((d) => {
+                                    if (!d) return d;
+                                    const next = [...d];
+                                    next[idx] = { ...next[idx], enabled: checked };
+                                    return next;
+                                  });
+                                }}
+                                data-testid={`switch-ai-enabled-${idx}`}
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <AeroLabel htmlFor={`ai-model-${idx}`}>Model override</AeroLabel>
+                            <Input
+                              id={`ai-model-${idx}`}
+                              className="aero-input h-9"
+                              placeholder={MODEL_PLACEHOLDER[row.provider]}
+                              value={row.model}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setAiDraft((d) => {
+                                  if (!d) return d;
+                                  const next = [...d];
+                                  next[idx] = { ...next[idx], model: v };
+                                  return next;
+                                });
+                              }}
+                              disabled={aiSaveMutation.isPending}
+                            />
+                          </div>
+
+                          <div>
+                            <AeroLabel htmlFor={`ai-key-${idx}`}>API key</AeroLabel>
+                            <Input
+                              id={`ai-key-${idx}`}
+                              type="password"
+                              className="aero-input h-9"
+                              placeholder="Leave blank to keep current key"
+                              value={row.newKey}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setAiDraft((d) => {
+                                  if (!d) return d;
+                                  const next = [...d];
+                                  next[idx] = { ...next[idx], newKey: v, clearStoredKey: false };
+                                  return next;
+                                });
+                              }}
+                              disabled={aiSaveMutation.isPending}
+                              autoComplete="off"
+                            />
+                            <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                              {serverRow?.keySource === "db" && (
+                                <button
+                                  type="button"
+                                  className="text-xs underline underline-offset-2"
+                                  style={{ color: "rgba(125,211,252,0.9)" }}
+                                  onClick={() => {
+                                    setAiDraft((d) => {
+                                      if (!d) return d;
+                                      const next = [...d];
+                                      next[idx] = { ...next[idx], newKey: "", clearStoredKey: true };
+                                      return next;
+                                    });
+                                  }}
+                                >
+                                  Use env only (clear stored key)
+                                </button>
+                              )}
+                              {row.clearStoredKey && (
+                                <span className="text-xs" style={{ color: "rgb(250,204,21)" }}>
+                                  Will clear stored key on save
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                            <KeyRound className="w-3.5 h-3.5 flex-shrink-0" style={{ color: keyColor }} />
+                            <span>
+                              Active key:{" "}
+                              <span className="font-semibold" style={{ color: keyColor }}>
+                                {serverRow?.keyHint ?? "—"}
+                                {serverRow?.keySource === "env" && !row.newKey && !row.clearStoredKey && " (environment)"}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="aero-btn aero-btn-ghost aero-btn-sm px-2 py-2 text-red-300"
+                          disabled={aiDraft.length <= 1 || aiSaveMutation.isPending}
+                          aria-label="Remove provider"
+                          onClick={() => {
+                            setAiDraft((d) => (d ? d.filter((_, i) => i !== idx) : d));
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    className="aero-btn aero-btn-ghost aero-btn-sm"
+                    disabled={aiSaveMutation.isPending}
+                    onClick={() => {
+                      setAiDraft((d) => [
+                        ...(d ?? []),
+                        {
+                          localId: `n-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+                          provider: "groq",
+                          model: "",
+                          enabled: true,
+                          newKey: "",
+                          clearStoredKey: false,
+                        },
+                      ]);
+                    }}
                   >
-                    {aiLoading ? "checking…" : aiStatus?.hasGeminiKey ? "Configured" : "Not set"}
-                  </span>
-                </span>
-              </div>
-            </div>
-
-            {/* Groq toggle */}
-            <div
-              className="rounded-xl p-4 space-y-3"
-              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <p className="text-sm font-semibold text-white">Groq</p>
-                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                    Fallback AI — used when Gemini is off or exhausted.
-                  </p>
-                </div>
-                {aiLoading ? (
-                  <GlassSkeleton className="w-11 h-6 rounded-full" />
-                ) : (
-                  <Switch
-                    data-testid="switch-groq-enabled"
-                    checked={aiStatus?.groqEnabled ?? false}
-                    disabled={aiToggleMutation.isPending}
-                    onCheckedChange={(val) => aiToggleMutation.mutate({ provider: "groq", enabled: val })}
-                  />
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                <KeyRound
-                  className="w-3.5 h-3.5 flex-shrink-0"
-                  style={{ color: aiStatus?.hasGroqKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                />
-                <span>
-                  API key:{" "}
-                  <span
-                    className="font-semibold"
-                    style={{ color: aiStatus?.hasGroqKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                    data-testid="text-groq-key-status"
+                    <Plus className="w-4 h-4" />
+                    Add provider
+                  </button>
+                  <button
+                    type="button"
+                    className="aero-btn"
+                    disabled={aiSaveMutation.isPending || !aiDraft.length}
+                    data-testid="button-save-ai-providers"
+                    onClick={() => aiSaveMutation.mutate()}
                   >
-                    {aiLoading ? "checking…" : aiStatus?.hasGroqKey ? "Configured" : "Not set"}
-                  </span>
-                </span>
-              </div>
-            </div>
-
-            {/* Hackclub toggle */}
-            <div
-              className="rounded-xl p-4 space-y-3"
-              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <p className="text-sm font-semibold text-white">Tertiary AI Fallback</p>
-                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                    Last resort — used when Gemini and Groq are off or exhausted.
-                  </p>
+                    {aiSaveMutation.isPending ? (
+                      <><RefreshCw className="w-4 h-4 animate-spin" />Saving…</>
+                    ) : (
+                      <><ShieldCheck className="w-4 h-4" />Save AI settings</>
+                    )}
+                  </button>
                 </div>
-                {aiLoading ? (
-                  <GlassSkeleton className="w-11 h-6 rounded-full" />
-                ) : (
-                  <Switch
-                    data-testid="switch-hackclub-enabled"
-                    checked={aiStatus?.hackclubEnabled ?? false}
-                    disabled={aiToggleMutation.isPending}
-                    onCheckedChange={(val) => aiToggleMutation.mutate({ provider: "hackclub", enabled: val })}
-                  />
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                <KeyRound
-                  className="w-3.5 h-3.5 flex-shrink-0"
-                  style={{ color: aiStatus?.hasHackclubKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                />
-                <span>
-                  API key:{" "}
-                  <span
-                    className="font-semibold"
-                    style={{ color: aiStatus?.hasHackclubKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                    data-testid="text-hackclub-key-status"
-                  >
-                    {aiLoading ? "checking…" : aiStatus?.hasHackclubKey ? "Configured" : "Not set"}
-                  </span>
-                </span>
-              </div>
-            </div>
+              </>
+            )}
 
-            {/* Warning if all are off */}
-            {aiStatus && !aiStatus.geminiEnabled && !aiStatus.groqEnabled && !aiStatus.hackclubEnabled && (
+            {aiProvidersData?.providers?.length && aiProvidersData.providers.every(
+              (p) => !p.enabled || p.keySource === "none",
+            ) && (
               <div
                 className="flex items-start gap-2 px-4 py-3 rounded-xl text-sm"
                 style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)" }}
               >
                 <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "rgb(248,113,113)" }} />
                 <span style={{ color: "rgba(255,255,255,0.65)" }}>
-                  All AI providers are disabled — the bot will not reply to mentions.
+                  No usable AI provider (every step is off or has no key). The bot will not reply to mentions until you add keys or enable a step with an environment key.
                 </span>
               </div>
             )}
