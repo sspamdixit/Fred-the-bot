@@ -320,7 +320,7 @@ export async function startBot() {
           "",
           "what it does:",
           "- responds when you ping it or use `!bubbl <message>`",
-          "- tries AI providers in the order set in the dashboard (gemini / groq / hack club), same persona on every model",
+          "- runs on gemini first, falls back to groq, then grok via hackclub if needed",
           "- has memory per channel (last 15 messages)",
           "- streams live messages to a dashboard",
           "- lets admins control presence, send messages, and manage settings",

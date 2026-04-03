@@ -9,8 +9,7 @@ import {
   setBotPresence,
   dispatchMessage,
 } from "./bot";
-import { askGemini, resetAIClients } from "./gemini";
-import { listProvidersForDashboard, saveProviderChain } from "./aiProviderConfig";
+import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled, getHackclubEnabled, setHackclubEnabled, askGemini } from "./gemini";
 import { triggerQotdNow, getQotdStatus } from "./qotd";
 import { z } from "zod";
 import { DASHBOARD_AUTH_HEADER, issueAuthToken, isAuthTokenValid } from "./auth";
@@ -142,46 +141,34 @@ export async function registerRoutes(
     return res.json({ success: true });
   });
 
-  app.get("/api/ai/status", async (_req, res) => {
-    const { providers } = await listProvidersForDashboard();
-    const anyReady = providers.some((p) => p.enabled && p.keySource !== "none");
+  app.get("/api/ai/status", (_req, res) => {
     res.json({
-      providers,
-      anyProviderReady: anyReady,
+      geminiEnabled: getGeminiEnabled(),
+      groqEnabled: getGroqEnabled(),
+      hackclubEnabled: getHackclubEnabled(),
+      hasGeminiKey: !!process.env.GEMINI_API_KEY,
+      hasGroqKey: !!process.env.GROQ_API_KEY,
+      hasHackclubKey: !!process.env.HACKCLUB_API_KEY,
     });
   });
 
-  app.get("/api/ai/providers", async (_req, res) => {
-    const data = await listProvidersForDashboard();
-    return res.json(data);
-  });
-
-  const aiProvidersPutSchema = z.object({
-    providers: z.array(
-      z.object({
-        id: z.number().int().optional(),
-        provider: z.enum(["gemini", "groq", "hackclub"]),
-        model: z.string().max(200).nullable().optional(),
-        enabled: z.boolean(),
-        /** Omit to keep existing key; send "" to clear stored key (use env only). */
-        apiKey: z.string().optional(),
-      }),
-    ),
-  });
-
-  app.put("/api/ai/providers", async (req, res) => {
-    const parsed = aiProvidersPutSchema.safeParse(req.body);
+  app.post("/api/ai/toggle", (req, res) => {
+    const schema = z.object({
+      provider: z.enum(["gemini", "groq", "hackclub"]),
+      enabled: z.boolean(),
+    });
+    const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: "Invalid body.", details: parsed.error.flatten() });
+      return res.status(400).json({ error: "Expected { provider: 'gemini' | 'groq' | 'hackclub', enabled: boolean }" });
     }
-    try {
-      await saveProviderChain(parsed.data.providers);
-      resetAIClients();
-      const data = await listProvidersForDashboard();
-      return res.json(data);
-    } catch (e: any) {
-      return res.status(500).json({ error: e?.message ?? "Failed to save providers." });
+    if (parsed.data.provider === "gemini") {
+      setGeminiEnabled(parsed.data.enabled);
+    } else if (parsed.data.provider === "groq") {
+      setGroqEnabled(parsed.data.enabled);
+    } else {
+      setHackclubEnabled(parsed.data.enabled);
     }
+    return res.json({ geminiEnabled: getGeminiEnabled(), groqEnabled: getGroqEnabled(), hackclubEnabled: getHackclubEnabled() });
   });
 
   app.post("/api/ai/test", async (req, res) => {
