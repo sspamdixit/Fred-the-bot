@@ -9,7 +9,15 @@ import {
   setBotPresence,
   dispatchMessage,
 } from "./bot";
-import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled, getHackclubEnabled, setHackclubEnabled, askGemini } from "./gemini";
+import { askGemini } from "./gemini";
+import {
+  getAIProviderStatuses,
+  isAIProviderId,
+  removeAIProviderApiKey,
+  setAIProviderApiKey,
+  setAIProviderEnabled,
+  updateAIProviderOrder,
+} from "./aiConfig";
 import { triggerQotdNow, getQotdStatus } from "./qotd";
 import { z } from "zod";
 import { DASHBOARD_AUTH_HEADER, issueAuthToken, isAuthTokenValid } from "./auth";
@@ -141,18 +149,25 @@ export async function registerRoutes(
     return res.json({ success: true });
   });
 
-  app.get("/api/ai/status", (_req, res) => {
-    res.json({
-      geminiEnabled: getGeminiEnabled(),
-      groqEnabled: getGroqEnabled(),
-      hackclubEnabled: getHackclubEnabled(),
-      hasGeminiKey: !!process.env.GEMINI_API_KEY,
-      hasGroqKey: !!process.env.GROQ_API_KEY,
-      hasHackclubKey: !!process.env.HACKCLUB_API_KEY,
-    });
+  app.get("/api/ai/status", async (_req, res, next) => {
+    try {
+      const providers = await getAIProviderStatuses();
+      const getProvider = (provider: string) => providers.find((item) => item.id === provider);
+      res.json({
+        providers,
+        geminiEnabled: getProvider("gemini")?.enabled ?? false,
+        groqEnabled: getProvider("groq")?.enabled ?? false,
+        hackclubEnabled: getProvider("hackclub")?.enabled ?? false,
+        hasGeminiKey: getProvider("gemini")?.hasKey ?? false,
+        hasGroqKey: getProvider("groq")?.hasKey ?? false,
+        hasHackclubKey: getProvider("hackclub")?.hasKey ?? false,
+      });
+    } catch (err) {
+      next(err);
+    }
   });
 
-  app.post("/api/ai/toggle", (req, res) => {
+  app.post("/api/ai/toggle", async (req, res, next) => {
     const schema = z.object({
       provider: z.enum(["gemini", "groq", "hackclub"]),
       enabled: z.boolean(),
@@ -161,14 +176,62 @@ export async function registerRoutes(
     if (!parsed.success) {
       return res.status(400).json({ error: "Expected { provider: 'gemini' | 'groq' | 'hackclub', enabled: boolean }" });
     }
-    if (parsed.data.provider === "gemini") {
-      setGeminiEnabled(parsed.data.enabled);
-    } else if (parsed.data.provider === "groq") {
-      setGroqEnabled(parsed.data.enabled);
-    } else {
-      setHackclubEnabled(parsed.data.enabled);
+    try {
+      await setAIProviderEnabled(parsed.data.provider, parsed.data.enabled);
+      const providers = await getAIProviderStatuses();
+      return res.json({ providers });
+    } catch (err) {
+      return next(err);
     }
-    return res.json({ geminiEnabled: getGeminiEnabled(), groqEnabled: getGroqEnabled(), hackclubEnabled: getHackclubEnabled() });
+  });
+
+  app.post("/api/ai/key", async (req, res, next) => {
+    const schema = z.object({
+      provider: z.enum(["gemini", "groq", "hackclub"]),
+      apiKey: z.string().min(1).max(4096),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Expected { provider, apiKey }." });
+    }
+    try {
+      await setAIProviderApiKey(parsed.data.provider, parsed.data.apiKey);
+      const providers = await getAIProviderStatuses();
+      return res.json({ providers });
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  app.delete("/api/ai/key/:provider", async (req, res, next) => {
+    const provider = req.params.provider;
+    if (!isAIProviderId(provider)) {
+      return res.status(400).json({ error: "Unknown AI provider." });
+    }
+    try {
+      await removeAIProviderApiKey(provider);
+      const providers = await getAIProviderStatuses();
+      return res.json({ providers });
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  app.post("/api/ai/order", async (req, res, next) => {
+    const schema = z.object({
+      providers: z.array(z.enum(["gemini", "groq", "hackclub"])).length(3),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Expected provider order with gemini, groq, and hackclub." });
+    }
+    try {
+      await updateAIProviderOrder(parsed.data.providers);
+      const providers = await getAIProviderStatuses();
+      return res.json({ providers });
+    } catch (err) {
+      return next(err);
+    }
   });
 
   app.post("/api/ai/test", async (req, res) => {

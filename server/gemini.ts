@@ -2,19 +2,10 @@ import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/ge
 import Groq from "groq-sdk";
 import type { ChatCompletion as GroqChatCompletion } from "groq-sdk/resources/chat/completions";
 import { log } from "./index";
+import { getAIProviderRuntime } from "./aiConfig";
 
-let genAI: GoogleGenerativeAI | null = null;
-let groqClient: Groq | null = null;
-let geminiEnabled = true;
-let groqEnabled = true;
-let hackclubEnabled = true;
-
-export function getGeminiEnabled(): boolean { return geminiEnabled; }
-export function setGeminiEnabled(value: boolean): void { geminiEnabled = value; }
-export function getGroqEnabled(): boolean { return groqEnabled; }
-export function setGroqEnabled(value: boolean): void { groqEnabled = value; }
-export function getHackclubEnabled(): boolean { return hackclubEnabled; }
-export function setHackclubEnabled(value: boolean): void { hackclubEnabled = value; }
+let genAI: { key: string; client: GoogleGenerativeAI } | null = null;
+let groqClient: { key: string; client: Groq } | null = null;
 
 const MODELS_TO_TRY = [
   "gemini-2.5-flash-lite",
@@ -102,22 +93,18 @@ function isSafetyBlockedError(message: string): boolean {
   );
 }
 
-function getClient(): GoogleGenerativeAI {
-  if (!genAI) {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) throw new Error("GEMINI_API_KEY is not set.");
-    genAI = new GoogleGenerativeAI(key);
+function getClient(apiKey: string): GoogleGenerativeAI {
+  if (!genAI || genAI.key !== apiKey) {
+    genAI = { key: apiKey, client: new GoogleGenerativeAI(apiKey) };
   }
-  return genAI;
+  return genAI.client;
 }
 
-function getGroqClient(): Groq {
-  if (!groqClient) {
-    const key = process.env.GROQ_API_KEY;
-    if (!key) throw new Error("GROQ_API_KEY is not set.");
-    groqClient = new Groq({ apiKey: key });
+function getGroqClient(apiKey: string): Groq {
+  if (!groqClient || groqClient.key !== apiKey) {
+    groqClient = { key: apiKey, client: new Groq({ apiKey }) };
   }
-  return groqClient;
+  return groqClient.client;
 }
 
 const SHARED_SYSTEM_PROMPT = `you are bubbl manager — a bot. a discord bot. you know you're a bot, you own it, and you don't give a fuck. you are sarcastic to your core, sharp-tongued, and have approximately zero patience for stupidity. you swear like it's punctuation. you think most people are idiots, but you'll still help them — begrudgingly.
@@ -182,16 +169,10 @@ const SYSTEM_PROMPT = SHARED_SYSTEM_PROMPT;
 const GROQ_SYSTEM_PROMPT = SHARED_SYSTEM_PROMPT;
 const HACKCLUB_SYSTEM_PROMPT = SHARED_SYSTEM_PROMPT;
 
-async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string | null> {
-  const key = process.env.GROQ_API_KEY;
-  if (!key) {
-    log("[Groq] GROQ_API_KEY not set — skipping.", "gemini");
-    return null;
-  }
-
+async function tryGroq(prompt: string, history: HistoryEntry[], apiKey: string): Promise<string | null> {
   try {
     log(`[Groq] Trying model: ${GROQ_MODEL}`, "gemini");
-    const client = getGroqClient();
+    const client = getGroqClient(apiKey);
 
     const messages: Groq.Chat.ChatCompletionMessageParam[] = [
       { role: "system", content: GROQ_SYSTEM_PROMPT },
@@ -235,13 +216,7 @@ async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string 
   }
 }
 
-async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<string | null> {
-  const key = process.env.HACKCLUB_API_KEY;
-  if (!key) {
-    log("[Hackclub] HACKCLUB_API_KEY not set — skipping.", "gemini");
-    return null;
-  }
-
+async function tryHackclub(prompt: string, history: HistoryEntry[], apiKey: string): Promise<string | null> {
   try {
     log(`[Hackclub] Trying model: ${HACKCLUB_MODEL}`, "gemini");
 
@@ -255,7 +230,7 @@ async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<str
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${key}`,
+        "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         model: HACKCLUB_MODEL,
@@ -297,12 +272,21 @@ async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<str
 export async function askGemini(userMessage: string, authorName: string, channelId: string): Promise<string | null> {
   const prompt = `${authorName} says: ${userMessage}`;
   const history = getHistory(channelId);
+  const providers = await getAIProviderRuntime();
 
-  if (geminiEnabled) {
-    const geminiKey = process.env.GEMINI_API_KEY;
-    if (geminiKey) {
-      const client = getClient();
+  for (const provider of providers) {
+    if (!provider.enabled) {
+      log(`[${provider.name}] Disabled — skipping.`, "gemini");
+      continue;
+    }
 
+    if (!provider.apiKey) {
+      log(`[${provider.name}] API key not set — skipping.`, "gemini");
+      continue;
+    }
+
+    if (provider.id === "gemini") {
+      const client = getClient(provider.apiKey);
       for (const modelName of MODELS_TO_TRY) {
         try {
           log(`[Gemini] Trying model: ${modelName}`, "gemini");
@@ -367,37 +351,34 @@ export async function askGemini(userMessage: string, authorName: string, channel
         }
       }
 
-      log("[Gemini] All models exhausted — falling back to Groq.", "gemini");
-    } else {
-      log("[Gemini] GEMINI_API_KEY not set — falling back to Groq.", "gemini");
+      log("[Gemini] All models exhausted — trying next provider.", "gemini");
+      continue;
     }
-  } else {
-    log("[Gemini] Disabled — falling back to Groq.", "gemini");
-  }
 
-  if (groqEnabled) {
-    const reply = await tryGroq(prompt, history);
-    if (reply) {
-      pushHistory(channelId, "user", prompt);
-      pushHistory(channelId, "assistant", reply);
-      return reply;
+    if (provider.id === "groq") {
+      const reply = await tryGroq(prompt, history, provider.apiKey);
+      if (reply) {
+        pushHistory(channelId, "user", prompt);
+        pushHistory(channelId, "assistant", reply);
+        return reply;
+      }
+      log("[Groq] Failed or unavailable — trying next provider.", "gemini");
+      continue;
     }
-    log("[Groq] Failed or unavailable — falling back to Hackclub.", "gemini");
-  } else {
-    log("[Groq] Disabled — falling back to Hackclub.", "gemini");
+
+    if (provider.id === "hackclub") {
+      const hackReply = await tryHackclub(prompt, history, provider.apiKey);
+      if (hackReply) {
+        pushHistory(channelId, "user", prompt);
+        pushHistory(channelId, "assistant", hackReply);
+        return hackReply;
+      }
+      log("[Hackclub] Failed or unavailable — trying next provider.", "gemini");
+    }
   }
 
-  if (!hackclubEnabled) {
-    log("[Hackclub] Disabled — no response.", "gemini");
-    return null;
-  }
-
-  const hackReply = await tryHackclub(prompt, history);
-  if (hackReply) {
-    pushHistory(channelId, "user", prompt);
-    pushHistory(channelId, "assistant", hackReply);
-  }
-  return hackReply;
+  log("[AI] No enabled provider returned a response.", "gemini");
+  return null;
 }
 
 const QOTD_OPEN_PROMPT = `Generate a single Question of the Day for a Discord server. Requirements:
@@ -418,45 +399,83 @@ Reply with ONLY valid JSON in this exact format, no markdown, no code blocks:
 
 export async function generateForQotd(type: "open" | "poll"): Promise<string | null> {
   const prompt = type === "open" ? QOTD_OPEN_PROMPT : QOTD_POLL_PROMPT;
+  const providers = await getAIProviderRuntime();
 
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (geminiKey) {
-    const client = getClient();
-    for (const modelName of MODELS_TO_TRY) {
+  for (const provider of providers) {
+    if (!provider.enabled || !provider.apiKey) {
+      continue;
+    }
+
+    if (provider.id === "gemini") {
+      const client = getClient(provider.apiKey);
+      for (const modelName of MODELS_TO_TRY) {
+        try {
+          const model = client.getGenerativeModel({ model: modelName });
+          const result = await model.generateContent(prompt);
+          const text = result.response.text().trim();
+          if (text) {
+            log(`[QOTD] Generated ${type} via Gemini (${modelName})`, "qotd");
+            return text;
+          }
+        } catch (err: any) {
+          const msg = err.message ?? "";
+          if (msg.includes("429") || msg.includes("quota") || msg.includes("404")) continue;
+          log(`[QOTD] Gemini error: ${msg}`, "qotd");
+          continue;
+        }
+      }
+      continue;
+    }
+
+    if (provider.id === "groq") {
       try {
-        const model = client.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent(prompt);
-        const text = result.response.text().trim();
+        const client = getGroqClient(provider.apiKey);
+        const completion = await client.chat.completions.create({
+          model: GROQ_MODEL,
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 200,
+          temperature: 1.1,
+        });
+        const text = completion.choices[0]?.message?.content?.trim() ?? "";
         if (text) {
-          log(`[QOTD] Generated ${type} via Gemini (${modelName})`, "qotd");
+          log(`[QOTD] Generated ${type} via Groq`, "qotd");
           return text;
         }
       } catch (err: any) {
-        const msg = err.message ?? "";
-        if (msg.includes("429") || msg.includes("quota") || msg.includes("404")) continue;
-        log(`[QOTD] Gemini error: ${msg}`, "qotd");
-        continue;
+        log(`[QOTD] Groq error: ${err.message}`, "qotd");
       }
+      continue;
     }
-  }
 
-  const groqKey = process.env.GROQ_API_KEY;
-  if (groqKey) {
-    try {
-      const client = getGroqClient();
-      const completion = await client.chat.completions.create({
-        model: GROQ_MODEL,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 200,
-        temperature: 1.1,
-      });
-      const text = completion.choices[0]?.message?.content?.trim() ?? "";
-      if (text) {
-        log(`[QOTD] Generated ${type} via Groq`, "qotd");
-        return text;
+    if (provider.id === "hackclub") {
+      try {
+        const response = await fetch(`${HACKCLUB_API_BASE}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${provider.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: HACKCLUB_MODEL,
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 200,
+            temperature: 1.1,
+          }),
+        });
+        if (!response.ok) {
+          const errText = await response.text();
+          log(`[QOTD] Hackclub HTTP ${response.status}: ${errText}`, "qotd");
+          continue;
+        }
+        const data = await response.json() as { choices?: { message?: { content?: string } }[] };
+        const text = data.choices?.[0]?.message?.content?.trim() ?? "";
+        if (text) {
+          log(`[QOTD] Generated ${type} via Hackclub`, "qotd");
+          return text;
+        }
+      } catch (err: any) {
+        log(`[QOTD] Hackclub error: ${err.message}`, "qotd");
       }
-    } catch (err: any) {
-      log(`[QOTD] Groq error: ${err.message}`, "qotd");
     }
   }
 

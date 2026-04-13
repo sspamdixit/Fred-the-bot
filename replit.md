@@ -19,6 +19,8 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - Static production assets are served from `dist/public` after build.
 - API routes are mounted under `/api` and protected by dashboard authentication where appropriate.
 - Secrets such as Discord bot tokens and API keys are read from environment variables and must not be committed.
+- Dashboard-managed AI provider keys are stored in PostgreSQL in `ai_provider_configs`, encrypted with a key derived from `DASHBOARD_PASSWORD`.
+- AI provider order, enabled state, and dashboard key overrides are configured through the dashboard. If no dashboard config exists for a provider, the app falls back to the corresponding Replit environment secret.
 
 # Migration Notes
 
