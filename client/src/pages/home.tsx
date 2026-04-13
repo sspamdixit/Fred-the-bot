@@ -180,6 +180,14 @@ function PasswordScreen({ onAuth }: { onAuth: () => void }) {
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
+          <input
+            type="text"
+            name="username"
+            autoComplete="username"
+            value="dashboard"
+            readOnly
+            hidden
+          />
           <div className="space-y-1.5">
             <Label htmlFor="pw-input" className="text-xs font-semibold tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.55)" }}>
               Password
@@ -190,6 +198,7 @@ function PasswordScreen({ onAuth }: { onAuth: () => void }) {
                 id="pw-input"
                 data-testid="input-password"
                 type="password"
+                autoComplete="current-password"
                 placeholder="••••••••"
                 value={pw}
                 onChange={(e) => { setPw(e.target.value); setError(""); }}
