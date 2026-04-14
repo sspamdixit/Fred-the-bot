@@ -104,6 +104,13 @@ async function enforceSlurTimeout(message: Message): Promise<boolean> {
   ].join("\n");
 
   try {
+    await message.delete();
+    log(`[Moderation] Deleted slur message from ${message.author.tag}.`, "discord");
+  } catch (err: any) {
+    log(`[Moderation] Failed to delete slur message from ${message.author.tag}: ${err.message}`, "discord");
+  }
+
+  try {
     await message.author.send(warning);
   } catch (err: any) {
     log(`[Moderation] Failed to DM slur warning to ${message.author.tag}: ${err.message}`, "discord");
