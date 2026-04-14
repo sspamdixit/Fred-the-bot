@@ -233,6 +233,62 @@ export async function dispatchMessage(
   }
 }
 
+const VIBE_CHECK_CHANNEL_ID = "1484056100654551133";
+const VIBE_CHECK_INTERVAL_MS = 1_800_000;
+
+async function startVibeCheck(readyClient: Client) {
+  const runVibeCheck = async () => {
+    try {
+      const channel = await readyClient.channels.fetch(VIBE_CHECK_CHANNEL_ID);
+      if (
+        !channel ||
+        (channel.type !== ChannelType.GuildText &&
+          channel.type !== ChannelType.GuildAnnouncement)
+      ) {
+        log("[VibeCheck] Could not fetch lounge channel.", "discord");
+        return;
+      }
+
+      const textChannel = channel as TextChannel;
+      const fetched = await textChannel.messages.fetch({ limit: 50 });
+      const humanMessages = fetched
+        .filter((m) => !m.author.bot)
+        .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+      let chatSummary: string;
+      if (humanMessages.size === 0) {
+        chatSummary = "[no recent messages — the channel is completely dead]";
+      } else {
+        chatSummary = humanMessages
+          .map((m) => `${m.author.username}: ${m.content}`)
+          .join("\n");
+      }
+
+      const vibePrompt =
+        "Analyze this chat history and describe the current mood or the stupidity of these people in one sharp, sarcastic sentence. If it's dead, mock the silence. Stay all lowercase, no emojis, be a prick.\n\n" +
+        chatSummary;
+
+      const reply = await askGemini(vibePrompt, "system", "vibe-check-internal", {});
+      if (!reply) {
+        log("[VibeCheck] AI returned no reply — skipping.", "discord");
+        return;
+      }
+
+      await textChannel.send({
+        content: reply.toLowerCase(),
+        allowedMentions: { parse: [] },
+      });
+
+      log("[VibeCheck] Vibe check sent to lounge.", "discord");
+    } catch (err: any) {
+      log(`[VibeCheck] Error: ${err.message}`, "discord");
+    }
+  };
+
+  setInterval(runVibeCheck, VIBE_CHECK_INTERVAL_MS);
+  log("[VibeCheck] Background task started — fires every 30 minutes.", "discord");
+}
+
 export async function startBot() {
   if (!process.env.TOKEN) {
     log("No TOKEN found — bot will not start.", "discord");
@@ -275,6 +331,7 @@ export async function startBot() {
     };
 
     startQotd(readyClient);
+    startVibeCheck(readyClient);
   });
 
   client.on("messageCreate", async (message: Message) => {
