@@ -1164,7 +1164,7 @@ function Dashboard() {
 
             <div className="rounded-xl px-3 py-2 flex items-start gap-2 text-xs" style={{ background: "rgba(56,189,248,0.06)", border: "1px solid rgba(56,189,248,0.15)", color: "rgba(255,255,255,0.5)" }}>
               <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: "rgba(125,211,252,0.7)" }} />
-              Bot commands: <code className="mx-1">!ping</code> <code className="mx-1">!status</code> <code className="mx-1">!info</code> <code className="mx-1">!help</code> <code className="mx-1">!bubbl &lt;msg&gt;</code>
+              Bot commands: <code className="mx-1">?ping</code> <code className="mx-1">?status</code> <code className="mx-1">?info</code> <code className="mx-1">?help</code> <code className="mx-1">?bubbl &lt;msg&gt;</code>
             </div>
           </div>
         </Panel>

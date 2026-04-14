@@ -364,21 +364,21 @@ export async function startBot() {
     log(`[Live] ${liveMsg.authorName} in #${liveMsg.channelName}: ${liveMsg.content.slice(0, 60)}`, "discord");
 
     const isMentioned = client?.user && message.mentions.users.has(client.user.id);
-    const COMMAND_PREFIX = /^!bubbl\s*/i;
+    const COMMAND_PREFIX = /^[!?]bubbl\s*/i;
     const isPrefixed = COMMAND_PREFIX.test(message.content);
 
     // Standalone commands (no prefix/mention required)
     const rawContent = message.content.trim();
     const standaloneCmd = rawContent.toLowerCase();
 
-    if (standaloneCmd === "!info") {
+    if (standaloneCmd === "?info") {
       const profileMessage = await buildBotProfileMessage();
       await message.reply({
         content: [
           "**bubbl manager** — discord bot + ai hybrid thing.",
           "",
           "what it does:",
-          "- responds when you ping it or use `!bubbl <message>`",
+          "- responds when you ping it or use `?bubbl <message>`",
           "- runs on groq first, then gemini, then grok via hackclub if needed",
           "- has memory per channel (last 150 messages)",
           "- streams live messages to a dashboard",
@@ -387,15 +387,16 @@ export async function startBot() {
           "",
           profileMessage,
           "",
-          "commands: `!info` `!status` `!help` `!ping` `!vibecheck`",
-          "or just `!bubbl <anything>` to talk to it.",
+          "commands: `?info` `?status` `?help` `?ping` `?vibecheck`",
+          "legacy aliases: `!help` and `!bubbl <anything>` still work.",
+          "or just `?bubbl <anything>` to talk to it.",
         ].join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
       });
       return;
     }
 
-    if (standaloneCmd === "!capabilities" || standaloneCmd === "!weaknesses") {
+    if (standaloneCmd === "?capabilities" || standaloneCmd === "?weaknesses") {
       await message.reply({
         content: await buildBotProfileMessage(),
         allowedMentions: { parse: [], repliedUser: false },
@@ -403,7 +404,7 @@ export async function startBot() {
       return;
     }
 
-    if (standaloneCmd === "!status") {
+    if (standaloneCmd === "?status") {
       const s = getAIStats();
       const uptime = botState.uptimeStart
         ? Math.floor((Date.now() - botState.uptimeStart) / 1000)
@@ -431,16 +432,16 @@ export async function startBot() {
       return;
     }
 
-    if (standaloneCmd === "!help") {
+    if (standaloneCmd === "?help" || standaloneCmd === "!help") {
       await message.reply({
         content: [
           "**commands**",
-          "`!info` — what this bot is and does",
-          "`!status` — current model, token usage, uptime",
-          "`!help` — this list",
-          "`!ping` — check if the bot is alive",
-          "`!vibecheck` — analyze the current channel vibe",
-          "`!bubbl <message>` — talk to the ai",
+          "`?info` — what this bot is and does",
+          "`?status` — current model, token usage, uptime",
+          "`?help` — this list (`!help` still works too)",
+          "`?ping` — check if the bot is alive",
+          "`?vibecheck` — analyze the current channel vibe",
+          "`?bubbl <message>` — talk to the ai (`!bubbl <message>` still works too)",
           `or just ping <@${client?.user?.id}> with your message`,
         ].join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
@@ -448,7 +449,7 @@ export async function startBot() {
       return;
     }
 
-    if (standaloneCmd === "!ping") {
+    if (standaloneCmd === "?ping") {
       const start = Date.now();
       const sent = await message.reply({
         content: "pong.",
@@ -460,7 +461,7 @@ export async function startBot() {
       return;
     }
 
-    if (standaloneCmd === "!vibecheck") {
+    if (standaloneCmd === "?vibecheck") {
       try {
         await (message.channel as TextChannel).sendTyping();
         const fetched = await (message.channel as TextChannel).messages.fetch({ limit: 50 });
@@ -566,12 +567,12 @@ export async function startBot() {
 
       if (!cleanContent && !hasMedia) return;
 
-      // Also handle !bubbl info/status/help/ping as subcommands
+      // Also handle ?bubbl info/status/help/ping as subcommands
       if (cleanContent) {
         const sub = cleanContent.toLowerCase();
         if (sub === "info" || sub === "status" || sub === "capabilities" || sub === "weaknesses" || sub === "help" || sub === "ping") {
           await message.reply({
-            content: `use \`!${sub}\` directly instead of \`!bubbl ${sub}\`. easier.`,
+            content: `use \`?${sub}\` directly instead of \`?bubbl ${sub}\`. easier.`,
             allowedMentions: { parse: [], repliedUser: false },
           });
           return;
