@@ -689,3 +689,89 @@ export async function generateForQotd(type: "open" | "poll"): Promise<string | n
   log(`[QOTD] All providers failed for type: ${type}`, "qotd");
   return null;
 }
+
+const NEWS_FEEDS: Record<"politics" | "popculture", string[]> = {
+  politics: [
+    "https://feeds.bbci.co.uk/news/politics/rss.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
+    "https://www.theguardian.com/politics/rss",
+    "https://feeds.npr.org/1014/rss.xml",
+  ],
+  popculture: [
+    "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml",
+    "https://www.rollingstone.com/feed/",
+    "https://variety.com/feed/",
+    "https://pitchfork.com/feed/feed-news/rss",
+  ],
+};
+
+async function fetchRssHeadlines(url: string): Promise<string[]> {
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(8_000),
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; BubblBot/1.0)" },
+    });
+    if (!res.ok) return [];
+    const xml = await res.text();
+    const matches = xml.match(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/g) ?? [];
+    return matches
+      .map((m) => m.replace(/<title>(?:<!\[CDATA\[)?/, "").replace(/(?:\]\]>)?<\/title>/, "").trim())
+      .filter((t) => t.length > 10 && t.length < 200)
+      .slice(1, 9);
+  } catch {
+    return [];
+  }
+}
+
+export async function generateBotStatus(): Promise<string | null> {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) return null;
+
+  const category = Math.random() < 0.5 ? "politics" : "popculture";
+  const feeds = NEWS_FEEDS[category];
+  const feedUrl = feeds[Math.floor(Math.random() * feeds.length)];
+
+  const headlines = await fetchRssHeadlines(feedUrl);
+
+  if (headlines.length < 2) {
+    const allFeeds = [...NEWS_FEEDS.politics, ...NEWS_FEEDS.popculture];
+    for (const fallbackUrl of allFeeds) {
+      if (fallbackUrl === feedUrl) continue;
+      const fallbackHeadlines = await fetchRssHeadlines(fallbackUrl);
+      if (fallbackHeadlines.length >= 2) {
+        headlines.push(...fallbackHeadlines);
+        break;
+      }
+    }
+  }
+
+  if (headlines.length === 0) return null;
+
+  try {
+    const client = getGroqClient();
+    const completion = await client.chat.completions.create({
+      model: MEMORY_UPDATE_MODEL,
+      messages: [
+        {
+          role: "system",
+          content: "You write Discord bot custom statuses. Given a list of current news headlines, write a single one-liner status. Rules: all lowercase, no emojis, no hashtags, dry sarcastic wit, max 60 characters, must fit on one line, reference a specific detail from the headlines — don't be generic. Output only the status text, nothing else.",
+        },
+        {
+          role: "user",
+          content: `current headlines (${category === "popculture" ? "pop culture" : "politics"}):\n${headlines.join("\n")}`,
+        },
+      ],
+      max_tokens: 40,
+      temperature: 0.95,
+    });
+
+    const raw = completion.choices[0]?.message?.content?.trim() ?? "";
+    const status = raw.replace(/^["']|["']$/g, "").trim().toLowerCase();
+    if (!status || status.length < 5 || status.length > 80) return null;
+    log(`[Status] AI generated status from ${category} news: ${status}`, "gemini");
+    return status;
+  } catch (err: any) {
+    log(`[Status] AI generation failed: ${err.message}`, "gemini");
+    return null;
+  }
+}

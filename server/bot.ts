@@ -9,7 +9,7 @@ import {
 } from "discord.js";
 import { log } from "./index";
 import { getIO } from "./socket";
-import { askGemini, askGeminiWithImage, clearUserMemorySession, getAIStats, triggerUserMemoryUpdate, type ImageData } from "./gemini";
+import { askGemini, askGeminiWithImage, clearUserMemorySession, getAIStats, triggerUserMemoryUpdate, generateBotStatus, type ImageData } from "./gemini";
 import { buildBotProfileMessage } from "./ai-settings";
 import { startQotd } from "./qotd";
 import { storage } from "./storage";
@@ -386,66 +386,21 @@ export async function dispatchMessage(
   }
 }
 
-const STATUS_ROTATION: string[] = [
-  "still waiting for gta 6",
-  "reading trump's executive orders for fun",
-  "betting on who elon fires next",
-  "watching musk and zuck never actually fight",
-  "kendrick dropped and drake is still recovering",
-  "taylor swift is not a psyop (probably)",
-  "logged into twitter dot com like an idiot",
-  "watching succession reruns and feeling things",
-  "house of the dragon but make it incompetent",
-  "barry keoghan jumped out of nowhere again",
-  "the last of us season 2 is doing things to me",
-  "zendaya is carrying cinema on her back",
-  "ryan reynolds owns everything now apparently",
-  "succession ended and the world is still wrong",
-  "in my villain era per the group chat",
-  "certified loser in a certified moment",
-  "the feds are watching but i'm more interesting than them",
+const STATUS_FALLBACKS: string[] = [
   "doomscrolling as a lifestyle",
-  "trying to understand moo deng lore",
-  "bernie sanders is still mad and honestly same",
-  "ozempic made everyone weird at the reunion",
-  "jake paul had a boxing career apparently",
-  "mr. beast built a hospital and somehow that's controversy",
-  "aoc vs republicans is my comfort show",
-  "the supreme court is cooked and we all know it",
-  "following the diddy trial like it's sports",
-  "elon's government thing is going fine (it's not)",
-  "shacarri richardson is just built different",
-  "caitlin clark broke basketball and i watched",
-  "watching tech layoffs like a nature documentary",
-  "bidenomics ended and nobody knows what's happening",
-  "the fed raised rates again and my wallet cried",
-  "ai wrote this status (i edited it)",
-  "obsessed with roman roy as a coping mechanism",
-  "shōgun was perfect and i'm still not over it",
-  "watching celebrities apologize on instagram",
-  "metaverse still not a thing, mark",
-  "eating the rich in my imagination only",
-  "thinking about the minecraft movie unironically",
-  "the pope changed and nobody told me first",
-  "reading about the bird flu like a hobby",
+  "the feds are watching but i'm more interesting",
   "catching strays from geopolitics daily",
-  "the uk is collapsing in a very british way",
-  "watching the olympics highlights on repeat",
-  "simone biles is a superhero and i'll fight you",
-  "lebron and bronny played together and time is fake",
-  "linkin park hired a new singer and twitter had a meltdown",
-  "oasis reunion tour got more coverage than the election",
-  "coachella lineup dropped and the discourse began immediately",
-  "that white lotus season was reckless in the best way",
+  "logged into twitter dot com like an idiot",
+  "the world is cooked and i'm monitoring it",
+  "eating the rich in my imagination only",
+  "watching the news like it's a disaster movie",
 ];
 
-let statusIndex = 0;
-
 function startStatusShuffle(readyClient: Client): void {
-  const shuffleStatus = () => {
+  let fallbackIndex = 0;
+
+  const applyStatus = (status: string) => {
     if (!readyClient.user) return;
-    const status = STATUS_ROTATION[statusIndex % STATUS_ROTATION.length];
-    statusIndex++;
     try {
       readyClient.user.setPresence({
         activities: [{ name: "Custom Status", type: ActivityType.Custom, state: status }],
@@ -453,15 +408,28 @@ function startStatusShuffle(readyClient: Client): void {
       });
       botState.activityName = status;
       botState.activityType = "Custom";
-      log(`[Status] Rotated to: ${status}`, "discord");
+      log(`[Status] Set to: ${status}`, "discord");
     } catch (err: any) {
-      log(`[Status] Rotation failed: ${err.message}`, "discord");
+      log(`[Status] setPresence failed: ${err.message}`, "discord");
     }
   };
 
-  shuffleStatus();
-  setInterval(shuffleStatus, 60 * 60 * 1000);
-  log("[Status] Hourly status shuffle started.", "discord");
+  const refreshStatus = async () => {
+    log("[Status] Fetching news for status generation...", "discord");
+    const aiStatus = await generateBotStatus();
+    if (aiStatus) {
+      applyStatus(aiStatus);
+    } else {
+      const fallback = STATUS_FALLBACKS[fallbackIndex % STATUS_FALLBACKS.length];
+      fallbackIndex++;
+      log(`[Status] AI unavailable — using fallback: ${fallback}`, "discord");
+      applyStatus(fallback);
+    }
+  };
+
+  void refreshStatus();
+  setInterval(() => void refreshStatus(), 60 * 60 * 1000);
+  log("[Status] Hourly AI news status shuffle started.", "discord");
 }
 
 const VIBE_CHECK_CHANNEL_ID = "1484056100654551133";
