@@ -31,14 +31,3 @@ export const qotdLog = pgTable("qotd_log", {
 export type QotdEntry = typeof qotdLog.$inferSelect;
 export type InsertQotdEntry = typeof qotdLog.$inferInsert;
 
-export const botAiSettings = pgTable("bot_ai_settings", {
-  id: text("id").primaryKey(),
-  systemInstructions: text("system_instructions").notNull(),
-  capabilities: text("capabilities").notNull(),
-  weaknesses: text("weaknesses").notNull(),
-});
-
-export const insertBotAiSettingsSchema = createInsertSchema(botAiSettings);
-
-export type InsertBotAiSettings = z.infer<typeof insertBotAiSettingsSchema>;
-export type BotAiSettings = typeof botAiSettings.$inferSelect;

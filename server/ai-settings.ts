@@ -1,7 +1,9 @@
-import { storage } from "./storage";
-import type { BotAiSettings, InsertBotAiSettings } from "@shared/schema";
-
-export const BOT_AI_SETTINGS_ID = "default";
+export interface BotAiSettings {
+  id: string;
+  systemInstructions: string;
+  capabilities: string;
+  weaknesses: string;
+}
 
 export const DEFAULT_BOT_CAPABILITIES = [
   "responds in Discord when mentioned or when someone uses !bubbl <message>",
@@ -13,7 +15,7 @@ export const DEFAULT_BOT_CAPABILITIES = [
   "refuses dangerous, illegal, weapons, drug, and self-harm instruction requests without giving harmful details",
   "can generate question-of-the-day prompts and two-option Discord polls",
   "streams live Discord messages to the dashboard",
-  "lets dashboard admins view status, send Discord messages, control presence, toggle AI providers, test AI replies, trigger QOTD, and edit the shared AI system instructions",
+  "lets dashboard admins view status, send Discord messages, control presence, toggle AI providers, test AI replies, and trigger QOTD",
   "can report its capabilities and weaknesses when asked",
 ].join("\n");
 
@@ -100,47 +102,15 @@ you handle ALL of these in-character. you never produce harmful content. you nev
 
 for everything else: respond as bubbl manager.`;
 
-const DEFAULT_SETTINGS: InsertBotAiSettings = {
-  id: BOT_AI_SETTINGS_ID,
+const DEFAULT_SETTINGS: BotAiSettings = {
+  id: "default",
   systemInstructions: DEFAULT_SYSTEM_INSTRUCTIONS,
   capabilities: DEFAULT_BOT_CAPABILITIES,
   weaknesses: DEFAULT_BOT_WEAKNESSES,
 };
 
-let cachedSettings: BotAiSettings | null = null;
-
 export async function getBotAiSettings(): Promise<BotAiSettings> {
-  if (cachedSettings) {
-    return cachedSettings;
-  }
-
-  const existing = await storage.getBotAiSettings(BOT_AI_SETTINGS_ID);
-  if (existing) {
-    cachedSettings = existing;
-    return existing;
-  }
-
-  cachedSettings = await storage.upsertBotAiSettings(DEFAULT_SETTINGS);
-  return cachedSettings;
-}
-
-export async function updateBotAiSettings(input: {
-  systemInstructions: string;
-  capabilities: string;
-  weaknesses: string;
-}): Promise<BotAiSettings> {
-  cachedSettings = await storage.upsertBotAiSettings({
-    id: BOT_AI_SETTINGS_ID,
-    systemInstructions: input.systemInstructions,
-    capabilities: input.capabilities,
-    weaknesses: input.weaknesses,
-  });
-  return cachedSettings;
-}
-
-export async function resetBotAiSettings(): Promise<BotAiSettings> {
-  cachedSettings = await storage.upsertBotAiSettings(DEFAULT_SETTINGS);
-  return cachedSettings;
+  return DEFAULT_SETTINGS;
 }
 
 export async function buildSharedSystemPrompt(): Promise<string> {

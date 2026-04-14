@@ -78,13 +78,6 @@ interface GuildInfo {
   channels: ChannelInfo[];
 }
 
-interface BotAiSettings {
-  id: string;
-  systemInstructions: string;
-  capabilities: string;
-  weaknesses: string;
-}
-
 const STATUS_OPTIONS = [
   { value: "online",    label: "Online",         color: "bg-status-online" },
   { value: "idle",      label: "Idle",           color: "bg-status-away" },
@@ -325,9 +318,6 @@ function Dashboard() {
   const [activityType,   setActivityType]   = useState<string>("Watching");
   const [activityName,   setActivityName]   = useState<string>("the Archives");
   const [presenceSaved,  setPresenceSaved]  = useState(false);
-  const [systemInstructions, setSystemInstructions] = useState("");
-  const [capabilities, setCapabilities] = useState("");
-  const [weaknesses, setWeaknesses] = useState("");
 
   const { data: aiStatus, isLoading: aiLoading } = useQuery<{
     geminiEnabled: boolean;
@@ -349,53 +339,6 @@ function Dashboard() {
     },
     onError: (err: any) => {
       toast({ title: "Failed to toggle AI", description: err?.message ?? "Something went wrong.", variant: "destructive" });
-    },
-  });
-
-  const { data: aiSettings, isLoading: aiSettingsLoading } = useQuery<BotAiSettings>({
-    queryKey: ["/api/ai/settings"],
-  });
-
-  useEffect(() => {
-    if (aiSettings) {
-      setSystemInstructions(aiSettings.systemInstructions);
-      setCapabilities(aiSettings.capabilities);
-      setWeaknesses(aiSettings.weaknesses);
-    }
-  }, [aiSettings?.id, aiSettings?.systemInstructions, aiSettings?.capabilities, aiSettings?.weaknesses]);
-
-  const aiSettingsMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/ai/settings", {
-        systemInstructions,
-        capabilities,
-        weaknesses,
-      });
-      return res.json() as Promise<BotAiSettings>;
-    },
-    onSuccess: (settings) => {
-      qc.setQueryData(["/api/ai/settings"], settings);
-      toast({ title: "AI instructions saved", description: "All AI providers will use the updated shared profile." });
-    },
-    onError: (err: any) => {
-      toast({ title: "Failed to save AI instructions", description: err?.message ?? "Something went wrong.", variant: "destructive" });
-    },
-  });
-
-  const aiSettingsResetMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/ai/settings/reset", {});
-      return res.json() as Promise<BotAiSettings>;
-    },
-    onSuccess: (settings) => {
-      qc.setQueryData(["/api/ai/settings"], settings);
-      setSystemInstructions(settings.systemInstructions);
-      setCapabilities(settings.capabilities);
-      setWeaknesses(settings.weaknesses);
-      toast({ title: "AI instructions reset", description: "The default bot profile has been restored." });
-    },
-    onError: (err: any) => {
-      toast({ title: "Failed to reset AI instructions", description: err?.message ?? "Something went wrong.", variant: "destructive" });
     },
   });
 
@@ -903,118 +846,6 @@ function Dashboard() {
               </div>
             )}
 
-            <div
-              className="rounded-xl p-4 space-y-4"
-              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
-            >
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-white">Shared AI Instructions</p>
-                <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                  These instructions and bot-profile notes are shared by Gemini, Groq, and the tertiary fallback.
-                </p>
-              </div>
-
-              {aiSettingsLoading ? (
-                <div className="space-y-3">
-                  <GlassSkeleton className="h-28 w-full rounded-xl" />
-                  <GlassSkeleton className="h-20 w-full rounded-xl" />
-                  <GlassSkeleton className="h-20 w-full rounded-xl" />
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <AeroLabel htmlFor="input-system-instructions">System Instructions</AeroLabel>
-                      <span className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
-                        {systemInstructions.length}/20000
-                      </span>
-                    </div>
-                    <Textarea
-                      id="input-system-instructions"
-                      data-testid="input-system-instructions"
-                      value={systemInstructions}
-                      onChange={(e) => setSystemInstructions(e.target.value.slice(0, 20000))}
-                      rows={10}
-                      className="aero-input resize-y min-h-[240px] text-xs"
-                      placeholder="Tell every AI model how bubbl manager should behave…"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <AeroLabel htmlFor="input-capabilities">Capabilities</AeroLabel>
-                        <span className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
-                          {capabilities.length}/8000
-                        </span>
-                      </div>
-                      <Textarea
-                        id="input-capabilities"
-                        data-testid="input-capabilities"
-                        value={capabilities}
-                        onChange={(e) => setCapabilities(e.target.value.slice(0, 8000))}
-                        rows={7}
-                        className="aero-input resize-y text-xs"
-                        placeholder="One capability per line…"
-                      />
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <AeroLabel htmlFor="input-weaknesses">Weaknesses / Limits</AeroLabel>
-                        <span className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
-                          {weaknesses.length}/8000
-                        </span>
-                      </div>
-                      <Textarea
-                        id="input-weaknesses"
-                        data-testid="input-weaknesses"
-                        value={weaknesses}
-                        onChange={(e) => setWeaknesses(e.target.value.slice(0, 8000))}
-                        rows={7}
-                        className="aero-input resize-y text-xs"
-                        placeholder="One weakness or limit per line…"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-xs" style={{ color: "rgba(255,255,255,0.45)" }} data-testid="text-ai-settings-note">
-                      The bot can also answer users who ask what it can do or what it is bad at.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        data-testid="button-reset-ai-settings"
-                        className="aero-btn aero-btn-ghost aero-btn-sm"
-                        onClick={() => aiSettingsResetMutation.mutate()}
-                        disabled={aiSettingsMutation.isPending || aiSettingsResetMutation.isPending}
-                      >
-                        {aiSettingsResetMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
-                        Reset
-                      </button>
-                      <button
-                        data-testid="button-save-ai-settings"
-                        className="aero-btn aero-btn-sm"
-                        onClick={() => aiSettingsMutation.mutate()}
-                        disabled={
-                          aiSettingsMutation.isPending ||
-                          aiSettingsResetMutation.isPending ||
-                          systemInstructions.trim().length < 200 ||
-                          capabilities.trim().length < 20 ||
-                          weaknesses.trim().length < 20
-                        }
-                      >
-                        {aiSettingsMutation.isPending ? (
-                          <><RefreshCw className="w-3.5 h-3.5 animate-spin" />Saving…</>
-                        ) : (
-                          <><CheckCircle2 className="w-3.5 h-3.5" />Save Instructions</>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
           </div>
         </Panel>
 
