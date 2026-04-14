@@ -349,11 +349,22 @@ export async function askGeminiWithImage(
     log("[Gemini] Disabled — falling back to text-only.", "gemini");
   }
 
-  // Fall back: text-only response noting the image couldn't be processed
-  const fallbackMsg = userMessage
-    ? `[image attached but can't be processed by fallback providers] ${userMessage}`
-    : "[image attached but can't be processed by fallback providers — describe what you want to know about it]";
-  return askGemini(fallbackMsg, authorName, channelId, context);
+  // Gemini unavailable — fall back to text-only providers.
+  // Do NOT send image data to Groq/Hackclub; they can't process it.
+  // If the user included text, answer that. If it was image-only, reply in-character.
+  if (userMessage && userMessage.trim()) {
+    log("[Gemini] Image fallback — responding to text portion only via Groq/Hackclub.", "gemini");
+    return askGemini(userMessage, authorName, channelId, context);
+  }
+
+  // Image-only message, no text — return a short in-character reply instead of silence.
+  const imageOnlyFallbacks = [
+    "gemini's down and i can't see images without it. describe what you sent if you want my take.",
+    "can't see that right now, gemini's being dramatic. tell me what it is in words.",
+    "vision's offline. gemini owes me an apology. what was the image.",
+    "blind mode activated. gemini's out. type out what you sent.",
+  ];
+  return imageOnlyFallbacks[Math.floor(Math.random() * imageOnlyFallbacks.length)];
 }
 
 export async function askGemini(userMessage: string, authorName: string, channelId: string, context: AuthorContext = {}): Promise<string | null> {
