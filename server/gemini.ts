@@ -144,28 +144,34 @@ function sanitizeDossier(raw: string): string {
     .replace(/\s+/g, " ")
     .trim();
 
-  return cleaned.split(/\s+/).filter(Boolean).slice(0, 100).join(" ");
+  return cleaned.split(/\s+/).filter(Boolean).slice(0, 120).join(" ");
 }
 
 function isSubstantialMemoryMessage(content: string): boolean {
   const text = content
     .toLowerCase()
-    .replace(/[’]/g, "'")
+    .replace(/’/g, "'")
     .replace(/<@!?\d+>/g, "")
     .replace(/https?:\/\/\S+/g, "")
     .trim();
 
-  if (text.length < 12 || /^[!?]?bubbl\b/.test(text)) {
+  if (text.length < 10 || /^[!?]?bubbl\b/.test(text)) {
     return false;
   }
 
-  const hasSelfReference = /\b(i|i'm|im|i've|ive|i'd|id|my|me|mine)\b/.test(text);
-  const hasPersonalSignal = /\b(failed?|passed?|exam|tests?|maths?|grades?|school|college|university|cat|dog|pet|died|dead|death|lost|grief|sad|depressed|anxious|stressed|panic|hospital|sick|ill|diagnosed|injured|breakup|broke up|girlfriend|boyfriend|crush|friends?|mom|mum|mother|dad|father|parents?|family|job|work|fired|hired|quit|moved|moving|birthday|won|achievement|trauma|bullied)\b/.test(text);
   const isThrowaway = /^(hi|hello|hey|thanks|thank you|ty|ok|okay|lol|lmao|roast me|help|what|why|how|when|where|who)\b/.test(text) && text.length < 40;
+  if (isThrowaway) return false;
 
-  return hasSelfReference && hasPersonalSignal && !isThrowaway;
+  const hasSelfReference = /\b(i|im|ive|id|my|me|mine|myself|we|our|us)\b/.test(text) || /\bi'm\b|\bi've\b|\bi'd\b/.test(text);
+
+  const hasMajorLifeSignal = /\b(failed?|passed?|exam|tests?|maths?|grades?|school|college|university|cat|dog|pet|died|dead|death|lost|grief|sad|depressed|anxious|stressed|panic|hospital|sick|ill|diagnosed|injured|breakup|broke up|girlfriend|boyfriend|crush|friends?|mom|mum|mother|dad|father|parents?|family|job|work|fired|hired|quit|moved|moving|birthday|won|achievement|trauma|bullied|arrested|pregnant|engaged|married|divorced|cheated|surgery|overdose|rehab|expelled|suspended|homeless|evicted|debt|bankrupt|dropout)\b/.test(text);
+
+  const hasNuancedSignal = /\b(hate|love|obsessed|addicted|favorite|favourite|prefer|always|never|usually|everyday|hobby|hobbies|passion|dream|goal|plan|afraid|scared|nervous|excited|wish|hope|regret|miss|proud|ashamed|embarrassed|lonely|bored|tired|exhausted|insomnia|diet|vegan|vegetarian|allergic|allergy|religion|religious|spiritual|atheist|political|conservative|liberal|vote|gaming|gamer|music|band|artist|film|show|book|reading|writing|drawing|coding|sport|gym|workout|fitness|studying|major|degree|career|income|salary|rent|apartment|house|city|country|nationality|language|accent|culture|heritage|identity|gender|sexuality|therapy|therapist|medication|meds|adhd|autism|bipolar|ocd)\b/.test(text);
+
+  const hasOpinionOrPreference = /\b(i think|i believe|i feel|i want|i need|i wish|i hope|i hate|i love|i like|i enjoy|i prefer|i always|i never|i usually|my favorite|my favourite|my dream|my goal|my name|i go to|i work|i live|i'm from|i grew up|i'm into|i'm a|i've been)\b/.test(text);
+
+  return hasSelfReference && (hasMajorLifeSignal || hasNuancedSignal || hasOpinionOrPreference);
 }
-
 function getSubstantialMemorySnippet(history: HistoryEntry[]): string {
   return history
     .filter((entry) => entry.role === "user")
@@ -202,14 +208,14 @@ export function triggerUserMemoryUpdate(userId: string): void {
         messages: [
           {
             role: "system",
-            content: "Maintain a compact long-term user dossier for future replies. Store only durable, personally useful facts from the user's own words: major failures, losses, grief, school/work setbacks, important worries, important relationships or pets, health issues, or strong preferences that matter later. Do not store usernames, Discord roles, server titles, IDs, generic tech specs, temporary chatter, bot commands, jokes, or assistant opinions. If the new message adds nothing substantial, return exactly the existing dossier. Write lowercase plain text, maximum 100 words, no bullets, no labels, no invented facts.",
+            content: "Maintain a compact long-term user dossier for personalizing future replies. Capture durable, personally useful facts from the user's own words across two tiers:\n\nTier 1 — major life facts: failures, losses, grief, school/work setbacks, health issues, relationships, pets, trauma, important worries.\n\nTier 2 — nuanced personal details: strong preferences, hobbies, recurring topics they care about, opinions they hold firmly, places they live or frequent, people important to them (by relationship not name if possible), habits, lifestyle choices (diet, sleep, fitness), identity (nationality, religion, sexuality if stated), career/study focus, media or cultural tastes they mention more than once.\n\nWhen new messages contain tier 2 signals, integrate them — they matter for personalization. If they repeat or confirm something already in the dossier, skip or subtly reinforce it. If nothing new is worth storing, return the existing dossier unchanged.\n\nDo not store: usernames, Discord roles/IDs, server names, generic tech specs, throwaway chatter, bot commands, jokes, or assistant opinions. Never invent facts.\n\nWrite lowercase plain text. Maximum 120 words. No bullets, no labels, no headers.",
           },
           {
             role: "user",
             content: `existing dossier:\n${oldDossier}\n\nnew substantial user message(s):\n${substantialSnippet}`,
           },
         ],
-        max_tokens: 160,
+        max_tokens: 200,
         temperature: 0.2,
       });
 
