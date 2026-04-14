@@ -73,6 +73,7 @@ let botState: BotStatus = {
 };
 
 let client: Client | null = null;
+let _messageContentEnabled = true;
 const SLUR_TIMEOUT_MS = 10 * 60 * 1000;
 const MOD_LOG_CHANNEL_ID = "1484059697123164264";
 const BANNED_SLUR_PATTERNS = [
@@ -508,13 +509,17 @@ export async function startBot() {
     client = null;
   }
 
-  client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-    ],
-  });
+  const intents = [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    ...(_messageContentEnabled ? [GatewayIntentBits.MessageContent] : []),
+  ];
+
+  if (!_messageContentEnabled) {
+    log("Starting without MessageContent intent (not enabled in Discord Dev Portal — bot will still respond to mentions).", "discord");
+  }
+
+  client = new Client({ intents });
 
   client.once("ready", (readyClient) => {
     log(`${readyClient.user.tag} is now active in the Lab.`, "discord");
@@ -968,8 +973,8 @@ export async function startBot() {
   client.on("error", (err) => {
     log(`Discord client error: ${err.message}`, "discord");
     botState.lastError = err.message;
-    botState.online = false;
-    botState.status = "error";
+    // Do NOT set online: false here — discord.js reconnects automatically.
+    // shardDisconnect is the authoritative signal for going offline.
   });
 
   try {
@@ -977,16 +982,26 @@ export async function startBot() {
     await client.login(rawToken);
   } catch (err: any) {
     const msg: string = err.message ?? String(err);
-    let friendlyError = msg;
 
+    if (/disallowed intents/i.test(msg) || /DISALLOWED_INTENTS/i.test(msg)) {
+      if (_messageContentEnabled) {
+        log("MessageContent intent is not enabled in Discord Developer Portal — retrying without it. Bot will still respond to @mentions and prefix commands.", "discord");
+        _messageContentEnabled = false;
+        client.destroy();
+        client = null;
+        return startBot();
+      }
+    }
+
+    let friendlyError = msg;
     if (/invalid token/i.test(msg)) {
-      friendlyError = "Invalid token — the token you set is incorrect or has expired. Regenerate it in the Discord Developer Portal and update your TOKEN env var.";
-    } else if (/disallowed intents/i.test(msg) || /intent/i.test(msg)) {
-      friendlyError = "Privileged intents not enabled — go to Discord Developer Portal → your app → Bot → Privileged Gateway Intents and enable 'Message Content Intent', 'Server Members Intent', then save.";
+      friendlyError = "Invalid token — check the TOKEN value on Render. It may have whitespace, be truncated, or was reset again. Grab a fresh copy from Discord Developer Portal → Bot → Reset Token.";
+    } else if (/disallowed intents/i.test(msg) || /DISALLOWED_INTENTS/i.test(msg)) {
+      friendlyError = "Intents blocked — go to Discord Developer Portal → your app → Bot → Privileged Gateway Intents and enable 'Message Content Intent', then Save Changes and redeploy.";
     } else if (/token was reset/i.test(msg)) {
-      friendlyError = "Token was reset — grab the new token from Discord Developer Portal and update your TOKEN env var on Render.";
+      friendlyError = "Token was reset by Discord — grab the new token and update the TOKEN env var on Render, then redeploy.";
     } else if (/429|rate limit/i.test(msg)) {
-      friendlyError = "Rate limited by Discord — too many login attempts. Wait a few minutes before retrying.";
+      friendlyError = "Rate limited by Discord — too many login attempts. Wait a few minutes, it will retry automatically.";
     }
 
     log(`Login failed: ${friendlyError}`, "discord");

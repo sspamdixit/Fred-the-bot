@@ -93,13 +93,18 @@ app.use((req, res, next) => {
 });
 
 function startKeepAlive() {
-  const serviceUrl = process.env.RENDER_EXTERNAL_URL;
+  const serviceUrl = (
+    process.env.RENDER_EXTERNAL_URL ??
+    process.env.SERVICE_URL ??
+    ""
+  ).trim().replace(/\/$/, "");
+
   if (!serviceUrl) {
-    log("RENDER_EXTERNAL_URL not set — keep-alive disabled.", "keep-alive");
+    log("No RENDER_EXTERNAL_URL or SERVICE_URL set — keep-alive disabled. On Render free tier this means the service will spin down after 15 min of inactivity and disconnect the bot. Set RENDER_EXTERNAL_URL to your Render app URL to prevent this.", "keep-alive");
     return;
   }
 
-  const pingUrl = `${serviceUrl.replace(/\/$/, "")}/health`;
+  const pingUrl = `${serviceUrl}/health`;
   const INTERVAL_MS = 10 * 60 * 1000;
 
   log(`Keep-alive active → pinging ${pingUrl} every 10 min`, "keep-alive");
