@@ -73,6 +73,56 @@ let botState: BotStatus = {
 };
 
 let client: Client | null = null;
+const SLUR_TIMEOUT_MS = 10 * 60 * 1000;
+const BANNED_SLUR_PATTERNS = [
+  /\bn[\W_]*[i1!][\W_]*g[\W_]*g[\W_]*[a@e3r]\b/i,
+  /\bf[\W_]*[a@][\W_]*g[\W_]*g[\W_]*[o0][\W_]*t\b/i,
+  /\bk[\W_]*[i1!][\W_]*k[\W_]*e\b/i,
+  /\bc[\W_]*h[\W_]*[i1!][\W_]*n[\W_]*k\b/i,
+  /\bs[\W_]*p[\W_]*[i1!][\W_]*c\b/i,
+  /\bg[\W_]*[o0][\W_]*[o0][\W_]*k\b/i,
+  /\bc[\W_]*[o0][\W_]*[o0][\W_]*n\b/i,
+  /\bw[\W_]*e[\W_]*t[\W_]*b[\W_]*[a@][\W_]*c[\W_]*k\b/i,
+  /\bp[\W_]*[a@][\W_]*k[\W_]*[i1!]\b/i,
+  /\bt[\W_]*r[\W_]*[a@][\W_]*n[\W_]*n[\W_]*y\b/i,
+];
+
+function containsBannedSlur(content: string): boolean {
+  return BANNED_SLUR_PATTERNS.some((pattern) => pattern.test(content));
+}
+
+async function enforceSlurTimeout(message: Message): Promise<boolean> {
+  if (!containsBannedSlur(message.content)) {
+    return false;
+  }
+
+  const guildName = message.guild?.name ?? "this server";
+  const warning = [
+    `you used a slur in ${guildName}.`,
+    "this is a 10 minute timeout.",
+    "do not use slurs here again.",
+  ].join("\n");
+
+  try {
+    await message.author.send(warning);
+  } catch (err: any) {
+    log(`[Moderation] Failed to DM slur warning to ${message.author.tag}: ${err.message}`, "discord");
+  }
+
+  if (!message.member) {
+    log(`[Moderation] Slur detected from ${message.author.tag}, but no guild member was available to timeout.`, "discord");
+    return true;
+  }
+
+  try {
+    await message.member.timeout(SLUR_TIMEOUT_MS, "Used a slur.");
+    log(`[Moderation] Timed out ${message.author.tag} for slur usage.`, "discord");
+  } catch (err: any) {
+    log(`[Moderation] Failed to timeout ${message.author.tag}: ${err.message}`, "discord");
+  }
+
+  return true;
+}
 
 export function getBotStatus(): BotStatus {
   if (client && client.user) {
@@ -337,6 +387,7 @@ export async function startBot() {
 
   client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
+    if (await enforceSlurTimeout(message)) return;
 
     const io = getIO();
 
