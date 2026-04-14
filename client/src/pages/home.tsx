@@ -36,10 +36,6 @@ import {
   Play,
   FlaskConical,
   XCircle,
-  ArrowUp,
-  ArrowDown,
-  Trash2,
-  Save,
 } from "lucide-react";
 import {
   apiRequest,
@@ -80,15 +76,6 @@ interface GuildInfo {
   name: string;
   iconUrl: string | null;
   channels: ChannelInfo[];
-}
-
-interface AIProviderStatus {
-  id: "gemini" | "groq" | "hackclub";
-  name: string;
-  enabled: boolean;
-  priority: number;
-  hasKey: boolean;
-  keySource: "dashboard" | "environment" | "none";
 }
 
 const STATUS_OPTIONS = [
@@ -331,14 +318,8 @@ function Dashboard() {
   const [activityType,   setActivityType]   = useState<string>("Watching");
   const [activityName,   setActivityName]   = useState<string>("the Archives");
   const [presenceSaved,  setPresenceSaved]  = useState(false);
-  const [aiKeyDrafts, setAiKeyDrafts] = useState<Record<AIProviderStatus["id"], string>>({
-    gemini: "",
-    groq: "",
-    hackclub: "",
-  });
 
   const { data: aiStatus, isLoading: aiLoading } = useQuery<{
-    providers: AIProviderStatus[];
     geminiEnabled: boolean;
     groqEnabled: boolean;
     hackclubEnabled: boolean;
@@ -358,40 +339,6 @@ function Dashboard() {
     },
     onError: (err: any) => {
       toast({ title: "Failed to toggle AI", description: err?.message ?? "Something went wrong.", variant: "destructive" });
-    },
-  });
-
-  const saveAiKeyMutation = useMutation({
-    mutationFn: ({ provider, apiKey }: { provider: AIProviderStatus["id"]; apiKey: string }) =>
-      apiRequest("POST", "/api/ai/key", { provider, apiKey }),
-    onSuccess: (_data, variables) => {
-      setAiKeyDrafts((prev) => ({ ...prev, [variables.provider]: "" }));
-      qc.invalidateQueries({ queryKey: ["/api/ai/status"] });
-      toast({ title: "API key saved", description: "The provider will use the new key immediately." });
-    },
-    onError: (err: any) => {
-      toast({ title: "Failed to save key", description: err?.message ?? "Something went wrong.", variant: "destructive" });
-    },
-  });
-
-  const removeAiKeyMutation = useMutation({
-    mutationFn: (provider: AIProviderStatus["id"]) => apiRequest("DELETE", `/api/ai/key/${provider}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/ai/status"] });
-      toast({ title: "API key removed", description: "That provider has been disabled until a new key is added." });
-    },
-    onError: (err: any) => {
-      toast({ title: "Failed to remove key", description: err?.message ?? "Something went wrong.", variant: "destructive" });
-    },
-  });
-
-  const reorderAiMutation = useMutation({
-    mutationFn: (providers: AIProviderStatus["id"][]) => apiRequest("POST", "/api/ai/order", { providers }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/ai/status"] });
-    },
-    onError: (err: any) => {
-      toast({ title: "Failed to reorder providers", description: err?.message ?? "Something went wrong.", variant: "destructive" });
     },
   });
 
@@ -513,22 +460,6 @@ function Dashboard() {
     : status?.status === "dnd"   ? "rgb(248,113,113)"
     : status?.status === "error" ? "rgb(248,113,113)"
     : "rgb(148,163,184)";
-
-  const aiProviders = aiStatus?.providers ?? [];
-  const moveAiProvider = (index: number, direction: -1 | 1) => {
-    const nextIndex = index + direction;
-    if (nextIndex < 0 || nextIndex >= aiProviders.length) return;
-    const nextProviders = [...aiProviders];
-    const [moved] = nextProviders.splice(index, 1);
-    nextProviders.splice(nextIndex, 0, moved);
-    reorderAiMutation.mutate(nextProviders.map((provider) => provider.id));
-  };
-
-  const providerDescriptions: Record<AIProviderStatus["id"], string> = {
-    gemini: "Google Gemini models. Great first-choice general responder.",
-    groq: "Fast fallback for chat completions when higher-priority providers fail.",
-    hackclub: "Grok-style fallback through Hack Club AI for last-resort responses.",
-  };
 
   return (
     <div className="relative min-h-screen overflow-x-hidden">
@@ -778,139 +709,139 @@ function Dashboard() {
 
         <Panel title="AI Responses" icon={Bot}>
           <div className="space-y-4">
-            <div className="rounded-xl px-4 py-3 text-xs leading-relaxed" style={{ background: "rgba(56,189,248,0.06)", border: "1px solid rgba(56,189,248,0.15)", color: "rgba(255,255,255,0.55)" }}>
-              Add dashboard-managed API keys, disable providers, or move providers up/down to choose the order the bot tries them. Saved keys are encrypted and never shown again.
+
+            {/* Gemini toggle */}
+            <div
+              className="rounded-xl p-4 space-y-3"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-semibold text-white">Gemini</p>
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                    Primary AI — tried first on every mention.
+                  </p>
+                </div>
+                {aiLoading ? (
+                  <GlassSkeleton className="w-11 h-6 rounded-full" />
+                ) : (
+                  <Switch
+                    data-testid="switch-gemini-enabled"
+                    checked={aiStatus?.geminiEnabled ?? false}
+                    disabled={aiToggleMutation.isPending}
+                    onCheckedChange={(val) => aiToggleMutation.mutate({ provider: "gemini", enabled: val })}
+                  />
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                <KeyRound
+                  className="w-3.5 h-3.5 flex-shrink-0"
+                  style={{ color: aiStatus?.hasGeminiKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                />
+                <span>
+                  API key:{" "}
+                  <span
+                    className="font-semibold"
+                    style={{ color: aiStatus?.hasGeminiKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                    data-testid="text-gemini-key-status"
+                  >
+                    {aiLoading ? "checking…" : aiStatus?.hasGeminiKey ? "Configured" : "Not set"}
+                  </span>
+                </span>
+              </div>
             </div>
 
-            {aiLoading ? (
-              <div className="space-y-3">
-                <GlassSkeleton className="h-32 w-full rounded-xl" />
-                <GlassSkeleton className="h-32 w-full rounded-xl" />
-                <GlassSkeleton className="h-32 w-full rounded-xl" />
+            {/* Groq toggle */}
+            <div
+              className="rounded-xl p-4 space-y-3"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-semibold text-white">Groq</p>
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                    Fallback AI — used when Gemini is off or exhausted.
+                  </p>
+                </div>
+                {aiLoading ? (
+                  <GlassSkeleton className="w-11 h-6 rounded-full" />
+                ) : (
+                  <Switch
+                    data-testid="switch-groq-enabled"
+                    checked={aiStatus?.groqEnabled ?? false}
+                    disabled={aiToggleMutation.isPending}
+                    onCheckedChange={(val) => aiToggleMutation.mutate({ provider: "groq", enabled: val })}
+                  />
+                )}
               </div>
-            ) : (
-              aiProviders.map((provider, index) => {
-                const draft = aiKeyDrafts[provider.id] ?? "";
-                const savingThisKey = saveAiKeyMutation.isPending && saveAiKeyMutation.variables?.provider === provider.id;
-                const removingThisKey = removeAiKeyMutation.isPending && removeAiKeyMutation.variables === provider.id;
-                return (
-                  <div
-                    key={provider.id}
-                    className="rounded-xl p-4 space-y-4"
-                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
+              <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                <KeyRound
+                  className="w-3.5 h-3.5 flex-shrink-0"
+                  style={{ color: aiStatus?.hasGroqKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                />
+                <span>
+                  API key:{" "}
+                  <span
+                    className="font-semibold"
+                    style={{ color: aiStatus?.hasGroqKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                    data-testid="text-groq-key-status"
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className="text-xs font-bold px-2 py-0.5 rounded-full"
-                            style={{ background: "rgba(125,211,252,0.16)", color: "rgba(186,230,253,0.95)", border: "1px solid rgba(125,211,252,0.25)" }}
-                            data-testid={`text-provider-priority-${provider.id}`}
-                          >
-                            #{index + 1}
-                          </span>
-                          <p className="text-sm font-semibold text-white" data-testid={`text-provider-name-${provider.id}`}>{provider.name}</p>
-                        </div>
-                        <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                          {providerDescriptions[provider.id]}
-                        </p>
-                      </div>
+                    {aiLoading ? "checking…" : aiStatus?.hasGroqKey ? "Configured" : "Not set"}
+                  </span>
+                </span>
+              </div>
+            </div>
 
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          className="aero-btn aero-btn-ghost aero-btn-sm px-2"
-                          disabled={index === 0 || reorderAiMutation.isPending}
-                          onClick={() => moveAiProvider(index, -1)}
-                          data-testid={`button-provider-up-${provider.id}`}
-                        >
-                          <ArrowUp className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          className="aero-btn aero-btn-ghost aero-btn-sm px-2"
-                          disabled={index === aiProviders.length - 1 || reorderAiMutation.isPending}
-                          onClick={() => moveAiProvider(index, 1)}
-                          data-testid={`button-provider-down-${provider.id}`}
-                        >
-                          <ArrowDown className="w-3.5 h-3.5" />
-                        </button>
-                        <Switch
-                          data-testid={`switch-provider-enabled-${provider.id}`}
-                          checked={provider.enabled}
-                          disabled={aiToggleMutation.isPending}
-                          onCheckedChange={(val) => aiToggleMutation.mutate({ provider: provider.id, enabled: val })}
-                        />
-                      </div>
-                    </div>
+            {/* Hackclub toggle */}
+            <div
+              className="rounded-xl p-4 space-y-3"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-semibold text-white">Tertiary AI Fallback</p>
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                    Last resort — used when Gemini and Groq are off or exhausted.
+                  </p>
+                </div>
+                {aiLoading ? (
+                  <GlassSkeleton className="w-11 h-6 rounded-full" />
+                ) : (
+                  <Switch
+                    data-testid="switch-hackclub-enabled"
+                    checked={aiStatus?.hackclubEnabled ?? false}
+                    disabled={aiToggleMutation.isPending}
+                    onCheckedChange={(val) => aiToggleMutation.mutate({ provider: "hackclub", enabled: val })}
+                  />
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                <KeyRound
+                  className="w-3.5 h-3.5 flex-shrink-0"
+                  style={{ color: aiStatus?.hasHackclubKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                />
+                <span>
+                  API key:{" "}
+                  <span
+                    className="font-semibold"
+                    style={{ color: aiStatus?.hasHackclubKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                    data-testid="text-hackclub-key-status"
+                  >
+                    {aiLoading ? "checking…" : aiStatus?.hasHackclubKey ? "Configured" : "Not set"}
+                  </span>
+                </span>
+              </div>
+            </div>
 
-                    <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                      <KeyRound
-                        className="w-3.5 h-3.5 flex-shrink-0"
-                        style={{ color: provider.hasKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                      />
-                      <span>
-                        API key:{" "}
-                        <span
-                          className="font-semibold"
-                          style={{ color: provider.hasKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                          data-testid={`text-provider-key-status-${provider.id}`}
-                        >
-                          {provider.hasKey ? `Configured (${provider.keySource})` : "Not set"}
-                        </span>
-                      </span>
-                      {!provider.enabled && (
-                        <span className="font-semibold" style={{ color: "rgb(250,204,21)" }} data-testid={`text-provider-disabled-${provider.id}`}>
-                          · disabled
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2">
-                      <Input
-                        data-testid={`input-provider-key-${provider.id}`}
-                        type="password"
-                        autoComplete="off"
-                        placeholder={`Paste new ${provider.name} API key…`}
-                        value={draft}
-                        onChange={(e) => setAiKeyDrafts((prev) => ({ ...prev, [provider.id]: e.target.value }))}
-                        className="aero-input h-10"
-                        disabled={savingThisKey}
-                      />
-                      <button
-                        type="button"
-                        className="aero-btn justify-center"
-                        disabled={!draft.trim() || savingThisKey}
-                        onClick={() => saveAiKeyMutation.mutate({ provider: provider.id, apiKey: draft })}
-                        data-testid={`button-save-provider-key-${provider.id}`}
-                      >
-                        {savingThisKey ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                        Save
-                      </button>
-                      <button
-                        type="button"
-                        className="aero-btn aero-btn-ghost justify-center"
-                        disabled={removingThisKey || (!provider.hasKey && !provider.enabled)}
-                        onClick={() => removeAiKeyMutation.mutate(provider.id)}
-                        data-testid={`button-remove-provider-key-${provider.id}`}
-                      >
-                        {removingThisKey ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-
-            {aiStatus && aiProviders.every((provider) => !provider.enabled || !provider.hasKey) && (
+            {/* Warning if all are off */}
+            {aiStatus && !aiStatus.geminiEnabled && !aiStatus.groqEnabled && !aiStatus.hackclubEnabled && (
               <div
                 className="flex items-start gap-2 px-4 py-3 rounded-xl text-sm"
                 style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)" }}
               >
                 <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "rgb(248,113,113)" }} />
                 <span style={{ color: "rgba(255,255,255,0.65)" }}>
-                  No usable AI provider is enabled — the bot will not reply to mentions.
+                  All AI providers are disabled — the bot will not reply to mentions.
                 </span>
               </div>
             )}
