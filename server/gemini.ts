@@ -257,6 +257,105 @@ async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<str
   }
 }
 
+export interface ImageData {
+  mimeType: string;
+  data: string;
+}
+
+export async function askGeminiWithImage(
+  userMessage: string,
+  authorName: string,
+  channelId: string,
+  images: ImageData[],
+  context: AuthorContext = {}
+): Promise<string | null> {
+  const prompt = buildUserPrompt(userMessage || "what do you think of this?", authorName, context);
+  const history = getHistory(channelId);
+  const systemPrompt = await buildSharedSystemPrompt();
+  const fullSystemPrompt =
+    systemPrompt +
+    "\n\nyou can now see images. if an image is attached, analyze it and include your thoughts on it in your typical sarcastic, rude personality. stay all lowercase.";
+
+  if (geminiEnabled) {
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (geminiKey) {
+      const client = getClient();
+
+      for (const modelName of MODELS_TO_TRY) {
+        try {
+          log(`[Gemini] Trying model: ${modelName} (with image)`, "gemini");
+          const model = client.getGenerativeModel({
+            model: modelName,
+            systemInstruction: fullSystemPrompt,
+            safetySettings: [
+              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+            ],
+          });
+
+          const contentParts: ({ text: string } | { inlineData: { mimeType: string; data: string } })[] = [
+            ...images.map((img) => ({
+              inlineData: { mimeType: img.mimeType, data: img.data },
+            })),
+            { text: prompt },
+          ];
+
+          const result = await model.generateContent(contentParts);
+          const text = result.response.text().trim();
+
+          if (text === "SKIP") {
+            log(`[Gemini] Filtered image message from ${authorName} — returning in-character refusal.`, "gemini");
+            return getForbiddenResponse();
+          }
+
+          const tokens = result.response.usageMetadata?.totalTokenCount ?? 0;
+          stats.totalTokens.gemini += tokens;
+          stats.lastUsedProvider = "Gemini";
+          stats.lastUsedModel = modelName;
+          stats.totalRequests++;
+
+          log(`[Gemini] Image analysis success with model ${modelName}`, "gemini");
+          pushHistory(channelId, "user", prompt);
+          pushHistory(channelId, "assistant", text);
+          return text;
+        } catch (err: any) {
+          const msg: string = err.message ?? "";
+          const isQuota = msg.includes("429") || msg.includes("quota");
+          const isNotFound = msg.includes("404") || msg.includes("not found");
+          const isSafetyBlocked = isSafetyBlockedError(msg);
+
+          if (isQuota || isNotFound) {
+            log(`[Gemini] Model ${modelName} failed (${isQuota ? "quota" : "not found"}) — trying next.`, "gemini");
+            continue;
+          }
+
+          if (isSafetyBlocked) {
+            log("[Gemini] Safety blocked image content — returning in-character refusal.", "gemini");
+            return getForbiddenResponse();
+          }
+
+          log(`[Gemini] Image error: ${msg} — trying next model.`, "gemini");
+          continue;
+        }
+      }
+
+      log("[Gemini] All models exhausted for image — falling back to text-only.", "gemini");
+    } else {
+      log("[Gemini] GEMINI_API_KEY not set — falling back to text-only.", "gemini");
+    }
+  } else {
+    log("[Gemini] Disabled — falling back to text-only.", "gemini");
+  }
+
+  // Fall back: text-only response noting the image couldn't be processed
+  const fallbackMsg = userMessage
+    ? `[image attached but can't be processed by fallback providers] ${userMessage}`
+    : "[image attached but can't be processed by fallback providers — describe what you want to know about it]";
+  return askGemini(fallbackMsg, authorName, channelId, context);
+}
+
 export async function askGemini(userMessage: string, authorName: string, channelId: string, context: AuthorContext = {}): Promise<string | null> {
   const prompt = buildUserPrompt(userMessage, authorName, context);
   const history = getHistory(channelId);

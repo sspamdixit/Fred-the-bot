@@ -9,7 +9,7 @@ import {
 } from "discord.js";
 import { log } from "./index";
 import { getIO } from "./socket";
-import { askGemini, getAIStats } from "./gemini";
+import { askGemini, askGeminiWithImage, getAIStats, type ImageData } from "./gemini";
 import { buildBotProfileMessage } from "./ai-settings";
 import { startQotd } from "./qotd";
 
@@ -510,16 +510,30 @@ export async function startBot() {
       }
 
       cleanContent = cleanContent.trim();
-      if (!cleanContent) return;
+
+      const SUPPORTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+      const SUPPORTED_IMAGE_EXTS = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
+
+      const imageAttachments = message.attachments.filter((att) => {
+        const ct = att.contentType?.split(";")[0].trim().toLowerCase() ?? "";
+        const ext = att.name
+          ? att.name.slice(att.name.lastIndexOf(".")).toLowerCase()
+          : "";
+        return SUPPORTED_IMAGE_TYPES.includes(ct) || SUPPORTED_IMAGE_EXTS.includes(ext);
+      });
+
+      if (!cleanContent && imageAttachments.size === 0) return;
 
       // Also handle !bubbl info/status/help/ping as subcommands
-      const sub = cleanContent.toLowerCase();
-      if (sub === "info" || sub === "status" || sub === "capabilities" || sub === "weaknesses" || sub === "help" || sub === "ping") {
-        await message.reply({
-          content: `use \`!${sub}\` directly instead of \`!bubbl ${sub}\`. easier.`,
-          allowedMentions: { parse: [], repliedUser: false },
-        });
-        return;
+      if (cleanContent) {
+        const sub = cleanContent.toLowerCase();
+        if (sub === "info" || sub === "status" || sub === "capabilities" || sub === "weaknesses" || sub === "help" || sub === "ping") {
+          await message.reply({
+            content: `use \`!${sub}\` directly instead of \`!bubbl ${sub}\`. easier.`,
+            allowedMentions: { parse: [], repliedUser: false },
+          });
+          return;
+        }
       }
 
       const authorDisplayName = message.member?.displayName ?? message.author.username;
@@ -529,10 +543,40 @@ export async function startBot() {
       const isOwner = roleNames.some((role) => role.trim().toLowerCase() === "owner") ||
         [message.author.username, authorDisplayName].some((name) => name.trim().toLowerCase() === "deliv3r");
 
-      log(`[Gemini] Handling from ${authorDisplayName}: ${cleanContent.slice(0, 80)}`, "discord");
+      log(`[Gemini] Handling from ${authorDisplayName}: ${cleanContent.slice(0, 80)}${imageAttachments.size > 0 ? ` [+${imageAttachments.size} image(s)]` : ""}`, "discord");
 
       try {
         await (message.channel as TextChannel).sendTyping();
+
+        if (imageAttachments.size > 0) {
+          const imageDataArray: ImageData[] = [];
+          for (const att of imageAttachments.values()) {
+            try {
+              const res = await fetch(att.url);
+              const buffer = await res.arrayBuffer();
+              const base64 = Buffer.from(buffer).toString("base64");
+              const mimeType = att.contentType?.split(";")[0].trim() ?? "image/png";
+              imageDataArray.push({ mimeType, data: base64 });
+            } catch (fetchErr: any) {
+              log(`[Gemini] Failed to fetch image attachment: ${fetchErr.message}`, "discord");
+            }
+          }
+
+          if (imageDataArray.length > 0) {
+            const reply = await askGeminiWithImage(cleanContent, authorDisplayName, message.channelId, imageDataArray, {
+              roles: roleNames,
+              isOwner,
+            });
+            if (reply) {
+              await message.reply({
+                content: reply,
+                allowedMentions: { parse: [], repliedUser: false },
+              });
+            }
+            return;
+          }
+        }
+
         const reply = await askGemini(cleanContent, authorDisplayName, message.channelId, {
           roles: roleNames,
           isOwner,
