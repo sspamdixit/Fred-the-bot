@@ -85,6 +85,12 @@ export function getAIStats(): AIStats {
   return { ...stats, totalTokens: { ...stats.totalTokens } };
 }
 
+export function clearUserMemorySession(userId: string): void {
+  userSessionHistories.delete(userId);
+  pendingMemoryUpdates.delete(userId);
+  processedMemoryCandidates.delete(userId);
+}
+
 function getHistory(channelId: string): HistoryEntry[] {
   return channelHistories.get(channelId) ?? [];
 }

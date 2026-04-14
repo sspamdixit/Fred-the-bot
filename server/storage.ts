@@ -10,6 +10,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   getUserMemory(userId: string): Promise<UserMemory | undefined>;
   upsertUserMemory(userId: string, dossier: string): Promise<UserMemory>;
+  deleteUserMemory(userId: string): Promise<boolean>;
 }
 
 export async function ensureUserMemoryTable(): Promise<void> {
@@ -53,6 +54,14 @@ export class DrizzleStorage implements IStorage {
       })
       .returning();
     return result[0];
+  }
+
+  async deleteUserMemory(userId: string): Promise<boolean> {
+    const result = await db
+      .delete(userMemory)
+      .where(eq(userMemory.userId, userId))
+      .returning();
+    return result.length > 0;
   }
 }
 

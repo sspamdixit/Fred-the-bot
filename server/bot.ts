@@ -9,9 +9,10 @@ import {
 } from "discord.js";
 import { log } from "./index";
 import { getIO } from "./socket";
-import { askGemini, askGeminiWithImage, getAIStats, triggerUserMemoryUpdate, type ImageData } from "./gemini";
+import { askGemini, askGeminiWithImage, clearUserMemorySession, getAIStats, triggerUserMemoryUpdate, type ImageData } from "./gemini";
 import { buildBotProfileMessage } from "./ai-settings";
 import { startQotd } from "./qotd";
+import { storage } from "./storage";
 
 export interface BotStatus {
   online: boolean;
@@ -370,6 +371,69 @@ export async function startBot() {
     // Standalone commands (no prefix/mention required)
     const rawContent = message.content.trim();
     const standaloneCmd = rawContent.toLowerCase();
+    const authorDisplayName = message.member?.displayName ?? message.author.username;
+    const roleNames = message.member?.roles.cache
+      .filter((role) => role.name !== "@everyone")
+      .map((role) => role.name) ?? [];
+    const isOwner = roleNames.some((role) => role.trim().toLowerCase() === "owner") ||
+      [message.author.username, authorDisplayName].some((name) => name.trim().toLowerCase() === "deliv3r");
+
+    const sendPrivate = async (content: string) => {
+      try {
+        await message.author.send(content);
+      } catch (err: any) {
+        await message.reply({
+          content: "i can't dm you. open your dms if you want dossier commands to stay private.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+      }
+    };
+
+    const dossierCommand = standaloneCmd.match(/^\?(dossview|dossdelete|dosswipe)\b/);
+    if (dossierCommand) {
+      try {
+        await message.delete();
+      } catch {
+      }
+
+      if (!isOwner) {
+        await sendPrivate("no. dossier commands are owner-only.");
+        return;
+      }
+
+      const command = dossierCommand[1];
+      const target = message.mentions.users.first();
+      if (!target) {
+        await sendPrivate(`usage: ?${command} @user`);
+        return;
+      }
+
+      try {
+        if (command === "dossview") {
+          const memory = await storage.getUserMemory(target.id);
+          await sendPrivate([
+            `dossier for ${target.tag}:`,
+            memory?.dossier?.trim() || "new user. no record.",
+          ].join("\n"));
+          return;
+        }
+
+        const deleted = await storage.deleteUserMemory(target.id);
+        if (command === "dosswipe") {
+          clearUserMemorySession(target.id);
+        }
+
+        await sendPrivate(
+          command === "dosswipe"
+            ? `${target.tag}'s saved dossier ${deleted ? "and live memory were wiped." : "was already empty; live memory was wiped."}`
+            : `${target.tag}'s saved dossier ${deleted ? "was deleted." : "was already empty."}`,
+        );
+      } catch (err: any) {
+        log(`[Dossier] Command failed: ${err.message}`, "discord");
+        await sendPrivate(`dossier command failed: ${err.message}`);
+      }
+      return;
+    }
 
     if (standaloneCmd === "?info") {
       const profileMessage = await buildBotProfileMessage();
@@ -578,13 +642,6 @@ export async function startBot() {
           return;
         }
       }
-
-      const authorDisplayName = message.member?.displayName ?? message.author.username;
-      const roleNames = message.member?.roles.cache
-        .filter((role) => role.name !== "@everyone")
-        .map((role) => role.name) ?? [];
-      const isOwner = roleNames.some((role) => role.trim().toLowerCase() === "owner") ||
-        [message.author.username, authorDisplayName].some((name) => name.trim().toLowerCase() === "deliv3r");
 
       const mediaCount = mediaAttachments.size + tenorMediaUrls.length;
       log(`[Gemini] Handling from ${authorDisplayName}: ${cleanContent.slice(0, 80)}${mediaCount > 0 ? ` [+${mediaCount} media]` : ""}`, "discord");
