@@ -19,6 +19,7 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - Static production assets are served from `dist/public` after build.
 - API routes are mounted under `/api` and protected by dashboard authentication where appropriate.
 - Secrets such as Discord bot tokens and API keys are read from environment variables and must not be committed.
+- AI chat responses receive Discord role context; users with the `owner` role or the name `deliv3r` are treated as owner-authority users within the system prompt.
 
 # Migration Notes
 

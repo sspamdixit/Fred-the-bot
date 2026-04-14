@@ -415,11 +415,21 @@ export async function startBot() {
         return;
       }
 
-      log(`[Gemini] Handling from ${message.author.username}: ${cleanContent.slice(0, 80)}`, "discord");
+      const authorDisplayName = message.member?.displayName ?? message.author.username;
+      const roleNames = message.member?.roles.cache
+        .filter((role) => role.name !== "@everyone")
+        .map((role) => role.name) ?? [];
+      const isOwner = roleNames.some((role) => role.trim().toLowerCase() === "owner") ||
+        [message.author.username, authorDisplayName].some((name) => name.trim().toLowerCase() === "deliv3r");
+
+      log(`[Gemini] Handling from ${authorDisplayName}: ${cleanContent.slice(0, 80)}`, "discord");
 
       try {
         await (message.channel as TextChannel).sendTyping();
-        const reply = await askGemini(cleanContent, message.author.username, message.channelId);
+        const reply = await askGemini(cleanContent, authorDisplayName, message.channelId, {
+          roles: roleNames,
+          isOwner,
+        });
         if (reply) {
           await message.reply({
             content: reply,
