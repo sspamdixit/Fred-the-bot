@@ -592,7 +592,16 @@ export async function startBot() {
               continue;
             }
             try {
-              const res = await fetch(att.url);
+              // Use proxyURL — the public media proxy that doesn't require bot auth.
+              // att.url is the CDN URL which requires Authorization headers for PC-uploaded files.
+              const fetchUrl = att.proxyURL || att.url;
+              const res = await fetch(fetchUrl, {
+                headers: { "Authorization": `Bot ${process.env.TOKEN}` },
+              });
+              if (!res.ok) {
+                log(`[Gemini] Attachment fetch failed: HTTP ${res.status} for ${att.name}`, "discord");
+                continue;
+              }
               const buffer = await res.arrayBuffer();
               const base64 = Buffer.from(buffer).toString("base64");
               const mimeType =
