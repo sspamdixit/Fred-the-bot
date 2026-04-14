@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startBot, getBotStatus } from "./bot";
 import { initSocket } from "./socket";
+import { ensureUserMemoryTable } from "./storage";
 
 const app = express();
 const httpServer = createServer(app);
@@ -114,6 +115,9 @@ function startKeepAlive() {
 }
 
 (async () => {
+  await ensureUserMemoryTable();
+  log("user_memory table ready.", "memory");
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

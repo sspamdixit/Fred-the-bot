@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { users, userMemory } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { type User, type InsertUser, type UserMemory } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -10,6 +10,15 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   getUserMemory(userId: string): Promise<UserMemory | undefined>;
   upsertUserMemory(userId: string, dossier: string): Promise<UserMemory>;
+}
+
+export async function ensureUserMemoryTable(): Promise<void> {
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS user_memory (
+      user_id TEXT PRIMARY KEY,
+      dossier TEXT NOT NULL
+    )
+  `);
 }
 
 export class DrizzleStorage implements IStorage {
