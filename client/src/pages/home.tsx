@@ -36,6 +36,7 @@ import {
   Play,
   FlaskConical,
   XCircle,
+  RotateCcw,
 } from "lucide-react";
 import {
   apiRequest,
@@ -402,6 +403,17 @@ function Dashboard() {
     },
   });
 
+  const restartMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/bot/restart", {}),
+    onSuccess: () => {
+      toast({ title: "Bot restarting…", description: "It'll be back online in a moment." });
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["/api/bot/status"] }), 3000);
+    },
+    onError: (err: any) => {
+      toast({ title: "Restart failed", description: err?.message ?? "Something went wrong.", variant: "destructive" });
+    },
+  });
+
   const [testHistory, setTestHistory] = useState<Array<{ role: "user" | "bot"; text: string }>>([]);
   const [testInput, setTestInput] = useState("");
   const testScrollRef = useRef<HTMLDivElement>(null);
@@ -488,15 +500,26 @@ function Dashboard() {
             </div>
           </div>
 
-          <button
-            className="aero-btn aero-btn-ghost aero-btn-sm"
-            onClick={() => refetch()}
-            disabled={isFetching}
-            data-testid="button-refresh"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="aero-btn aero-btn-ghost aero-btn-sm"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              data-testid="button-refresh"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+            <button
+              className="aero-btn aero-btn-ghost aero-btn-sm"
+              onClick={() => restartMutation.mutate()}
+              disabled={restartMutation.isPending}
+              data-testid="button-restart-bot"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${restartMutation.isPending ? "animate-spin" : ""}`} />
+              Restart Bot
+            </button>
+          </div>
         </div>
 
         <div className="glass-panel p-6">

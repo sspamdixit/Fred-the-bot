@@ -8,6 +8,7 @@ import {
   sendMessageToChannel,
   setBotPresence,
   dispatchMessage,
+  startBot,
 } from "./bot";
 import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled, getHackclubEnabled, setHackclubEnabled, askGemini } from "./gemini";
 import { triggerQotdNow, getQotdStatus } from "./qotd";
@@ -128,6 +129,11 @@ export async function registerRoutes(
     const result = await setBotPresence(status, activityType, activityName);
     if (!result.success) return res.status(500).json({ error: result.error });
     return res.json({ success: true });
+  });
+
+  app.post("/api/bot/restart", async (_req, res) => {
+    res.json({ success: true, message: "Bot restarting…" });
+    await startBot();
   });
 
   app.post("/api/dispatch", async (req, res) => {
