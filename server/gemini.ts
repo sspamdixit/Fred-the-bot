@@ -65,6 +65,7 @@ export interface AuthorContext {
 const channelHistories = new Map<string, HistoryEntry[]>();
 const userSessionHistories = new Map<string, HistoryEntry[]>();
 const pendingMemoryUpdates = new Set<string>();
+const processedMemoryCandidates = new Map<string, string>();
 
 export interface AIStats {
   lastUsedProvider: string | null;
@@ -125,35 +126,56 @@ function recordUserSessionExchange(userId: string, userContent: string, assistan
   userSessionHistories.set(userId, history);
 }
 
-function getUserSessionMessageCount(userId: string): number {
-  return (userSessionHistories.get(userId) ?? []).filter((entry) => entry.role === "user").length;
-}
-
 function sanitizeDossier(raw: string): string {
-  const lines = raw
+  const cleaned = raw
     .toLowerCase()
     .replace(/\r/g, "")
     .split("\n")
     .map((line) => line.replace(/^[-*\d.)\s]+/, "").trim())
     .filter(Boolean)
-    .slice(0, 3);
+    .filter((line) => !/^(username|user name|discord|role|roles|id|server)\b/.test(line))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 
-  while (lines.length < 3) {
-    lines.push("unknown");
+  return cleaned.split(/\s+/).filter(Boolean).slice(0, 100).join(" ");
+}
+
+function isSubstantialMemoryMessage(content: string): boolean {
+  const text = content
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/<@!?\d+>/g, "")
+    .replace(/https?:\/\/\S+/g, "")
+    .trim();
+
+  if (text.length < 12 || /^[!?]?bubbl\b/.test(text)) {
+    return false;
   }
 
-  let remainingWords = 20;
-  return lines
-    .map((line) => {
-      const words = line.split(/\s+/).filter(Boolean).slice(0, Math.max(remainingWords, 0));
-      remainingWords -= words.length;
-      return words.join(" ") || "unknown";
-    })
+  const hasSelfReference = /\b(i|i'm|im|i've|ive|i'd|id|my|me|mine)\b/.test(text);
+  const hasPersonalSignal = /\b(failed?|passed?|exam|tests?|maths?|grades?|school|college|university|cat|dog|pet|died|dead|death|lost|grief|sad|depressed|anxious|stressed|panic|hospital|sick|ill|diagnosed|injured|breakup|broke up|girlfriend|boyfriend|crush|friends?|mom|mum|mother|dad|father|parents?|family|job|work|fired|hired|quit|moved|moving|birthday|won|achievement|trauma|bullied)\b/.test(text);
+  const isThrowaway = /^(hi|hello|hey|thanks|thank you|ty|ok|okay|lol|lmao|roast me|help|what|why|how|when|where|who)\b/.test(text) && text.length < 40;
+
+  return hasSelfReference && hasPersonalSignal && !isThrowaway;
+}
+
+function getSubstantialMemorySnippet(history: HistoryEntry[]): string {
+  return history
+    .filter((entry) => entry.role === "user")
+    .slice(-6)
+    .map((entry) => entry.content.slice(0, 500).trim())
+    .filter(isSubstantialMemoryMessage)
+    .slice(-3)
     .join("\n");
 }
 
 export function triggerUserMemoryUpdate(userId: string): void {
-  if (getUserSessionMessageCount(userId) < 5 || pendingMemoryUpdates.has(userId)) {
+  const history = userSessionHistories.get(userId) ?? [];
+  const substantialSnippet = getSubstantialMemorySnippet(history);
+  const previousCandidate = processedMemoryCandidates.get(userId);
+
+  if (!substantialSnippet || previousCandidate === substantialSnippet || pendingMemoryUpdates.has(userId)) {
     return;
   }
 
@@ -163,19 +185,10 @@ export function triggerUserMemoryUpdate(userId: string): void {
     return;
   }
 
+  processedMemoryCandidates.set(userId, substantialSnippet);
   pendingMemoryUpdates.add(userId);
   void (async () => {
     try {
-      const history = userSessionHistories.get(userId) ?? [];
-      const lastFourMessages = history
-        .slice(-4)
-        .map((entry) => `${entry.role}: ${entry.content.slice(0, 500)}`)
-        .join("\n");
-
-      if (!lastFourMessages) {
-        return;
-      }
-
       const client = getGroqClient();
       const oldDossier = await getUserDossier(userId);
       const completion = await client.chat.completions.create({
@@ -183,11 +196,14 @@ export function triggerUserMemoryUpdate(userId: string): void {
         messages: [
           {
             role: "system",
-            content: "Update the 3-line dossier for this user based on the conversation.\nLine 1: Identity/Tech (e.g. ryzen owner, student).\nLine 2: The Burn (their biggest flaws or failures).\nLine 3: Current Context (what they are currently doing).\nStrictly 3 lines, lowercase, maximum 20 words total.",
+            content: "Maintain a compact long-term user dossier for future replies. Store only durable, personally useful facts from the user's own words: major failures, losses, grief, school/work setbacks, important worries, important relationships or pets, health issues, or strong preferences that matter later. Do not store usernames, Discord roles, server titles, IDs, generic tech specs, temporary chatter, bot commands, jokes, or assistant opinions. If the new message adds nothing substantial, return exactly the existing dossier. Write lowercase plain text, maximum 100 words, no bullets, no labels, no invented facts.",
           },
-          { role: "user", content: lastFourMessages },
+          {
+            role: "user",
+            content: `existing dossier:\n${oldDossier}\n\nnew substantial user message(s):\n${substantialSnippet}`,
+          },
         ],
-        max_tokens: 80,
+        max_tokens: 160,
         temperature: 0.2,
       });
 

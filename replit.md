@@ -28,7 +28,7 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - Long-term user memory is stored in Neon PostgreSQL via `process.env.DATABASE_URL` in the `user_memory` table (`user_id` text primary key, `dossier` text).
 - The server runs a safe startup initializer for `user_memory` using `CREATE TABLE IF NOT EXISTS` so Render/Neon production environments self-create the table even if local `db:push` was not run against that database.
 - AI responses fetch the current user's dossier and inject it into the system prompt as `user record: ...`; missing rows use `new user. no record.`
-- After a sent bot reply, memory updates are triggered only once a user has at least 5 bot-directed messages in the current server session. The background updater sends only the last 4 user/assistant messages to Groq `llama-3.1-8b-instant`, stores a strict 3-line dossier, and skips database writes when unchanged.
+- After a sent bot reply, memory updates are triggered only when recent bot-directed messages contain substantial personal context such as failures, losses, major worries, school/work setbacks, health issues, important relationships, or pets. The background updater sends only those substantial user messages plus the existing dossier to Groq `llama-3.1-8b-instant`, stores lowercase plain text capped at 100 words, excludes usernames/Discord roles/IDs/generic tech specs/temporary chatter, and skips database writes when unchanged.
 
 # Migration Notes
 
