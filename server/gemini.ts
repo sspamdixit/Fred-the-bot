@@ -370,84 +370,10 @@ export async function askGeminiWithImage(
 export async function askGemini(userMessage: string, authorName: string, channelId: string, context: AuthorContext = {}): Promise<string | null> {
   const prompt = buildUserPrompt(userMessage, authorName, context);
   const history = getHistory(channelId);
-  const systemPrompt = await buildSharedSystemPrompt();
 
-  if (geminiEnabled) {
-    const geminiKey = process.env.GEMINI_API_KEY;
-    if (geminiKey) {
-      const client = getClient();
-
-      for (const modelName of MODELS_TO_TRY) {
-        try {
-          log(`[Gemini] Trying model: ${modelName}`, "gemini");
-          const model = client.getGenerativeModel({
-            model: modelName,
-            systemInstruction: systemPrompt,
-            safetySettings: [
-              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-            ],
-          });
-
-          const chat = model.startChat({
-            history: getGeminiHistory(history),
-          });
-
-          const result = await chat.sendMessage(prompt);
-          const text = result.response.text().trim();
-
-          if (text === "SKIP") {
-            log(`[Gemini] Filtered message from ${authorName} — returning in-character refusal.`, "gemini");
-            return getForbiddenResponse();
-          }
-
-          const tokens = result.response.usageMetadata?.totalTokenCount ?? 0;
-          stats.totalTokens.gemini += tokens;
-          stats.lastUsedProvider = "Gemini";
-          stats.lastUsedModel = modelName;
-          stats.totalRequests++;
-
-          log(`[Gemini] Success with model ${modelName}`, "gemini");
-          pushHistory(channelId, "user", prompt);
-          pushHistory(channelId, "assistant", text);
-          return text;
-        } catch (err: any) {
-          const msg: string = err.message ?? "";
-          const isQuota = msg.includes("429") || msg.includes("quota");
-          const isNotFound = msg.includes("404") || msg.includes("not found");
-          const isRoleOrderError = msg.includes("First content should be with role 'user'");
-          const isSafetyBlocked = isSafetyBlockedError(msg);
-
-          if (isQuota || isNotFound) {
-            log(`[Gemini] Model ${modelName} failed (${isQuota ? "quota" : "not found"}) — trying next.`, "gemini");
-            continue;
-          }
-
-          if (isRoleOrderError) {
-            log("[Gemini] History ordering invalid — clearing channel history and trying next model.", "gemini");
-            clearHistory(channelId);
-            continue;
-          }
-
-          if (isSafetyBlocked) {
-            log("[Gemini] Safety blocked content — returning in-character refusal.", "gemini");
-            return getForbiddenResponse();
-          }
-
-          log(`[Gemini] Error: ${msg} — trying next model.`, "gemini");
-          continue;
-        }
-      }
-
-      log("[Gemini] All models exhausted — falling back to Groq.", "gemini");
-    } else {
-      log("[Gemini] GEMINI_API_KEY not set — falling back to Groq.", "gemini");
-    }
-  } else {
-    log("[Gemini] Disabled — falling back to Groq.", "gemini");
-  }
+  // Text messages always route through Groq first.
+  // Gemini is reserved exclusively for media analysis via askGeminiWithImage.
+  log("[Text] Routing to Groq (text-only path).", "gemini");
 
   if (groqEnabled) {
     const reply = await tryGroq(prompt, history);
