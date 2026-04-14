@@ -10,6 +10,7 @@ import {
 import { log } from "./index";
 import { getIO } from "./socket";
 import { askGemini, getAIStats } from "./gemini";
+import { buildBotProfileMessage } from "./ai-settings";
 import { startQotd } from "./qotd";
 
 export interface BotStatus {
@@ -314,6 +315,7 @@ export async function startBot() {
     const standaloneCmd = rawContent.toLowerCase();
 
     if (standaloneCmd === "!info") {
+      const profileMessage = await buildBotProfileMessage();
       await message.reply({
         content: [
           "**bubbl manager** — discord bot + ai hybrid thing.",
@@ -324,10 +326,21 @@ export async function startBot() {
           "- has memory per channel (last 150 messages)",
           "- streams live messages to a dashboard",
           "- lets admins control presence, send messages, and manage settings",
+          "- can explain its own capabilities and weaknesses",
           "",
-          "commands: `!info` `!status` `!help` `!ping`",
+          profileMessage,
+          "",
+          "commands: `!info` `!status` `!capabilities` `!weaknesses` `!help` `!ping`",
           "or just `!bubbl <anything>` to talk to it.",
         ].join("\n"),
+        allowedMentions: { parse: [], repliedUser: false },
+      });
+      return;
+    }
+
+    if (standaloneCmd === "!capabilities" || standaloneCmd === "!weaknesses") {
+      await message.reply({
+        content: await buildBotProfileMessage(),
         allowedMentions: { parse: [], repliedUser: false },
       });
       return;
@@ -367,6 +380,8 @@ export async function startBot() {
           "**commands**",
           "`!info` — what this bot is and does",
           "`!status` — current model, token usage, uptime",
+          "`!capabilities` — what the bot can do",
+          "`!weaknesses` — what the bot is bad at / cannot do",
           "`!help` — this list",
           "`!ping` — check if the bot is alive",
           "`!bubbl <message>` — talk to the ai",
@@ -407,7 +422,7 @@ export async function startBot() {
 
       // Also handle !bubbl info/status/help/ping as subcommands
       const sub = cleanContent.toLowerCase();
-      if (sub === "info" || sub === "status" || sub === "help" || sub === "ping") {
+      if (sub === "info" || sub === "status" || sub === "capabilities" || sub === "weaknesses" || sub === "help" || sub === "ping") {
         await message.reply({
           content: `use \`!${sub}\` directly instead of \`!bubbl ${sub}\`. easier.`,
           allowedMentions: { parse: [], repliedUser: false },

@@ -21,6 +21,9 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - Secrets such as Discord bot tokens and API keys are read from environment variables and must not be committed.
 - AI chat responses receive Discord role context; users with the `owner` role or the name `deliv3r` are treated as owner-authority users within the system prompt.
 - AI chat memory is retained per channel for up to 150 recent user/assistant messages.
+- Shared AI system instructions, capability notes, and weakness notes are stored in the `bot_ai_settings` table and edited from the dashboard.
+- Gemini, Groq, and the Hack Club fallback all use the same shared AI system instructions and bot profile.
+- Discord users can view the bot profile with `!capabilities`, `!weaknesses`, or `!info`, and the AI is instructed to answer capability/limit questions from the same profile.
 
 # Migration Notes
 

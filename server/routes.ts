@@ -13,6 +13,7 @@ import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled, get
 import { triggerQotdNow, getQotdStatus } from "./qotd";
 import { z } from "zod";
 import { DASHBOARD_AUTH_HEADER, issueAuthToken, isAuthTokenValid } from "./auth";
+import { getBotAiSettings, resetBotAiSettings, updateBotAiSettings } from "./ai-settings";
 
 const PROCESS_START_TIME = Date.now();
 
@@ -36,6 +37,12 @@ const dispatchSchema = z.object({
 
 const authSchema = z.object({
   password: z.string().min(1),
+});
+
+const aiSettingsSchema = z.object({
+  systemInstructions: z.string().trim().min(200).max(20000),
+  capabilities: z.string().trim().min(20).max(8000),
+  weaknesses: z.string().trim().min(20).max(8000),
 });
 
 const apiRateLimiter = rateLimit({
@@ -177,6 +184,25 @@ export async function registerRoutes(
     if (!parsed.success) return res.status(400).json({ error: "Message required (max 500 chars)." });
     const reply = await askGemini(parsed.data.message, "Dashboard", "dashboard-ai-test");
     return res.json({ reply: reply ?? "(no response from AI)" });
+  });
+
+  app.get("/api/ai/settings", async (_req, res) => {
+    const settings = await getBotAiSettings();
+    return res.json(settings);
+  });
+
+  app.post("/api/ai/settings", async (req, res) => {
+    const parsed = aiSettingsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid AI settings.", details: parsed.error.flatten() });
+    }
+    const settings = await updateBotAiSettings(parsed.data);
+    return res.json(settings);
+  });
+
+  app.post("/api/ai/settings/reset", async (_req, res) => {
+    const settings = await resetBotAiSettings();
+    return res.json(settings);
   });
 
   app.get("/api/qotd/status", (_req, res) => {
