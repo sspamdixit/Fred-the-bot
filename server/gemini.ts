@@ -26,7 +26,7 @@ const MODELS_TO_TRY = [
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 const HACKCLUB_MODEL = "x-ai/grok-4.1-fast";
 const HACKCLUB_API_BASE = "https://ai.hackclub.com";
-const MAX_HISTORY = 15;
+const MAX_HISTORY = 150;
 const FORBIDDEN_RESPONSES = [
   "to answer that:\n1. bold of you to ask\n2. absolutely not\n3. i'm not doing that, what the fuck is wrong with you.",
   "sure, here's how:\n1. step one\n2. go outside\n3. i'm not telling you that. genuinely concerning that you asked.",

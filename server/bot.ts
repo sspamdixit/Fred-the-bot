@@ -321,7 +321,7 @@ export async function startBot() {
           "what it does:",
           "- responds when you ping it or use `!bubbl <message>`",
           "- runs on gemini first, falls back to groq, then grok via hackclub if needed",
-          "- has memory per channel (last 15 messages)",
+          "- has memory per channel (last 150 messages)",
           "- streams live messages to a dashboard",
           "- lets admins control presence, send messages, and manage settings",
           "",
