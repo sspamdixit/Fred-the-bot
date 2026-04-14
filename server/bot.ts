@@ -75,20 +75,62 @@ let botState: BotStatus = {
 let client: Client | null = null;
 const SLUR_TIMEOUT_MS = 10 * 60 * 1000;
 const BANNED_SLUR_PATTERNS = [
-  /\bn[\W_]*[i1!][\W_]*g[\W_]*g[\W_]*[a@e3r]\b/i,
-  /\bf[\W_]*[a@][\W_]*g[\W_]*g[\W_]*[o0][\W_]*t\b/i,
-  /\bk[\W_]*[i1!][\W_]*k[\W_]*e\b/i,
+  /\bn[\W_]*[i1!|l][\W_]*g\b/i,
+  /\bn[\W_]*[i1!|l][\W_]*g[\W_]*g[\W_]*[a@4e3r]\b/i,
+  /\bf[\W_]*[a@4][\W_]*g\b/i,
+  /\bf[\W_]*[a@4][\W_]*g[\W_]*g[\W_]*[o0][\W_]*t\b/i,
+  /\bk[\W_]*[i1!|l][\W_]*k[\W_]*e\b/i,
   /\bc[\W_]*h[\W_]*[i1!][\W_]*n[\W_]*k\b/i,
-  /\bs[\W_]*p[\W_]*[i1!][\W_]*c\b/i,
+  /\bs[\W_]*p[\W_]*[i1!|l][\W_]*c\b/i,
   /\bg[\W_]*[o0][\W_]*[o0][\W_]*k\b/i,
   /\bc[\W_]*[o0][\W_]*[o0][\W_]*n\b/i,
-  /\bw[\W_]*e[\W_]*t[\W_]*b[\W_]*[a@][\W_]*c[\W_]*k\b/i,
-  /\bp[\W_]*[a@][\W_]*k[\W_]*[i1!]\b/i,
-  /\bt[\W_]*r[\W_]*[a@][\W_]*n[\W_]*n[\W_]*y\b/i,
+  /\bw[\W_]*e[\W_]*t[\W_]*b[\W_]*[a@4][\W_]*c[\W_]*k\b/i,
+  /\bp[\W_]*[a@4][\W_]*j[\W_]*e[\W_]*e[\W_]*t\b/i,
+  /\bp[\W_]*[a@4][\W_]*k[\W_]*k?[\W_]*[i1!|l][\W_]*(?:e|3)?\b/i,
+  /\bt[\W_]*r[\W_]*[a@4][\W_]*n[\W_]*n[\W_]*y\b/i,
 ];
+const BANNED_SLUR_TOKENS = new Set([
+  "nig",
+  "nigga",
+  "nigger",
+  "fag",
+  "faggot",
+  "kike",
+  "chink",
+  "spic",
+  "gook",
+  "coon",
+  "wetback",
+  "pajeet",
+  "paki",
+  "pakki",
+  "pakkie",
+  "tranny",
+]);
+const LEETSPEAK_CHARS: Record<string, string> = {
+  "0": "o",
+  "1": "i",
+  "!": "i",
+  "|": "i",
+  "3": "e",
+  "4": "a",
+  "@": "a",
+  "$": "s",
+  "5": "s",
+  "7": "t",
+};
 
 function containsBannedSlur(content: string): boolean {
-  return BANNED_SLUR_PATTERNS.some((pattern) => pattern.test(content));
+  if (BANNED_SLUR_PATTERNS.some((pattern) => pattern.test(content))) {
+    return true;
+  }
+
+  const normalized = content
+    .toLowerCase()
+    .replace(/[01!|34@$57]/g, (char) => LEETSPEAK_CHARS[char] ?? char);
+  const tokens = normalized.split(/[^a-z0-9]+/).filter(Boolean);
+
+  return tokens.some((token) => BANNED_SLUR_TOKENS.has(token));
 }
 
 async function enforceSlurTimeout(message: Message): Promise<boolean> {
