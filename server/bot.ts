@@ -522,7 +522,7 @@ export async function startBot() {
       ];
       const MAX_INLINE_BYTES = 20 * 1024 * 1024;
 
-      function mimeFromExt(name: string): string {
+      const mimeFromExt = (name: string): string => {
         const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
         const map: Record<string, string> = {
           ".gif": "image/gif", ".png": "image/png", ".jpg": "image/jpeg",
@@ -532,29 +532,39 @@ export async function startBot() {
           ".3gp": "video/3gpp", ".mpeg": "video/mpeg",
         };
         return map[ext] ?? "application/octet-stream";
-      }
+      };
 
-      const mediaAttachments = message.attachments.filter((att) => {
-        const ct = att.contentType?.split(";")[0].trim().toLowerCase() ?? "";
-        const ext = att.name ? att.name.slice(att.name.lastIndexOf(".")).toLowerCase() : "";
-        const urlLower = att.url.toLowerCase().split("?")[0];
-        return (
-          SUPPORTED_MEDIA_TYPES.includes(ct) ||
-          SUPPORTED_MEDIA_EXTS.includes(ext) ||
-          SUPPORTED_MEDIA_EXTS.some((e) => urlLower.endsWith(e))
-        );
-      });
-
-      // Tenor / gifv embeds — Discord wraps these as embeds, not attachments
+      // Detect media — wrapped in try-catch so any discord.js edge case can't
+      // silently kill the entire handler before we even try to respond.
+      let hasMedia = false;
+      let mediaAttachments = message.attachments.filter(() => false);
       const tenorMediaUrls: string[] = [];
-      for (const embed of message.embeds) {
-        if (embed.type === "gifv") {
-          const url = embed.video?.url ?? embed.thumbnail?.url;
-          if (url) tenorMediaUrls.push(url);
-        }
-      }
+      try {
+        mediaAttachments = message.attachments.filter((att) => {
+          const ct = att.contentType?.split(";")[0].trim().toLowerCase() ?? "";
+          const ext = att.name ? att.name.slice(att.name.lastIndexOf(".")).toLowerCase() : "";
+          const urlLower = att.url.toLowerCase().split("?")[0];
+          return (
+            SUPPORTED_MEDIA_TYPES.includes(ct) ||
+            SUPPORTED_MEDIA_EXTS.includes(ext) ||
+            SUPPORTED_MEDIA_EXTS.some((e) => urlLower.endsWith(e))
+          );
+        });
 
-      const hasMedia = mediaAttachments.size > 0 || tenorMediaUrls.length > 0;
+        // Tenor / gifv embeds — Discord wraps these as embeds, not attachments.
+        // Use embed.data.type because Discord.js v14 Embed class has no .type getter.
+        for (const embed of message.embeds) {
+          const embedType = (embed as any).data?.type ?? (embed as any).type;
+          if (embedType === "gifv") {
+            const url = embed.video?.url ?? embed.thumbnail?.url;
+            if (url) tenorMediaUrls.push(url);
+          }
+        }
+
+        hasMedia = mediaAttachments.size > 0 || tenorMediaUrls.length > 0;
+      } catch (mediaErr: any) {
+        log(`[Gemini] Media detection error: ${mediaErr.message}`, "discord");
+      }
 
       if (!cleanContent && !hasMedia) return;
 

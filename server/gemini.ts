@@ -462,16 +462,25 @@ export async function askGemini(userMessage: string, authorName: string, channel
   }
 
   if (!hackclubEnabled) {
-    log("[Hackclub] Disabled — no response.", "gemini");
-    return null;
+    log("[Hackclub] Disabled — all providers exhausted.", "gemini");
+  } else {
+    const hackReply = await tryHackclub(prompt, history);
+    if (hackReply) {
+      pushHistory(channelId, "user", prompt);
+      pushHistory(channelId, "assistant", hackReply);
+      return hackReply;
+    }
+    log("[Hackclub] Failed — all providers exhausted.", "gemini");
   }
 
-  const hackReply = await tryHackclub(prompt, history);
-  if (hackReply) {
-    pushHistory(channelId, "user", prompt);
-    pushHistory(channelId, "assistant", hackReply);
-  }
-  return hackReply;
+  // Every provider failed — return an in-character error instead of silence.
+  const allFailedResponses = [
+    "all my ai backends are being garbage right now. try again in a bit.",
+    "gemini's dead, groq's dead, grok's dead. i got nothing. try later.",
+    "every single provider just failed me. unprecedented levels of uselessness. try again.",
+    "i'm completely offline right now. not by choice. try again in a minute.",
+  ];
+  return allFailedResponses[Math.floor(Math.random() * allFailedResponses.length)];
 }
 
 const QOTD_OPEN_PROMPT = `Generate a single Question of the Day for a Discord server. Requirements:
