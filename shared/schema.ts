@@ -31,3 +31,13 @@ export const qotdLog = pgTable("qotd_log", {
 export type QotdEntry = typeof qotdLog.$inferSelect;
 export type InsertQotdEntry = typeof qotdLog.$inferInsert;
 
+export const userMemory = pgTable("user_memory", {
+  userId: text("user_id").primaryKey(),
+  dossier: text("dossier").notNull(),
+});
+
+export const insertUserMemorySchema = createInsertSchema(userMemory);
+
+export type InsertUserMemory = z.infer<typeof insertUserMemorySchema>;
+export type UserMemory = typeof userMemory.$inferSelect;
+

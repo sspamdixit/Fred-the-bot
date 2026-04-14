@@ -3,6 +3,7 @@ import Groq from "groq-sdk";
 import type { ChatCompletion as GroqChatCompletion } from "groq-sdk/resources/chat/completions";
 import { log } from "./index";
 import { buildSharedSystemPrompt } from "./ai-settings";
+import { storage } from "./storage";
 
 let genAI: GoogleGenerativeAI | null = null;
 let groqClient: Groq | null = null;
@@ -27,6 +28,7 @@ const MODELS_TO_TRY = [
 ];
 
 const GROQ_MODEL = "llama-3.3-70b-versatile";
+const MEMORY_UPDATE_MODEL = "llama-3.1-8b-instant";
 const GROQ_MODELS_TO_TRY = [
   "llama-3.1-8b-instant",
   GROQ_MODEL,
@@ -55,11 +57,14 @@ interface HistoryEntry {
 }
 
 export interface AuthorContext {
+  userId?: string;
   roles?: string[];
   isOwner?: boolean;
 }
 
 const channelHistories = new Map<string, HistoryEntry[]>();
+const userSessionHistories = new Map<string, HistoryEntry[]>();
+const pendingMemoryUpdates = new Set<string>();
 
 export interface AIStats {
   lastUsedProvider: string | null;
@@ -92,6 +97,114 @@ function pushHistory(channelId: string, role: "user" | "assistant", content: str
 
 function clearHistory(channelId: string): void {
   channelHistories.delete(channelId);
+}
+
+function getMemoryUserId(authorName: string, context: AuthorContext = {}): string {
+  return context.userId?.trim() || authorName.trim().toLowerCase() || "unknown";
+}
+
+async function getUserDossier(userId: string): Promise<string> {
+  try {
+    const memory = await storage.getUserMemory(userId);
+    return memory?.dossier?.trim() || "new user. no record.";
+  } catch (err: any) {
+    log(`[Memory] Failed to fetch dossier: ${err.message}`, "gemini");
+    return "new user. no record.";
+  }
+}
+
+function withUserRecord(systemPrompt: string, dossier: string): string {
+  return `${systemPrompt}\n\nuser record: ${dossier}`;
+}
+
+function recordUserSessionExchange(userId: string, userContent: string, assistantContent: string): void {
+  const history = userSessionHistories.get(userId) ?? [];
+  history.push({ role: "user", content: userContent });
+  history.push({ role: "assistant", content: assistantContent });
+  if (history.length > 20) history.splice(0, history.length - 20);
+  userSessionHistories.set(userId, history);
+}
+
+function getUserSessionMessageCount(userId: string): number {
+  return (userSessionHistories.get(userId) ?? []).filter((entry) => entry.role === "user").length;
+}
+
+function sanitizeDossier(raw: string): string {
+  const lines = raw
+    .toLowerCase()
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.replace(/^[-*\d.)\s]+/, "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  while (lines.length < 3) {
+    lines.push("unknown");
+  }
+
+  let remainingWords = 20;
+  return lines
+    .map((line) => {
+      const words = line.split(/\s+/).filter(Boolean).slice(0, Math.max(remainingWords, 0));
+      remainingWords -= words.length;
+      return words.join(" ") || "unknown";
+    })
+    .join("\n");
+}
+
+export function triggerUserMemoryUpdate(userId: string): void {
+  if (getUserSessionMessageCount(userId) < 5 || pendingMemoryUpdates.has(userId)) {
+    return;
+  }
+
+  const key = process.env.GROQ_API_KEY;
+  if (!key) {
+    log("[Memory] GROQ_API_KEY not set — skipping memory update.", "gemini");
+    return;
+  }
+
+  pendingMemoryUpdates.add(userId);
+  void (async () => {
+    try {
+      const history = userSessionHistories.get(userId) ?? [];
+      const lastFourMessages = history
+        .slice(-4)
+        .map((entry) => `${entry.role}: ${entry.content.slice(0, 500)}`)
+        .join("\n");
+
+      if (!lastFourMessages) {
+        return;
+      }
+
+      const client = getGroqClient();
+      const oldDossier = await getUserDossier(userId);
+      const completion = await client.chat.completions.create({
+        model: MEMORY_UPDATE_MODEL,
+        messages: [
+          {
+            role: "system",
+            content: "Update the 3-line dossier for this user based on the conversation.\nLine 1: Identity/Tech (e.g. ryzen owner, student).\nLine 2: The Burn (their biggest flaws or failures).\nLine 3: Current Context (what they are currently doing).\nStrictly 3 lines, lowercase, maximum 20 words total.",
+          },
+          { role: "user", content: lastFourMessages },
+        ],
+        max_tokens: 80,
+        temperature: 0.2,
+      });
+
+      const newDossier = sanitizeDossier(completion.choices[0]?.message?.content?.trim() ?? "");
+      if (!newDossier || newDossier === sanitizeDossier(oldDossier)) {
+        log("[Memory] Dossier unchanged — skipping database write.", "gemini");
+        return;
+      }
+
+      await storage.upsertUserMemory(userId, newDossier);
+      log("[Memory] Dossier updated.", "gemini");
+    } catch (err: any) {
+      log(`[Memory] Update failed: ${err.message}`, "gemini");
+    } finally {
+      pendingMemoryUpdates.delete(userId);
+    }
+  })();
 }
 
 function getGeminiHistory(history: HistoryEntry[]) {
@@ -152,7 +265,7 @@ function buildUserPrompt(userMessage: string, authorName: string, context: Autho
   ].join("\n");
 }
 
-async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string | null> {
+async function tryGroq(prompt: string, history: HistoryEntry[], systemPrompt: string): Promise<string | null> {
   const key = process.env.GROQ_API_KEY;
   if (!key) {
     log("[Groq] GROQ_API_KEY not set — skipping.", "gemini");
@@ -160,8 +273,6 @@ async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string 
   }
 
   const client = getGroqClient();
-  const systemPrompt = await buildSharedSystemPrompt();
-
   const messages: Groq.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
     ...history.map((h) => ({
@@ -212,7 +323,7 @@ async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string 
   return null;
 }
 
-async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<string | null> {
+async function tryHackclub(prompt: string, history: HistoryEntry[], systemPrompt: string): Promise<string | null> {
   const key = process.env.HACKCLUB_API_KEY;
   if (!key) {
     log("[Hackclub] HACKCLUB_API_KEY not set — skipping.", "gemini");
@@ -221,8 +332,6 @@ async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<str
 
   try {
     log(`[Hackclub] Trying model: ${HACKCLUB_MODEL}`, "gemini");
-    const systemPrompt = await buildSharedSystemPrompt();
-
     const messages = [
       { role: "system", content: systemPrompt },
       ...history.map((h) => ({ role: h.role, content: h.content })),
@@ -286,7 +395,9 @@ export async function askGeminiWithImage(
 ): Promise<string | null> {
   const prompt = buildUserPrompt(userMessage || "what do you think of this?", authorName, context);
   const history = getHistory(channelId);
-  const systemPrompt = await buildSharedSystemPrompt();
+  const userId = getMemoryUserId(authorName, context);
+  const dossier = await getUserDossier(userId);
+  const systemPrompt = withUserRecord(await buildSharedSystemPrompt(), dossier);
   const fullSystemPrompt =
     systemPrompt +
     "\n\nyou can now see images, gifs, and videos. if any visual media is attached, analyze it and include your thoughts on it in your typical sarcastic, rude personality. stay all lowercase. for videos, describe what's happening and roast it accordingly.";
@@ -334,6 +445,7 @@ export async function askGeminiWithImage(
           log(`[Gemini] Image analysis success with model ${modelName}`, "gemini");
           pushHistory(channelId, "user", prompt);
           pushHistory(channelId, "assistant", text);
+          recordUserSessionExchange(userId, prompt, text);
           return text;
         } catch (err: any) {
           const msg: string = err.message ?? "";
@@ -385,15 +497,19 @@ export async function askGeminiWithImage(
 export async function askGemini(userMessage: string, authorName: string, channelId: string, context: AuthorContext = {}): Promise<string | null> {
   const prompt = buildUserPrompt(userMessage, authorName, context);
   const history = getHistory(channelId);
+  const userId = getMemoryUserId(authorName, context);
+  const dossier = await getUserDossier(userId);
+  const systemPrompt = withUserRecord(await buildSharedSystemPrompt(), dossier);
 
   // Text routing: Groq → Gemini (if Groq fails) → Hackclub → in-character error.
   log("[Text] Routing to Groq (primary).", "gemini");
 
   if (groqEnabled) {
-    const reply = await tryGroq(prompt, history);
+    const reply = await tryGroq(prompt, history, systemPrompt);
     if (reply) {
       pushHistory(channelId, "user", prompt);
       pushHistory(channelId, "assistant", reply);
+      recordUserSessionExchange(userId, prompt, reply);
       return reply;
     }
     log("[Groq] Failed or unavailable — falling back to Gemini (text).", "gemini");
@@ -406,7 +522,6 @@ export async function askGemini(userMessage: string, authorName: string, channel
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
       const client = getClient();
-      const systemPrompt = await buildSharedSystemPrompt();
       for (const modelName of MODELS_TO_TRY) {
         try {
           log(`[Gemini/text-fallback] Trying model: ${modelName}`, "gemini");
@@ -435,6 +550,7 @@ export async function askGemini(userMessage: string, authorName: string, channel
           log(`[Gemini/text-fallback] Success with model ${modelName}`, "gemini");
           pushHistory(channelId, "user", prompt);
           pushHistory(channelId, "assistant", text);
+          recordUserSessionExchange(userId, prompt, text);
           return text;
         } catch (err: any) {
           const msg: string = err.message ?? "";
@@ -459,10 +575,11 @@ export async function askGemini(userMessage: string, authorName: string, channel
   if (!hackclubEnabled) {
     log("[Hackclub] Disabled — all providers exhausted.", "gemini");
   } else {
-    const hackReply = await tryHackclub(prompt, history);
+    const hackReply = await tryHackclub(prompt, history, systemPrompt);
     if (hackReply) {
       pushHistory(channelId, "user", prompt);
       pushHistory(channelId, "assistant", hackReply);
+      recordUserSessionExchange(userId, prompt, hackReply);
       return hackReply;
     }
     log("[Hackclub] Failed — all providers exhausted.", "gemini");

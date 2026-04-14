@@ -9,7 +9,7 @@ import {
 } from "discord.js";
 import { log } from "./index";
 import { getIO } from "./socket";
-import { askGemini, askGeminiWithImage, getAIStats, type ImageData } from "./gemini";
+import { askGemini, askGeminiWithImage, getAIStats, triggerUserMemoryUpdate, type ImageData } from "./gemini";
 import { buildBotProfileMessage } from "./ai-settings";
 import { startQotd } from "./qotd";
 
@@ -640,6 +640,7 @@ export async function startBot() {
 
           if (mediaDataArray.length > 0) {
             const reply = await askGeminiWithImage(cleanContent, authorDisplayName, message.channelId, mediaDataArray, {
+              userId: message.author.id,
               roles: roleNames,
               isOwner,
             });
@@ -648,12 +649,14 @@ export async function startBot() {
                 content: reply,
                 allowedMentions: { parse: [], repliedUser: false },
               });
+              triggerUserMemoryUpdate(message.author.id);
             }
             return;
           }
         }
 
         const reply = await askGemini(cleanContent, authorDisplayName, message.channelId, {
+          userId: message.author.id,
           roles: roleNames,
           isOwner,
         });
@@ -662,6 +665,7 @@ export async function startBot() {
             content: reply,
             allowedMentions: { parse: [], repliedUser: false },
           });
+          triggerUserMemoryUpdate(message.author.id);
         }
       } catch (err: any) {
         log(`[Gemini] Failed to reply: ${err.message}`, "discord");
