@@ -74,6 +74,7 @@ let botState: BotStatus = {
 
 let client: Client | null = null;
 const SLUR_TIMEOUT_MS = 10 * 60 * 1000;
+const MOD_LOG_CHANNEL_ID = "1484059697123164264";
 const BANNED_SLUR_PATTERNS = [
   /\bn[\W_]*[i1!|l][\W_]*g\b/i,
   /\bn[\W_]*[i1!|l][\W_]*g[\W_]*g[\W_]*[a@4e3r]\b/i,
@@ -133,43 +134,95 @@ function containsBannedSlur(content: string): boolean {
   return tokens.some((token) => BANNED_SLUR_TOKENS.has(token));
 }
 
+function getSlurWarning(guildName: string): string {
+  const roasts = [
+    "ten whole minutes to discover a personality that isn't bargain-bin edgelord.",
+    "use the timeout to evolve past middle-school shock humor. ambitious, i know.",
+    "congrats, you found the fastest way to look like the weakest person in the room.",
+    "go sit in the corner and workshop a vocabulary that has more than one rotten neuron.",
+  ];
+  const roast = roasts[Math.floor(Math.random() * roasts.length)];
+
+  return [
+    `you used a slur in ${guildName}.`,
+    "your message was deleted and this is a 10 minute timeout.",
+    roast,
+    "do not use slurs here again.",
+  ].join("\n");
+}
+
+async function sendModerationLog(message: Message, statusLines: string[]): Promise<void> {
+  if (!client) return;
+
+  try {
+    const channel = await client.channels.fetch(MOD_LOG_CHANNEL_ID);
+    if (
+      !channel ||
+      (channel.type !== ChannelType.GuildText &&
+        channel.type !== ChannelType.GuildAnnouncement)
+    ) {
+      log("[Moderation] Mod log channel not found or not text-based.", "discord");
+      return;
+    }
+
+    await (channel as TextChannel).send({
+      content: [
+        "**slur filter action**",
+        `user: ${message.author.tag} (${message.author.id})`,
+        `channel: ${message.channelId}`,
+        `message: ${message.id}`,
+        `actions: ${statusLines.join(" | ")}`,
+      ].join("\n"),
+      allowedMentions: { parse: [] },
+    });
+  } catch (err: any) {
+    log(`[Moderation] Failed to send mod log: ${err.message}`, "discord");
+  }
+}
+
 async function enforceSlurTimeout(message: Message): Promise<boolean> {
   if (!containsBannedSlur(message.content)) {
     return false;
   }
 
   const guildName = message.guild?.name ?? "this server";
-  const warning = [
-    `you used a slur in ${guildName}.`,
-    "this is a 10 minute timeout.",
-    "do not use slurs here again.",
-  ].join("\n");
+  const warning = getSlurWarning(guildName);
+  const statusLines: string[] = [];
 
   try {
     await message.delete();
     log(`[Moderation] Deleted slur message from ${message.author.tag}.`, "discord");
+    statusLines.push("deleted");
   } catch (err: any) {
     log(`[Moderation] Failed to delete slur message from ${message.author.tag}: ${err.message}`, "discord");
+    statusLines.push("delete failed");
   }
 
   try {
     await message.author.send(warning);
+    statusLines.push("dm sent");
   } catch (err: any) {
     log(`[Moderation] Failed to DM slur warning to ${message.author.tag}: ${err.message}`, "discord");
+    statusLines.push("dm failed");
   }
 
   if (!message.member) {
     log(`[Moderation] Slur detected from ${message.author.tag}, but no guild member was available to timeout.`, "discord");
+    statusLines.push("timeout skipped: no guild member");
+    await sendModerationLog(message, statusLines);
     return true;
   }
 
   try {
     await message.member.timeout(SLUR_TIMEOUT_MS, "Used a slur.");
     log(`[Moderation] Timed out ${message.author.tag} for slur usage.`, "discord");
+    statusLines.push("timed out 10m");
   } catch (err: any) {
     log(`[Moderation] Failed to timeout ${message.author.tag}: ${err.message}`, "discord");
+    statusLines.push("timeout failed");
   }
 
+  await sendModerationLog(message, statusLines);
   return true;
 }
 
