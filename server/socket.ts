@@ -6,10 +6,17 @@ import { DASHBOARD_AUTH_HEADER, isAuthTokenValid } from "./auth";
 let _io: SocketIOServer | null = null;
 
 function getOriginAllowlist(): string[] {
-  return (process.env.DASHBOARD_ORIGIN ?? "")
+  const configured = (process.env.DASHBOARD_ORIGIN ?? "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+
+  const renderUrl = process.env.RENDER_EXTERNAL_URL?.replace(/\/$/, "");
+  if (renderUrl && !configured.includes(renderUrl)) {
+    configured.push(renderUrl);
+  }
+
+  return configured;
 }
 
 function getTokenFromHeaders(req: IncomingMessage): string | null {
@@ -27,23 +34,23 @@ function getTokenFromHeaders(req: IncomingMessage): string | null {
 
 export function initSocket(httpServer: HttpServer): SocketIOServer {
   const allowedOrigins = getOriginAllowlist();
-  const isProduction = process.env.NODE_ENV === "production";
 
   _io = new SocketIOServer(httpServer, {
     transports: ["websocket", "polling"],
     cors: {
       origin: (origin, callback) => {
-        if (!origin) {
-          return callback(null, !isProduction);
+        if (allowedOrigins.length === 0) {
+          return callback(null, true);
         }
 
-        if (allowedOrigins.length === 0) {
-          return callback(null, !isProduction);
+        if (!origin) {
+          return callback(null, true);
         }
 
         return callback(null, allowedOrigins.includes(origin));
       },
       methods: ["GET", "POST"],
+      credentials: true,
     },
   });
 

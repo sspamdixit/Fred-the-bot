@@ -35,7 +35,7 @@ export function useLiveFeed() {
     if (!token) return;
 
     const socket = io(window.location.origin, {
-      transports: ["websocket"],
+      transports: ["websocket", "polling"],
       reconnectionDelay: 5000,
       reconnectionDelayMax: 30000,
       auth: { token },
