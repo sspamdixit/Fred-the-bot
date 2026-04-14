@@ -25,3 +25,4 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - The project was adapted to run on Replit without rewriting the app.
 - Replit web preview is configured to use port 5000.
 - PostgreSQL schema was synced with Drizzle using the existing schema.
+- Development preview allows Replit iframe rendering; production still sends `X-Frame-Options: DENY`.
