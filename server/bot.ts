@@ -387,7 +387,7 @@ export async function startBot() {
           "",
           profileMessage,
           "",
-          "commands: `!info` `!status` `!capabilities` `!weaknesses` `!help` `!ping`",
+          "commands: `!info` `!status` `!capabilities` `!weaknesses` `!help` `!ping` `!vibecheck`",
           "or just `!bubbl <anything>` to talk to it.",
         ].join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
@@ -441,6 +441,7 @@ export async function startBot() {
           "`!weaknesses` — what the bot is bad at / cannot do",
           "`!help` — this list",
           "`!ping` — check if the bot is alive",
+          "`!vibecheck` — analyze the current channel vibe",
           "`!bubbl <message>` — talk to the ai",
           `or just ping <@${client?.user?.id}> with your message`,
         ].join("\n"),
@@ -458,6 +459,40 @@ export async function startBot() {
       const latency = Date.now() - start;
       const wsLatency = client?.ws.ping ?? -1;
       await sent.edit(`pong. roundtrip: **${latency}ms** | ws: **${wsLatency}ms**`);
+      return;
+    }
+
+    if (standaloneCmd === "!vibecheck") {
+      try {
+        await (message.channel as TextChannel).sendTyping();
+        const fetched = await (message.channel as TextChannel).messages.fetch({ limit: 50 });
+        const humanMessages = fetched
+          .filter((m) => !m.author.bot)
+          .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+        let chatSummary: string;
+        if (humanMessages.size === 0) {
+          chatSummary = "[no recent messages — the channel is completely dead]";
+        } else {
+          chatSummary = humanMessages
+            .map((m) => `${m.author.username}: ${m.content}`)
+            .join("\n");
+        }
+
+        const vibePrompt =
+          "Analyze this chat history and describe the current mood or the stupidity of these people in one sharp, sarcastic sentence. If it's dead, mock the silence. Stay all lowercase, no emojis, be a prick.\n\n" +
+          chatSummary;
+
+        const reply = await askGemini(vibePrompt, "system", "vibe-check-internal", {});
+        if (reply) {
+          await message.reply({
+            content: reply.toLowerCase(),
+            allowedMentions: { parse: [], repliedUser: false },
+          });
+        }
+      } catch (err: any) {
+        log(`[VibeCheck] Command error: ${err.message}`, "discord");
+      }
       return;
     }
 
