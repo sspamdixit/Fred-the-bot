@@ -489,9 +489,16 @@ async function startVibeCheck(readyClient: Client) {
 }
 
 export async function startBot() {
-  if (!process.env.TOKEN) {
-    log("No TOKEN found — bot will not start.", "discord");
-    botState.lastError = "Missing TOKEN environment variable.";
+  const rawToken = (
+    process.env.TOKEN ??
+    process.env.DISCORD_TOKEN ??
+    process.env.BOT_TOKEN ??
+    ""
+  ).trim();
+
+  if (!rawToken) {
+    log("No TOKEN found (checked TOKEN, DISCORD_TOKEN, BOT_TOKEN) — bot will not start.", "discord");
+    botState.lastError = "Missing bot token. Set the TOKEN environment variable on your host.";
     return;
   }
 
@@ -966,10 +973,24 @@ export async function startBot() {
   });
 
   try {
-    await client.login(process.env.TOKEN);
+    log("Attempting Discord login…", "discord");
+    await client.login(rawToken);
   } catch (err: any) {
-    log(`Failed to login: ${err.message}`, "discord");
-    botState.lastError = err.message;
+    const msg: string = err.message ?? String(err);
+    let friendlyError = msg;
+
+    if (/invalid token/i.test(msg)) {
+      friendlyError = "Invalid token — the token you set is incorrect or has expired. Regenerate it in the Discord Developer Portal and update your TOKEN env var.";
+    } else if (/disallowed intents/i.test(msg) || /intent/i.test(msg)) {
+      friendlyError = "Privileged intents not enabled — go to Discord Developer Portal → your app → Bot → Privileged Gateway Intents and enable 'Message Content Intent', 'Server Members Intent', then save.";
+    } else if (/token was reset/i.test(msg)) {
+      friendlyError = "Token was reset — grab the new token from Discord Developer Portal and update your TOKEN env var on Render.";
+    } else if (/429|rate limit/i.test(msg)) {
+      friendlyError = "Rate limited by Discord — too many login attempts. Wait a few minutes before retrying.";
+    }
+
+    log(`Login failed: ${friendlyError}`, "discord");
+    botState.lastError = friendlyError;
     botState.online = false;
     botState.status = "error";
 
