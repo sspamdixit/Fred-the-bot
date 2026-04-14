@@ -6,8 +6,8 @@ export interface BotAiSettings {
 }
 
 export const DEFAULT_BOT_CAPABILITIES = [
-  "responds in Discord when mentioned or when someone uses !bubbl <message> or tags using @Bubbl Manager",
-  "uses Groq first with llama-3.1-8b-instant, llama-3.3-70b-versatile, meta-llama/llama-4-scout-17b-16e-instruct, openai/gpt-oss-20b, and openai/gpt-oss-120b, then Gemini and the Hack Club AI fallback when enabled and configured",
+  "responds in Discord when mentioned, when someone uses !bubbl <message>, or when someone tags @Bubbl Manager",
+  "uses Groq first across llama-3.1-8b-instant, llama-3.3-70b-versatile, meta-llama/llama-4-scout-17b-16e-instruct, openai/gpt-oss-20b, and openai/gpt-oss-120b before falling back to Gemini and Hack Club AI when enabled and configured",
   "keeps short-term conversation memory per Discord channel for the last 150 user/assistant messages",
   "knows the current speaker name, Discord roles, and whether the speaker has owner authority",
   "recognizes owner authority from the owner role or the deliv3r username/display name",
@@ -16,15 +16,15 @@ export const DEFAULT_BOT_CAPABILITIES = [
   "can generate question-of-the-day prompts and two-option Discord polls",
   "streams live Discord messages to the dashboard",
   "lets dashboard admins view status, send Discord messages, control presence, toggle AI providers, test AI replies, and trigger QOTD",
-  "can report its capabilities and weaknesses when asked",
+  "can summarize what it can and cannot do through its info/profile response",
 ].join("\n");
 
 export const DEFAULT_BOT_WEAKNESSES = [
   "does not read every Discord message automatically; it replies only when mentioned, when !bubbl is used, or when a supported command is used",
-  "depends on configured API keys and provider availability; if all enabled providers fail, it may not reply",
+  "depends on configured API keys, model access, provider rate limits, and provider availability; if all enabled providers fail, it may not reply",
   "memory is in-process and per channel, so it can reset when the server restarts",
   "does not have reliable long-term memory beyond what the app stores and what appears in the current channel history",
-  "cannot see images, attachments, voice, deleted messages, private channels it cannot access, or external websites unless that content is provided as text",
+  "can only analyze images when Gemini vision is configured; otherwise attachments, voice, deleted messages, private channels it cannot access, and external websites are unavailable unless provided as text",
   "cannot perform Discord moderation actions unless those features are explicitly added",
   "cannot bypass Discord permissions, missing bot permissions, rate limits, model safety filters, or hard safety limits",
   "may be wrong, outdated, sarcastic, or overly brief because it is an AI with a deliberately sharp personality",

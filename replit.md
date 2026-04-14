@@ -24,7 +24,7 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - Shared AI system instructions, capability notes, and weakness notes are defined in `server/ai-settings.ts`.
 - Gemini, Groq, and the Hack Club fallback all use the same shared AI system instructions and bot profile from code.
 - Groq text and QOTD generation now try multiple Groq models: `llama-3.1-8b-instant`, `llama-3.3-70b-versatile`, `meta-llama/llama-4-scout-17b-16e-instruct`, `openai/gpt-oss-20b`, and `openai/gpt-oss-120b`.
-- Discord users can view the bot profile with `!capabilities`, `!weaknesses`, or `!info`, and the AI is instructed to answer capability/limit questions from the same profile.
+- Discord users can view the bot profile with `!info`; `!help` lists only the primary public commands.
 
 # Migration Notes
 
