@@ -511,18 +511,52 @@ export async function startBot() {
 
       cleanContent = cleanContent.trim();
 
-      const SUPPORTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-      const SUPPORTED_IMAGE_EXTS = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
+      const SUPPORTED_MEDIA_TYPES = [
+        "image/png", "image/jpeg", "image/webp", "image/gif",
+        "video/mp4", "video/mpeg", "video/webm", "video/quicktime",
+        "video/mov", "video/avi", "video/3gpp", "video/x-flv", "video/wmv",
+      ];
+      const SUPPORTED_MEDIA_EXTS = [
+        ".png", ".jpg", ".jpeg", ".webp", ".gif",
+        ".mp4", ".mpeg", ".webm", ".mov", ".avi", ".mkv", ".3gp",
+      ];
+      const MAX_INLINE_BYTES = 20 * 1024 * 1024;
 
-      const imageAttachments = message.attachments.filter((att) => {
+      function mimeFromExt(name: string): string {
+        const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
+        const map: Record<string, string> = {
+          ".gif": "image/gif", ".png": "image/png", ".jpg": "image/jpeg",
+          ".jpeg": "image/jpeg", ".webp": "image/webp",
+          ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+          ".avi": "video/x-msvideo", ".mkv": "video/webm",
+          ".3gp": "video/3gpp", ".mpeg": "video/mpeg",
+        };
+        return map[ext] ?? "application/octet-stream";
+      }
+
+      const mediaAttachments = message.attachments.filter((att) => {
         const ct = att.contentType?.split(";")[0].trim().toLowerCase() ?? "";
-        const ext = att.name
-          ? att.name.slice(att.name.lastIndexOf(".")).toLowerCase()
-          : "";
-        return SUPPORTED_IMAGE_TYPES.includes(ct) || SUPPORTED_IMAGE_EXTS.includes(ext);
+        const ext = att.name ? att.name.slice(att.name.lastIndexOf(".")).toLowerCase() : "";
+        const urlLower = att.url.toLowerCase().split("?")[0];
+        return (
+          SUPPORTED_MEDIA_TYPES.includes(ct) ||
+          SUPPORTED_MEDIA_EXTS.includes(ext) ||
+          SUPPORTED_MEDIA_EXTS.some((e) => urlLower.endsWith(e))
+        );
       });
 
-      if (!cleanContent && imageAttachments.size === 0) return;
+      // Tenor / gifv embeds — Discord wraps these as embeds, not attachments
+      const tenorMediaUrls: string[] = [];
+      for (const embed of message.embeds) {
+        if (embed.type === "gifv") {
+          const url = embed.video?.url ?? embed.thumbnail?.url;
+          if (url) tenorMediaUrls.push(url);
+        }
+      }
+
+      const hasMedia = mediaAttachments.size > 0 || tenorMediaUrls.length > 0;
+
+      if (!cleanContent && !hasMedia) return;
 
       // Also handle !bubbl info/status/help/ping as subcommands
       if (cleanContent) {
@@ -543,27 +577,51 @@ export async function startBot() {
       const isOwner = roleNames.some((role) => role.trim().toLowerCase() === "owner") ||
         [message.author.username, authorDisplayName].some((name) => name.trim().toLowerCase() === "deliv3r");
 
-      log(`[Gemini] Handling from ${authorDisplayName}: ${cleanContent.slice(0, 80)}${imageAttachments.size > 0 ? ` [+${imageAttachments.size} image(s)]` : ""}`, "discord");
+      const mediaCount = mediaAttachments.size + tenorMediaUrls.length;
+      log(`[Gemini] Handling from ${authorDisplayName}: ${cleanContent.slice(0, 80)}${mediaCount > 0 ? ` [+${mediaCount} media]` : ""}`, "discord");
 
       try {
         await (message.channel as TextChannel).sendTyping();
 
-        if (imageAttachments.size > 0) {
-          const imageDataArray: ImageData[] = [];
-          for (const att of imageAttachments.values()) {
+        if (hasMedia) {
+          const mediaDataArray: ImageData[] = [];
+
+          for (const att of mediaAttachments.values()) {
+            if ((att.size ?? 0) > MAX_INLINE_BYTES) {
+              log(`[Gemini] Skipping oversized attachment: ${att.name} (${att.size} bytes)`, "discord");
+              continue;
+            }
             try {
               const res = await fetch(att.url);
               const buffer = await res.arrayBuffer();
               const base64 = Buffer.from(buffer).toString("base64");
-              const mimeType = att.contentType?.split(";")[0].trim() ?? "image/png";
-              imageDataArray.push({ mimeType, data: base64 });
+              const mimeType =
+                att.contentType?.split(";")[0].trim() ||
+                mimeFromExt(att.name ?? "");
+              mediaDataArray.push({ mimeType, data: base64 });
             } catch (fetchErr: any) {
-              log(`[Gemini] Failed to fetch image attachment: ${fetchErr.message}`, "discord");
+              log(`[Gemini] Failed to fetch attachment: ${fetchErr.message}`, "discord");
             }
           }
 
-          if (imageDataArray.length > 0) {
-            const reply = await askGeminiWithImage(cleanContent, authorDisplayName, message.channelId, imageDataArray, {
+          for (const url of tenorMediaUrls) {
+            try {
+              const res = await fetch(url);
+              const buffer = await res.arrayBuffer();
+              if (buffer.byteLength > MAX_INLINE_BYTES) {
+                log(`[Gemini] Skipping oversized Tenor embed`, "discord");
+                continue;
+              }
+              const base64 = Buffer.from(buffer).toString("base64");
+              const ct = res.headers.get("content-type")?.split(";")[0].trim() ?? "video/mp4";
+              mediaDataArray.push({ mimeType: ct, data: base64 });
+            } catch (fetchErr: any) {
+              log(`[Gemini] Failed to fetch Tenor embed: ${fetchErr.message}`, "discord");
+            }
+          }
+
+          if (mediaDataArray.length > 0) {
+            const reply = await askGeminiWithImage(cleanContent, authorDisplayName, message.channelId, mediaDataArray, {
               roles: roleNames,
               isOwner,
             });

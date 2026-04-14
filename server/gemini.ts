@@ -274,7 +274,7 @@ export async function askGeminiWithImage(
   const systemPrompt = await buildSharedSystemPrompt();
   const fullSystemPrompt =
     systemPrompt +
-    "\n\nyou can now see images. if an image is attached, analyze it and include your thoughts on it in your typical sarcastic, rude personality. stay all lowercase.";
+    "\n\nyou can now see images, gifs, and videos. if any visual media is attached, analyze it and include your thoughts on it in your typical sarcastic, rude personality. stay all lowercase. for videos, describe what's happening and roast it accordingly.";
 
   if (geminiEnabled) {
     const geminiKey = process.env.GEMINI_API_KEY;
