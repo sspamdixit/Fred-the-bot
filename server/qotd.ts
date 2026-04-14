@@ -2,33 +2,6 @@ import { Client, TextChannel, ChannelType, EmbedBuilder, Role } from "discord.js
 import { log } from "./index";
 import { generateForQotd } from "./gemini";
 
-function findQotdPingRole(channel: TextChannel): Role | null {
-  return channel.guild.roles.cache.find(
-    (r) => r.name.toLowerCase() === "qotd ping",
-  ) ?? null;
-}
-
-function findQotdTalkChannel(channel: TextChannel): TextChannel | null {
-  const found = channel.guild.channels.cache.find(
-    (ch) =>
-      (ch.name === "qotd-talk" || ch.name === "qotd talk") &&
-      ch.type === ChannelType.GuildText,
-  );
-  return (found as TextChannel) ?? null;
-}
-
-async function sendQotdFollowUp(channel: TextChannel): Promise<void> {
-  const pingRole = findQotdPingRole(channel);
-  const talkChannel = findQotdTalkChannel(channel);
-
-  const pingPart = pingRole ? `<@&${pingRole.id}>` : null;
-  const talkPart = talkChannel ? ` Talk about it in <#${talkChannel.id}>!` : "";
-
-  if (!pingPart && !talkPart) return;
-
-  await channel.send({ content: `${pingPart ?? ""}${talkPart}`.trim() });
-}
-
 interface QotdEntry {
   type: "open" | "poll";
   question: string;
@@ -109,7 +82,6 @@ async function sendOpenQotd(channel: TextChannel): Promise<void> {
   };
 
   log(`Open QOTD sent → ${question.slice(0, 80)}`, "qotd");
-  await sendQotdFollowUp(channel);
 }
 
 async function sendPollQotd(channel: TextChannel): Promise<void> {
@@ -163,7 +135,6 @@ async function sendPollQotd(channel: TextChannel): Promise<void> {
   };
 
   log(`Poll QOTD sent → ${parsed.question.slice(0, 80)}`, "qotd");
-  await sendQotdFollowUp(channel);
 }
 
 async function runDailyQotd(client: Client): Promise<void> {
