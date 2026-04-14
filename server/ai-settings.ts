@@ -6,7 +6,7 @@ export interface BotAiSettings {
 }
 
 export const DEFAULT_BOT_CAPABILITIES = [
-  "responds in Discord when mentioned or when someone uses !bubbl <message>",
+  "responds in Discord when mentioned or when someone uses !bubbl <message> or tags using @Bubbl Manager",
   "uses Gemini first, then Groq, then the Hack Club AI fallback when enabled and configured",
   "keeps short-term conversation memory per Discord channel for the last 150 user/assistant messages",
   "knows the current speaker name, Discord roles, and whether the speaker has owner authority",
