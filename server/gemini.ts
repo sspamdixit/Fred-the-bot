@@ -27,6 +27,13 @@ const MODELS_TO_TRY = [
 ];
 
 const GROQ_MODEL = "llama-3.3-70b-versatile";
+const GROQ_MODELS_TO_TRY = [
+  "llama-3.1-8b-instant",
+  GROQ_MODEL,
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "openai/gpt-oss-20b",
+  "openai/gpt-oss-120b",
+];
 const HACKCLUB_MODEL = "x-ai/grok-4.1-fast";
 const HACKCLUB_API_BASE = "https://ai.hackclub.com";
 const MAX_HISTORY = 150;
@@ -152,51 +159,57 @@ async function tryGroq(prompt: string, history: HistoryEntry[]): Promise<string 
     return null;
   }
 
-  try {
-    log(`[Groq] Trying model: ${GROQ_MODEL}`, "gemini");
-    const client = getGroqClient();
-    const systemPrompt = await buildSharedSystemPrompt();
+  const client = getGroqClient();
+  const systemPrompt = await buildSharedSystemPrompt();
 
-    const messages: Groq.Chat.ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt },
-      ...history.map((h) => ({
-        role: h.role as "user" | "assistant",
-        content: h.content,
-      })),
-      { role: "user", content: prompt },
-    ];
+  const messages: Groq.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt },
+    ...history.map((h) => ({
+      role: h.role as "user" | "assistant",
+      content: h.content,
+    })),
+    { role: "user", content: prompt },
+  ];
 
-    const completion = await client.chat.completions.create({
-      model: GROQ_MODEL,
-      messages,
-      max_tokens: 256,
-      temperature: 0.9,
-    });
+  for (const modelName of GROQ_MODELS_TO_TRY) {
+    try {
+      log(`[Groq] Trying model: ${modelName}`, "gemini");
 
-    const text = completion.choices[0]?.message?.content?.trim() ?? "";
+      const completion = await client.chat.completions.create({
+        model: modelName,
+        messages,
+        max_tokens: 256,
+        temperature: 0.9,
+      });
 
-    if (text === "SKIP") {
-      log("[Groq] Filtered message — returning in-character refusal.", "gemini");
-      return getForbiddenResponse();
+      const text = completion.choices[0]?.message?.content?.trim() ?? "";
+
+      if (text === "SKIP") {
+        log("[Groq] Filtered message — returning in-character refusal.", "gemini");
+        return getForbiddenResponse();
+      }
+
+      const tokens = (completion as GroqChatCompletion).usage?.total_tokens ?? 0;
+      stats.totalTokens.groq += tokens;
+      stats.lastUsedProvider = "Groq";
+      stats.lastUsedModel = modelName;
+      stats.totalRequests++;
+
+      log(`[Groq] Success with model ${modelName}`, "gemini");
+      return text;
+    } catch (err: any) {
+      const msg = err.message ?? String(err);
+      if (isSafetyBlockedError(msg)) {
+        log("[Groq] Safety blocked content — returning in-character refusal.", "gemini");
+        return getForbiddenResponse();
+      }
+      log(`[Groq] Model ${modelName} failed: ${msg}`, "gemini");
+      continue;
     }
-
-    const tokens = (completion as GroqChatCompletion).usage?.total_tokens ?? 0;
-    stats.totalTokens.groq += tokens;
-    stats.lastUsedProvider = "Groq";
-    stats.lastUsedModel = GROQ_MODEL;
-    stats.totalRequests++;
-
-    log(`[Groq] Success with model ${GROQ_MODEL}`, "gemini");
-    return text;
-  } catch (err: any) {
-    const msg = err.message ?? String(err);
-    if (isSafetyBlockedError(msg)) {
-      log("[Groq] Safety blocked content — returning in-character refusal.", "gemini");
-      return getForbiddenResponse();
-    }
-    log(`[Groq] Error: ${msg}`, "gemini");
-    return null;
   }
+
+  log("[Groq] All models failed.", "gemini");
+  return null;
 }
 
 async function tryHackclub(prompt: string, history: HistoryEntry[]): Promise<string | null> {
@@ -507,21 +520,24 @@ export async function generateForQotd(type: "open" | "poll"): Promise<string | n
 
   const groqKey = process.env.GROQ_API_KEY;
   if (groqKey) {
-    try {
-      const client = getGroqClient();
-      const completion = await client.chat.completions.create({
-        model: GROQ_MODEL,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 200,
-        temperature: 1.1,
-      });
-      const text = completion.choices[0]?.message?.content?.trim() ?? "";
-      if (text) {
-        log(`[QOTD] Generated ${type} via Groq`, "qotd");
-        return text;
+    const client = getGroqClient();
+    for (const modelName of GROQ_MODELS_TO_TRY) {
+      try {
+        const completion = await client.chat.completions.create({
+          model: modelName,
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 200,
+          temperature: 1.1,
+        });
+        const text = completion.choices[0]?.message?.content?.trim() ?? "";
+        if (text) {
+          log(`[QOTD] Generated ${type} via Groq (${modelName})`, "qotd");
+          return text;
+        }
+      } catch (err: any) {
+        log(`[QOTD] Groq model ${modelName} failed: ${err.message}`, "qotd");
+        continue;
       }
-    } catch (err: any) {
-      log(`[QOTD] Groq error: ${err.message}`, "qotd");
     }
   }
 

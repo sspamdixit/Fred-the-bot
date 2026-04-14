@@ -7,7 +7,7 @@ export interface BotAiSettings {
 
 export const DEFAULT_BOT_CAPABILITIES = [
   "responds in Discord when mentioned or when someone uses !bubbl <message> or tags using @Bubbl Manager",
-  "uses Gemini first, then Groq, then the Hack Club AI fallback when enabled and configured",
+  "uses Groq first with llama-3.1-8b-instant, llama-3.3-70b-versatile, meta-llama/llama-4-scout-17b-16e-instruct, openai/gpt-oss-20b, and openai/gpt-oss-120b, then Gemini and the Hack Club AI fallback when enabled and configured",
   "keeps short-term conversation memory per Discord channel for the last 150 user/assistant messages",
   "knows the current speaker name, Discord roles, and whether the speaker has owner authority",
   "recognizes owner authority from the owner role or the deliv3r username/display name",
