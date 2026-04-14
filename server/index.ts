@@ -154,7 +154,11 @@ function startKeepAlive() {
     },
     () => {
       log(`serving on port ${port}`);
-      startBot();
+      if (process.env.ENABLE_BOT === "true") {
+        startBot();
+      } else {
+        log("Bot auto-start disabled. Set ENABLE_BOT=true to start the bot on this instance.", "discord");
+      }
       if (process.env.NODE_ENV === "production") {
         startKeepAlive();
       }
