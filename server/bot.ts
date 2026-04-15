@@ -665,7 +665,7 @@ export async function startBot() {
     }
 
     const isMentioned = client?.user && message.mentions.users.has(client.user.id);
-    const COMMAND_PREFIX = /^[!?]bubbl\s*/i;
+    const COMMAND_PREFIX = /^[!?](bubbl|fred)\s*/i;
     const isPrefixed = COMMAND_PREFIX.test(message.content);
 
     // Standalone commands (no prefix/mention required)
@@ -739,10 +739,10 @@ export async function startBot() {
       const profileMessage = await buildBotProfileMessage();
       await message.reply({
         content: [
-          "**bubbl manager** — discord bot + ai hybrid thing.",
+          "**fred** — discord bot + ai hybrid thing.",
           "",
           "what it does:",
-          "- responds when you ping it or use `?bubbl <message>`",
+          "- responds when you ping it or use `?fred <message>` or `?bubbl <message>`",
           "- runs on groq first, then gemini, then grok via hackclub if needed",
           "- has memory per channel (last 150 messages)",
           "- streams live messages to a dashboard",
@@ -752,8 +752,7 @@ export async function startBot() {
           profileMessage,
           "",
           "commands: `?info` `?status` `?help` `?ping` `?vibecheck`",
-          "legacy aliases: `!help` and `!bubbl <anything>` still work.",
-          "or just `?bubbl <anything>` to talk to it.",
+          "aliases: `?fred <anything>` and `?bubbl <anything>` both work. so do `!fred` and `!bubbl`.",
         ].join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
       });
@@ -805,7 +804,7 @@ export async function startBot() {
           "`?help` — this list (`!help` still works too)",
           "`?ping` — check if the bot is alive",
           "`?vibecheck` — analyze the current channel vibe",
-          "`?bubbl <message>` — talk to the ai (`!bubbl <message>` still works too)",
+          "`?fred <message>` — talk to the ai (`?bubbl`, `!fred`, `!bubbl` all work too)",
           `or just ping <@${client?.user?.id}> with your message`,
         ].join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
@@ -865,7 +864,8 @@ export async function startBot() {
       if (isMentioned) {
         cleanContent = cleanContent
           .replace(new RegExp(`<@!?${client.user.id}>`, "g"), "")
-          .replace(/@bubbl\s*manager/gi, "");
+          .replace(/@bubbl\s*manager/gi, "")
+          .replace(/@fred/gi, "");
       }
 
       if (isPrefixed) {
@@ -936,7 +936,7 @@ export async function startBot() {
         const sub = cleanContent.toLowerCase();
         if (sub === "info" || sub === "status" || sub === "capabilities" || sub === "weaknesses" || sub === "help" || sub === "ping") {
           await message.reply({
-            content: `use \`?${sub}\` directly instead of \`?bubbl ${sub}\`. easier.`,
+            content: `use \`?${sub}\` directly instead of prefixing it. easier.`,
             allowedMentions: { parse: [], repliedUser: false },
           });
           return;

@@ -50,7 +50,7 @@ import {
 } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
-const DASHBOARD_AUTH_FLAG_STORAGE_KEY = "bubbl-authed";
+const DASHBOARD_AUTH_FLAG_STORAGE_KEY = "fred-authed";
 
 function hasDashboardSession(): boolean {
   return (
@@ -149,7 +149,7 @@ function PasswordScreen({ onAuth }: { onAuth: () => void }) {
           return;
         }
         sessionStorage.setItem(DASHBOARD_AUTH_TOKEN_STORAGE_KEY, data.token);
-        sessionStorage.setItem("bubbl-authed", "1");
+        sessionStorage.setItem(DASHBOARD_AUTH_FLAG_STORAGE_KEY, "1");
         onAuth();
       } else {
         const data = await res.json().catch(() => ({}));
@@ -181,7 +181,7 @@ function PasswordScreen({ onAuth }: { onAuth: () => void }) {
             <SiDiscord className="w-7 h-7 text-white" />
           </div>
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-white tracking-tight">Bubbl Manager</h1>
+            <h1 className="text-2xl font-bold text-white tracking-tight">Fred</h1>
             <p className="text-sm mt-0.5" style={{ color: "rgba(255,255,255,0.6)" }}>
               Enter your password to continue
             </p>
@@ -573,7 +573,7 @@ function Dashboard() {
               <SiDiscord className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white leading-none" data-testid="text-title">Bubbl Manager</h1>
+              <h1 className="text-xl font-bold text-white leading-none" data-testid="text-title">Fred</h1>
               <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.5)" }}>Bot Control Panel</p>
             </div>
           </div>
@@ -1008,7 +1008,7 @@ function Dashboard() {
               )}
               <div className="rounded-xl px-3 py-2 flex items-start gap-2 text-xs" style={{ background: "rgba(56,189,248,0.06)", border: "1px solid rgba(56,189,248,0.15)", color: "rgba(255,255,255,0.5)" }}>
                 <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: "rgba(125,211,252,0.7)" }} />
-                Bot commands: <code className="mx-1">?ping</code> <code className="mx-1">?status</code> <code className="mx-1">?info</code> <code className="mx-1">?help</code> <code className="mx-1">?bubbl &lt;msg&gt;</code>
+                Bot commands: <code className="mx-1">?ping</code> <code className="mx-1">?status</code> <code className="mx-1">?info</code> <code className="mx-1">?help</code> <code className="mx-1">?fred &lt;msg&gt;</code> <code className="mx-1">?bubbl &lt;msg&gt;</code>
               </div>
             </div>
           </DiagSection>
@@ -1092,7 +1092,7 @@ function Dashboard() {
                           ? { background: "rgba(56,189,248,0.18)", border: "1px solid rgba(56,189,248,0.3)", color: "rgba(255,255,255,0.9)" }
                           : { background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.8)" }}>
                         <span className="block text-xs font-semibold mb-1" style={{ color: entry.role === "user" ? "rgba(125,211,252,0.8)" : "rgba(255,255,255,0.4)" }}>
-                          {entry.role === "user" ? "You" : "bubbl"}
+                          {entry.role === "user" ? "You" : "fred"}
                         </span>
                         {entry.text}
                       </div>
@@ -1100,7 +1100,7 @@ function Dashboard() {
                   )}
                   {aiTestMutation.isPending && (
                     <div className="rounded-xl px-3 py-2 text-xs mr-auto" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.4)" }}>
-                      <span className="block text-xs font-semibold mb-1" style={{ color: "rgba(255,255,255,0.4)" }}>bubbl</span>
+                      <span className="block text-xs font-semibold mb-1" style={{ color: "rgba(255,255,255,0.4)" }}>fred</span>
                       thinking…
                     </div>
                   )}
