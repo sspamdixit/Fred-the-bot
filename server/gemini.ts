@@ -59,7 +59,10 @@ interface HistoryEntry {
 export interface AuthorContext {
   userId?: string;
   roles?: string[];
+  sortedRoles?: string[];
   isOwner?: boolean;
+  guildName?: string;
+  channelName?: string;
 }
 
 const channelHistories = new Map<string, HistoryEntry[]>();
@@ -276,19 +279,28 @@ function getGroqClient(): Groq {
   return groqClient;
 }
 
+function resolveAuthorityLevel(roles: string[], isOwner: boolean): string {
+  if (isOwner || roles.some((r) => r.trim().toLowerCase() === "owner")) return "owner";
+  if (roles.some((r) => /^(moderator|mod)$/i.test(r.trim()))) return "moderator";
+  if (roles.some((r) => /^(developer|dev|in.house.dev)$/i.test(r.trim()))) return "developer";
+  return "member";
+}
+
 function buildUserPrompt(userMessage: string, authorName: string, context: AuthorContext = {}): string {
   const roles = context.roles?.filter(Boolean) ?? [];
-  const normalizedName = authorName.trim().toLowerCase();
   const hasOwnerRole = roles.some((role) => role.trim().toLowerCase() === "owner");
-  const isDeliv3r = normalizedName === "deliv3r";
-  const isOwner = context.isOwner || hasOwnerRole || isDeliv3r;
-  const roleText = roles.length > 0 ? roles.join(", ") : "none";
-  const ownerText = isOwner ? "yes" : "no";
+  const isOwner = context.isOwner || hasOwnerRole;
+  const authorityLevel = resolveAuthorityLevel(roles, isOwner);
+
+  const sortedRoles = context.sortedRoles ?? roles;
+  const roleText = sortedRoles.length > 0 ? sortedRoles.join(" > ") : "none";
 
   return [
+    `server: ${context.guildName ?? "unknown server"}`,
+    `channel: #${context.channelName ?? "unknown"}`,
     `speaker: ${authorName}`,
-    `discord roles: ${roleText}`,
-    `owner authority: ${ownerText}`,
+    `roles (highest → lowest): ${roleText}`,
+    `authority level: ${authorityLevel}`,
     `message: ${userMessage}`,
   ].join("\n");
 }

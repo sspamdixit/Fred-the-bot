@@ -672,11 +672,16 @@ export async function startBot() {
     const rawContent = message.content.trim();
     const standaloneCmd = rawContent.toLowerCase();
     const authorDisplayName = message.member?.displayName ?? message.author.username;
-    const roleNames = message.member?.roles.cache
+    const guildName = message.guild?.name ?? "unknown server";
+    const channelName = (message.channel as TextChannel).name ?? "unknown";
+    const sortedRoleEntries = [...(message.member?.roles.cache
       .filter((role) => role.name !== "@everyone")
-      .map((role) => role.name) ?? [];
-    const isOwner = roleNames.some((role) => role.trim().toLowerCase() === "owner") ||
-      [message.author.username, authorDisplayName].some((name) => name.trim().toLowerCase() === "deliv3r");
+      .sort((a, b) => b.position - a.position)
+      .values() ?? [])];
+    const sortedRoleNames = sortedRoleEntries.map((r) => r.name);
+    const roleNames = sortedRoleNames;
+    const isOwner = roleNames.some((role) => role.trim().toLowerCase() === "owner");
+    const authorContext = { userId: message.author.id, roles: roleNames, sortedRoles: sortedRoleNames, isOwner, guildName, channelName };
 
     const sendPrivate = async (content: string) => {
       try {
@@ -933,11 +938,7 @@ export async function startBot() {
 
       try {
         await (message.channel as TextChannel).sendTyping();
-        const reply = await askGemini(taskPrompt, authorDisplayName, message.channelId, {
-          userId: message.author.id,
-          roles: roleNames,
-          isOwner,
-        });
+        const reply = await askGemini(taskPrompt, authorDisplayName, message.channelId, authorContext);
         if (reply) {
           await message.reply({
             content: reply,
@@ -1086,11 +1087,7 @@ export async function startBot() {
           }
 
           if (mediaDataArray.length > 0) {
-            const reply = await askGeminiWithImage(cleanContent, authorDisplayName, message.channelId, mediaDataArray, {
-              userId: message.author.id,
-              roles: roleNames,
-              isOwner,
-            });
+            const reply = await askGeminiWithImage(cleanContent, authorDisplayName, message.channelId, mediaDataArray, authorContext);
             if (reply) {
               await message.reply({
                 content: reply,
@@ -1102,11 +1099,7 @@ export async function startBot() {
           }
         }
 
-        const reply = await askGemini(cleanContent, authorDisplayName, message.channelId, {
-          userId: message.author.id,
-          roles: roleNames,
-          isOwner,
-        });
+        const reply = await askGemini(cleanContent, authorDisplayName, message.channelId, authorContext);
         if (reply) {
           await message.reply({
             content: reply,
