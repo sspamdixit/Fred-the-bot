@@ -933,7 +933,7 @@ export async function startBot() {
         const sub = cleanContent.toLowerCase();
         if (sub === "info" || sub === "status" || sub === "capabilities" || sub === "weaknesses" || sub === "help" || sub === "ping") {
           await message.reply({
-            content: `use \`?${sub}\` directly instead of prefixing it. easier.`,
+            content: `use \`?${sub}\` directly instead of \`?bubbl ${sub}\`. easier.`,
             allowedMentions: { parse: [], repliedUser: false },
           });
           return;
