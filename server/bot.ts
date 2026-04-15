@@ -759,7 +759,7 @@ export async function startBot() {
           profileMessage,
           "",
           "commands: `?info` `?status` `?help` `?ping` `?vibecheck` `?tldr`",
-          "task commands: `?poem <topic>` `?roast <target>` `?explain <topic>` `?translate <lang> <text>` `?code <lang> <task>`",
+          "task commands: `?poem <topic>` `?roast <target>` `?explain <topic>` `?translate <lang> <text>`",
           "aliases: `?fred <anything>` and `?bubbl <anything>` both work. so do `!fred` and `!bubbl`.",
         ].join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
@@ -817,7 +817,6 @@ export async function startBot() {
           "`?roast <target>` — roast a person, thing, or idea",
           "`?explain <topic>` — explain something in depth",
           "`?translate <language> <text>` — translate text",
-          "`?code <language> <task>` — write code",
           "`?fred <message>` — talk to the ai (`?bubbl`, `!fred`, `!bubbl` all work too)",
           `or just ping <@${client?.user?.id}> with your message`,
           "or attach an image/video to any message to get a description",
@@ -873,7 +872,7 @@ export async function startBot() {
       return;
     }
 
-    const taskCmdMatch = rawContent.match(/^\?(poem|roast|explain|translate|code|tldr)\s*([\s\S]*)?$/i);
+    const taskCmdMatch = rawContent.match(/^\?(poem|roast|explain|translate|tldr)\s*([\s\S]*)?$/i);
     if (taskCmdMatch) {
       const taskName = taskCmdMatch[1].toLowerCase();
       const taskArg = (taskCmdMatch[2] ?? "").trim();
@@ -924,14 +923,6 @@ export async function startBot() {
         }
         const [, lang, text] = translateMatch;
         taskPrompt = `translate the following text to ${lang}. output only the translation, nothing else.\n\n${text}`;
-      } else if (taskName === "code") {
-        const codeMatch = taskArg.match(/^(\S+)\s+([\s\S]+)$/);
-        if (!codeMatch) {
-          await message.reply({ content: "usage: `?code <language> <what you need>`", allowedMentions: { parse: [], repliedUser: false } });
-          return;
-        }
-        const [, lang, task] = codeMatch;
-        taskPrompt = `write working ${lang} code for: ${task}. give the full implementation. use a code block. add a one-line comment if it helps. no fluff.`;
       } else {
         taskPrompt = taskArg || taskName;
       }
