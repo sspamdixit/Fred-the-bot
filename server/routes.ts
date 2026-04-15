@@ -10,7 +10,7 @@ import {
   dispatchMessage,
   startBot,
 } from "./bot";
-import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled, getHackclubEnabled, setHackclubEnabled, askGemini } from "./gemini";
+import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled, getHackclubEnabled, setHackclubEnabled, askGemini, NEWS_FEEDS, fetchRssHeadlines, generateBotStatus } from "./gemini";
 import { triggerQotdNow, getQotdStatus } from "./qotd";
 import { z } from "zod";
 import { DASHBOARD_AUTH_HEADER, issueAuthToken, isAuthTokenValid } from "./auth";
@@ -201,6 +201,97 @@ export async function registerRoutes(
       keepAliveEnabled: !!process.env.RENDER_EXTERNAL_URL,
       renderUrl: process.env.RENDER_EXTERNAL_URL ?? null,
     });
+  });
+
+  app.post("/api/diagnostics/run", async (_req, res) => {
+    const checkedAt = Date.now();
+
+    // Bot check
+    const botInfo = getBotStatus();
+    const botCheck = {
+      status: botInfo.online ? "pass" : "fail" as "pass" | "fail" | "warn",
+      online: botInfo.online,
+      tag: botInfo.tag,
+      guildCount: botInfo.guildCount,
+      uptimeStart: botInfo.uptimeStart,
+      lastError: botInfo.lastError,
+    };
+
+    // AI provider checks
+    const aiChecks: Record<string, { status: "pass" | "fail" | "warn" | "skip"; hasKey: boolean; enabled: boolean; latencyMs?: number; error?: string }> = {
+      gemini: { status: "skip", hasKey: !!process.env.GEMINI_API_KEY, enabled: getGeminiEnabled() },
+      groq: { status: "skip", hasKey: !!process.env.GROQ_API_KEY, enabled: getGroqEnabled() },
+      hackclub: { status: "skip", hasKey: !!process.env.HACKCLUB_API_KEY, enabled: getHackclubEnabled() },
+    };
+
+    // Quick AI ping via Gemini (if key exists)
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        const t0 = Date.now();
+        const reply = await askGemini("reply with only the word pong", "DiagSystem", "diag-ping", {});
+        const latencyMs = Date.now() - t0;
+        aiChecks.gemini = { ...aiChecks.gemini, status: reply ? "pass" : "warn", latencyMs };
+      } catch (e: any) {
+        aiChecks.gemini = { ...aiChecks.gemini, status: "fail", error: e.message };
+      }
+    } else {
+      aiChecks.gemini = { ...aiChecks.gemini, status: "fail", error: "No GEMINI_API_KEY set" };
+    }
+
+    if (process.env.GROQ_API_KEY) {
+      aiChecks.groq = { ...aiChecks.groq, status: aiChecks.groq.enabled ? "pass" : "warn" };
+    } else {
+      aiChecks.groq = { ...aiChecks.groq, status: "fail", error: "No GROQ_API_KEY set" };
+    }
+
+    if (process.env.HACKCLUB_API_KEY) {
+      aiChecks.hackclub = { ...aiChecks.hackclub, status: aiChecks.hackclub.enabled ? "pass" : "warn" };
+    } else {
+      aiChecks.hackclub = { ...aiChecks.hackclub, status: "warn", error: "No HACKCLUB_API_KEY set" };
+    }
+
+    // News feed checks
+    const feedResults: Array<{ category: string; url: string; status: "pass" | "fail"; headlineCount: number; sample?: string }> = [];
+    for (const [category, urls] of Object.entries(NEWS_FEEDS)) {
+      for (const url of urls) {
+        try {
+          const headlines = await fetchRssHeadlines(url);
+          feedResults.push({ category, url, status: headlines.length > 0 ? "pass" : "fail", headlineCount: headlines.length, sample: headlines[0] });
+        } catch {
+          feedResults.push({ category, url, status: "fail", headlineCount: 0 });
+        }
+      }
+    }
+
+    // Bot status generation check
+    let botStatusCheck: { status: "pass" | "fail" | "skip"; generated?: string; error?: string } = { status: "skip" };
+    if (process.env.GROQ_API_KEY) {
+      try {
+        const generated = await generateBotStatus();
+        botStatusCheck = { status: generated ? "pass" : "fail", generated: generated ?? undefined, error: generated ? undefined : "AI returned nothing" };
+      } catch (e: any) {
+        botStatusCheck = { status: "fail", error: e.message };
+      }
+    } else {
+      botStatusCheck = { status: "fail", error: "No GROQ_API_KEY set" };
+    }
+
+    // QOTD check
+    const qotdInfo = getQotdStatus();
+    const qotdCheck = {
+      status: "pass" as "pass" | "warn",
+      nextType: qotdInfo.nextType,
+      nextAt: qotdInfo.nextAt,
+      last: qotdInfo.last,
+    };
+
+    // Service check
+    const serviceCheck = {
+      processUptimeMs: Date.now() - PROCESS_START_TIME,
+      keepAliveEnabled: !!process.env.RENDER_EXTERNAL_URL,
+    };
+
+    return res.json({ checkedAt, bot: botCheck, ai: aiChecks, newsFeeds: feedResults, botStatus: botStatusCheck, qotd: qotdCheck, service: serviceCheck });
   });
 
   return httpServer;

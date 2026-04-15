@@ -721,7 +721,9 @@ const NEWS_FEEDS: Record<"worldpolitics" | "uspolitics" | "music" | "popculture"
   ],
 };
 
-async function fetchRssHeadlines(url: string): Promise<string[]> {
+export { NEWS_FEEDS };
+
+export async function fetchRssHeadlines(url: string): Promise<string[]> {
   try {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(8_000),

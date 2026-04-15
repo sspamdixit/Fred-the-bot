@@ -37,6 +37,11 @@ import {
   FlaskConical,
   XCircle,
   RotateCcw,
+  ChevronDown,
+  ChevronUp,
+  Stethoscope,
+  Rss,
+  Radio,
 } from "lucide-react";
 import {
   apiRequest,
@@ -309,6 +314,47 @@ function AeroLabel({ htmlFor, children }: { htmlFor?: string; children: React.Re
   );
 }
 
+function DiagBadge({ status }: { status?: "pass" | "fail" | "warn" | "skip" }) {
+  if (!status) return null;
+  const cfg = {
+    pass: { color: "rgb(74,222,128)",   label: "OK"   },
+    fail: { color: "rgb(248,113,113)",  label: "FAIL" },
+    warn: { color: "rgb(250,204,21)",   label: "WARN" },
+    skip: { color: "rgba(255,255,255,0.35)", label: "SKIP" },
+  }[status];
+  return (
+    <span className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+      style={{ color: cfg.color, background: `${cfg.color}1a`, border: `1px solid ${cfg.color}55` }}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function DiagSection({ id, title, icon: Icon, badge, open, onToggle, children }: {
+  id: string; title: string; icon: React.ElementType; badge?: React.ReactNode;
+  open: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+      <button
+        data-testid={`diag-section-${id}`}
+        className="w-full px-5 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-white/5 transition-colors"
+        onClick={onToggle}
+      >
+        <div className="flex items-center gap-2.5">
+          <Icon className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(125,211,252,0.8)" }} />
+          <span className="text-sm font-semibold text-white">{title}</span>
+          {badge}
+        </div>
+        {open
+          ? <ChevronUp  className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.35)" }} />
+          : <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.35)" }} />}
+      </button>
+      {open && <div className="px-5 pb-5">{children}</div>}
+    </div>
+  );
+}
+
 function Dashboard() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -465,6 +511,34 @@ function Dashboard() {
     },
     onError: (err: any) => {
       toast({ title: "AI test failed", description: err?.message ?? "Something went wrong.", variant: "destructive" });
+    },
+  });
+
+  type DiagResult = {
+    checkedAt: number;
+    bot: { status: string; online: boolean; tag: string | null; guildCount: number; uptimeStart: number | null; lastError: string | null };
+    ai: Record<string, { status: string; hasKey: boolean; enabled: boolean; latencyMs?: number; error?: string }>;
+    newsFeeds: Array<{ category: string; url: string; status: string; headlineCount: number; sample?: string }>;
+    botStatus: { status: string; generated?: string; error?: string };
+    qotd: { status: string; nextType: string; nextAt: string; last: any };
+    service: { processUptimeMs: number; keepAliveEnabled: boolean };
+  };
+  const [diagResult, setDiagResult] = useState<DiagResult | null>(null);
+  const [diagOpen, setDiagOpen] = useState<Record<string, boolean>>({ health: true, ai: false, feeds: false, qotd: false, botStatus: false });
+  const toggleDiag = (key: string) => setDiagOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  const diagMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/diagnostics/run", {});
+      return res.json() as Promise<DiagResult>;
+    },
+    onSuccess: (data) => {
+      setDiagResult(data);
+      setDiagOpen({ health: true, ai: true, feeds: true, qotd: true, botStatus: true });
+      toast({ title: "Diagnostics complete", description: "All checks finished." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Diagnostics failed", description: err?.message ?? "Something went wrong.", variant: "destructive" });
     },
   });
 
@@ -994,209 +1068,329 @@ function Dashboard() {
           )}
         </Panel>
 
-        {/* AI Test Console */}
-        <div className="glass-panel overflow-hidden flex flex-col" style={{ minHeight: 420 }}>
-          <div className="px-6 py-4 flex items-center justify-between flex-shrink-0" style={{ borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
-            <div className="flex items-center gap-2">
-              <FlaskConical className="w-4 h-4" style={{ color: "rgba(125,211,252,0.9)" }} />
-              <h3 className="text-sm font-bold tracking-wide text-white">AI Test Console</h3>
-            </div>
-            {testHistory.length > 0 && (
-              <button
-                className="aero-btn aero-btn-ghost aero-btn-sm"
-                onClick={() => setTestHistory([])}
-                data-testid="button-clear-test"
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                Clear
-              </button>
-            )}
-          </div>
-
-          <div
-            ref={testScrollRef}
-            data-testid="div-ai-test-feed"
-            className="flex-1 overflow-y-auto p-3 space-y-2"
-            style={{ maxHeight: 300 }}
-          >
-            {testHistory.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full py-10 gap-2" style={{ color: "rgba(255,255,255,0.3)" }}>
-                <FlaskConical className="w-8 h-8 opacity-30" />
-                <p className="text-xs text-center">Type a message below to test the AI.<br />Responses use the same pipeline as Discord.</p>
-              </div>
-            ) : (
-              testHistory.map((entry, i) => (
-                <div
-                  key={i}
-                  data-testid={`test-msg-${i}`}
-                  className={`rounded-xl px-3 py-2 text-xs leading-relaxed max-w-[90%] ${entry.role === "user" ? "ml-auto" : "mr-auto"}`}
-                  style={
-                    entry.role === "user"
-                      ? { background: "rgba(56,189,248,0.18)", border: "1px solid rgba(56,189,248,0.3)", color: "rgba(255,255,255,0.9)" }
-                      : { background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.8)" }
-                  }
-                >
-                  <span className="block text-xs font-semibold mb-1" style={{ color: entry.role === "user" ? "rgba(125,211,252,0.8)" : "rgba(255,255,255,0.4)" }}>
-                    {entry.role === "user" ? "You" : "bubbl manager"}
-                  </span>
-                  {entry.text}
-                </div>
-              ))
-            )}
-            {aiTestMutation.isPending && (
-              <div className="rounded-xl px-3 py-2 text-xs mr-auto" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.4)" }}>
-                <span className="block text-xs font-semibold mb-1" style={{ color: "rgba(255,255,255,0.4)" }}>bubbl manager</span>
-                thinking…
-              </div>
-            )}
-          </div>
-
-          <div className="p-3 flex-shrink-0" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-            <div className="flex gap-2">
-              <Input
-                data-testid="input-ai-test"
-                placeholder="Type a test message…"
-                value={testInput}
-                onChange={(e) => setTestInput(e.target.value.slice(0, 500))}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && testInput.trim() && !aiTestMutation.isPending) {
-                    e.preventDefault();
-                    aiTestMutation.mutate(testInput.trim());
-                  }
-                }}
-                disabled={aiTestMutation.isPending}
-                className="aero-input h-9 text-xs"
-              />
-              <button
-                data-testid="button-send-test"
-                className="aero-btn flex-shrink-0 h-9 px-3"
-                disabled={!testInput.trim() || aiTestMutation.isPending}
-                onClick={() => aiTestMutation.mutate(testInput.trim())}
-              >
-                {aiTestMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-          </div>
-        </div>
-
         </div>{/* end send+test grid */}
 
-        {/* QOTD + Service Health row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+        {/* Diagnostics Panel */}
+        <div className="glass-panel overflow-hidden">
+          {/* Header */}
+          <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
+            <div className="flex items-center gap-2">
+              <Stethoscope className="w-4 h-4" style={{ color: "rgba(125,211,252,0.9)" }} />
+              <h3 className="text-sm font-bold tracking-wide text-white">Diagnostics</h3>
+              {diagResult && (
+                <span className="text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  · last run {new Date(diagResult.checkedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+            </div>
+            <button
+              data-testid="button-run-diagnostics"
+              className="aero-btn aero-btn-sm"
+              onClick={() => diagMutation.mutate()}
+              disabled={diagMutation.isPending}
+            >
+              {diagMutation.isPending
+                ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" />Running…</>
+                : <><Stethoscope className="w-3.5 h-3.5" />Run Full Diagnostics</>}
+            </button>
+          </div>
 
-        <Panel title="QOTD Control" icon={CalendarClock}>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl px-4 py-3" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
-                <p className="text-xs font-semibold tracking-wider uppercase mb-1" style={{ color: "rgba(255,255,255,0.45)" }}>Next Type</p>
-                <p className="text-sm font-bold text-white capitalize" data-testid="text-qotd-next-type">
-                  {qotdStatus ? (qotdStatus.nextType === "open" ? "Open Question" : "Poll (2 choices)") : "—"}
-                </p>
+          {diagMutation.isPending && (
+            <div className="px-6 py-3 flex items-center gap-2 text-xs" style={{ background: "rgba(56,189,248,0.06)", borderBottom: "1px solid rgba(56,189,248,0.12)", color: "rgba(125,211,252,0.8)" }}>
+              <RefreshCw className="w-3 h-3 animate-spin" />
+              Checking all systems — this may take up to 20 seconds…
+            </div>
+          )}
+
+          {/* Section: System Health */}
+          <DiagSection id="health" title="System Health" icon={ShieldCheck}
+            badge={diagResult ? <DiagBadge status={diagResult.bot.status as any} /> : undefined}
+            open={diagOpen.health} onToggle={() => toggleDiag("health")}
+          >
+            <div className="space-y-3">
+              <div className="rounded-xl p-3 space-y-3" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>Process uptime</span>
+                  <span className="text-sm font-bold text-white" data-testid="text-process-uptime">
+                    {diagResult
+                      ? formatUptime(Date.now() - diagResult.service.processUptimeMs)
+                      : serviceHealth ? formatUptime(serviceHealth.processStartTime) : "—"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>Keep-alive pings</span>
+                  <span className="text-sm font-bold flex items-center gap-1.5" data-testid="text-keepalive-status"
+                    style={{ color: (diagResult?.service.keepAliveEnabled ?? serviceHealth?.keepAliveEnabled) ? "rgb(74,222,128)" : "rgb(250,204,21)" }}>
+                    {(diagResult?.service.keepAliveEnabled ?? serviceHealth?.keepAliveEnabled) ? "Active" : "Dev mode"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>Bot connection</span>
+                  <span className="text-sm font-bold flex items-center gap-1.5" data-testid="text-health-bot-status"
+                    style={{ color: status?.online ? "rgb(74,222,128)" : "rgb(248,113,113)" }}>
+                    <StatusDot status={status?.status ?? "offline"} />
+                    {diagResult
+                      ? (diagResult.bot.online ? `Online · ${diagResult.bot.guildCount} server${diagResult.bot.guildCount !== 1 ? "s" : ""}` : "Offline")
+                      : (status?.online ? "Online" : "Offline")}
+                  </span>
+                </div>
+                {diagResult?.bot.lastError && (
+                  <div className="text-xs rounded-lg px-2 py-1.5" style={{ background: "rgba(248,113,113,0.1)", color: "rgb(248,113,113)", border: "1px solid rgba(248,113,113,0.25)" }}>
+                    {diagResult.bot.lastError}
+                  </div>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>Health endpoint</span>
+                  <a href="/health" target="_blank" rel="noopener noreferrer" className="text-xs font-semibold" style={{ color: "rgba(125,211,252,0.8)" }} data-testid="link-health-endpoint">
+                    /health ↗
+                  </a>
+                </div>
               </div>
-              <div className="rounded-xl px-4 py-3" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
-                <p className="text-xs font-semibold tracking-wider uppercase mb-1" style={{ color: "rgba(255,255,255,0.45)" }}>Next Post</p>
-                <p className="text-sm font-bold text-white" data-testid="text-qotd-next-at">
-                  {qotdStatus ? new Date(qotdStatus.nextAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZoneName: "short" }) : "—"}
-                </p>
+              {!(diagResult?.service.keepAliveEnabled ?? serviceHealth?.keepAliveEnabled) && (
+                <div className="rounded-xl px-3 py-2 flex items-start gap-2 text-xs" style={{ background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.2)", color: "rgba(255,255,255,0.6)" }}>
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: "rgb(250,204,21)" }} />
+                  Keep-alive pings are inactive. Set <code className="mx-1 px-1 rounded" style={{ background: "rgba(255,255,255,0.1)" }}>RENDER_EXTERNAL_URL</code> on Render to enable them.
+                </div>
+              )}
+              <div className="rounded-xl px-3 py-2 flex items-start gap-2 text-xs" style={{ background: "rgba(56,189,248,0.06)", border: "1px solid rgba(56,189,248,0.15)", color: "rgba(255,255,255,0.5)" }}>
+                <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: "rgba(125,211,252,0.7)" }} />
+                Bot commands: <code className="mx-1">?ping</code> <code className="mx-1">?status</code> <code className="mx-1">?info</code> <code className="mx-1">?help</code> <code className="mx-1">?bubbl &lt;msg&gt;</code>
               </div>
             </div>
+          </DiagSection>
 
-            {qotdStatus?.last ? (
-              <div className="rounded-xl p-3 space-y-1" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}>
-                <p className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.4)" }}>
-                  Last sent · <span className="normal-case capitalize">{qotdStatus.last.type}</span> · {new Date(qotdStatus.last.sentAt).toLocaleDateString()}
-                </p>
-                <p className="text-sm text-white leading-snug" data-testid="text-qotd-last-question">
-                  {qotdStatus.last.question}
-                </p>
-                {qotdStatus.last.optionA && (
-                  <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.5)" }}>
-                    {qotdStatus.last.optionA} vs {qotdStatus.last.optionB}
-                  </p>
-                )}
+          {/* Section: AI Providers + Test Console */}
+          <DiagSection id="ai" title="AI Providers" icon={Bot}
+            badge={diagResult
+              ? <div className="flex items-center gap-1">
+                  {["gemini","groq","hackclub"].map((p) => <DiagBadge key={p} status={diagResult.ai[p]?.status as any} />)}
+                </div>
+              : undefined}
+            open={diagOpen.ai} onToggle={() => toggleDiag("ai")}
+          >
+            <div className="space-y-3">
+              {/* Provider rows */}
+              {([
+                { key: "gemini",   label: "Gemini",            desc: "Primary AI — tried first on every mention.", enabledKey: "geminiEnabled"   as const, hasKeyKey: "hasGeminiKey"   as const, toggle: "gemini"   as const },
+                { key: "groq",     label: "Groq",              desc: "Fallback AI — used when Gemini is off.",      enabledKey: "groqEnabled"     as const, hasKeyKey: "hasGroqKey"     as const, toggle: "groq"     as const },
+                { key: "hackclub", label: "Tertiary Fallback", desc: "Last resort when Gemini and Groq are off.",   enabledKey: "hackclubEnabled" as const, hasKeyKey: "hasHackclubKey" as const, toggle: "hackclub" as const },
+              ] as const).map(({ key, label, desc, enabledKey, hasKeyKey, toggle }) => (
+                <div key={key} className="rounded-xl p-3 space-y-2" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-white">{label}</p>
+                        {diagResult && <DiagBadge status={diagResult.ai[key]?.status as any} />}
+                        {diagResult?.ai[key]?.latencyMs !== undefined && (
+                          <span className="text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>{diagResult.ai[key].latencyMs}ms</span>
+                        )}
+                      </div>
+                      <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>{desc}</p>
+                    </div>
+                    {aiLoading ? <GlassSkeleton className="w-11 h-6 rounded-full" /> : (
+                      <Switch data-testid={`switch-${key}-enabled`} checked={aiStatus?.[enabledKey] ?? false}
+                        disabled={aiToggleMutation.isPending}
+                        onCheckedChange={(val) => aiToggleMutation.mutate({ provider: toggle, enabled: val })} />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                    <KeyRound className="w-3.5 h-3.5 flex-shrink-0"
+                      style={{ color: aiStatus?.[hasKeyKey] ? "rgb(74,222,128)" : "rgb(248,113,113)" }} />
+                    API key: <span className="font-semibold ml-0.5" style={{ color: aiStatus?.[hasKeyKey] ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
+                      data-testid={`text-${key}-key-status`}>
+                      {aiLoading ? "checking…" : aiStatus?.[hasKeyKey] ? "Configured" : "Not set"}
+                    </span>
+                    {diagResult?.ai[key]?.error && <span className="ml-1" style={{ color: "rgb(248,113,113)" }}>· {diagResult.ai[key].error}</span>}
+                  </div>
+                </div>
+              ))}
+
+              {aiStatus && !aiStatus.geminiEnabled && !aiStatus.groqEnabled && !aiStatus.hackclubEnabled && (
+                <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl text-sm"
+                  style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)" }}>
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "rgb(248,113,113)" }} />
+                  <span style={{ color: "rgba(255,255,255,0.65)" }}>All AI providers are disabled — the bot will not reply to mentions.</span>
+                </div>
+              )}
+
+              {/* AI Test Console */}
+              <div className="rounded-xl overflow-hidden flex flex-col" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", minHeight: 220 }}>
+                <div className="px-3 py-2.5 flex items-center justify-between flex-shrink-0" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                  <div className="flex items-center gap-1.5">
+                    <FlaskConical className="w-3.5 h-3.5" style={{ color: "rgba(125,211,252,0.7)" }} />
+                    <span className="text-xs font-semibold text-white">AI Test Console</span>
+                  </div>
+                  {testHistory.length > 0 && (
+                    <button className="aero-btn aero-btn-ghost aero-btn-sm" onClick={() => setTestHistory([])} data-testid="button-clear-test">
+                      <XCircle className="w-3 h-3" />Clear
+                    </button>
+                  )}
+                </div>
+                <div ref={testScrollRef} data-testid="div-ai-test-feed"
+                  className="flex-1 overflow-y-auto p-2.5 space-y-2" style={{ maxHeight: 220 }}>
+                  {testHistory.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 gap-2" style={{ color: "rgba(255,255,255,0.25)" }}>
+                      <FlaskConical className="w-6 h-6 opacity-30" />
+                      <p className="text-xs text-center">Type a message below to test the AI pipeline.</p>
+                    </div>
+                  ) : (
+                    testHistory.map((entry, i) => (
+                      <div key={i} data-testid={`test-msg-${i}`}
+                        className={`rounded-xl px-3 py-2 text-xs leading-relaxed max-w-[90%] ${entry.role === "user" ? "ml-auto" : "mr-auto"}`}
+                        style={entry.role === "user"
+                          ? { background: "rgba(56,189,248,0.18)", border: "1px solid rgba(56,189,248,0.3)", color: "rgba(255,255,255,0.9)" }
+                          : { background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.8)" }}>
+                        <span className="block text-xs font-semibold mb-1" style={{ color: entry.role === "user" ? "rgba(125,211,252,0.8)" : "rgba(255,255,255,0.4)" }}>
+                          {entry.role === "user" ? "You" : "bubbl"}
+                        </span>
+                        {entry.text}
+                      </div>
+                    ))
+                  )}
+                  {aiTestMutation.isPending && (
+                    <div className="rounded-xl px-3 py-2 text-xs mr-auto" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.4)" }}>
+                      <span className="block text-xs font-semibold mb-1" style={{ color: "rgba(255,255,255,0.4)" }}>bubbl</span>
+                      thinking…
+                    </div>
+                  )}
+                </div>
+                <div className="p-2.5 flex-shrink-0" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+                  <div className="flex gap-2">
+                    <Input data-testid="input-ai-test" placeholder="Type a test message…" value={testInput}
+                      onChange={(e) => setTestInput(e.target.value.slice(0, 500))}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && testInput.trim() && !aiTestMutation.isPending) { e.preventDefault(); aiTestMutation.mutate(testInput.trim()); } }}
+                      disabled={aiTestMutation.isPending} className="aero-input h-8 text-xs" />
+                    <button data-testid="button-send-test" className="aero-btn flex-shrink-0 h-8 px-3"
+                      disabled={!testInput.trim() || aiTestMutation.isPending}
+                      onClick={() => aiTestMutation.mutate(testInput.trim())}>
+                      {aiTestMutation.isPending ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </DiagSection>
+
+          {/* Section: News Feeds */}
+          <DiagSection id="feeds" title="News Feeds" icon={Rss}
+            badge={diagResult
+              ? <DiagBadge status={diagResult.newsFeeds.every(f => f.status === "pass") ? "pass" : diagResult.newsFeeds.some(f => f.status === "pass") ? "warn" : "fail"} />
+              : undefined}
+            open={diagOpen.feeds} onToggle={() => toggleDiag("feeds")}
+          >
+            {!diagResult ? (
+              <div className="flex items-center gap-2 py-4 text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
+                <Rss className="w-4 h-4 opacity-40" />
+                Run diagnostics to check if news feeds are returning headlines.
               </div>
             ) : (
-              <div className="rounded-xl p-3 text-xs" style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.35)" }}>
-                No QOTD sent yet. Use the button below to send the first one.
+              <div className="space-y-2">
+                {(["worldpolitics", "uspolitics", "music", "popculture"] as const).map((cat) => {
+                  const catFeeds = diagResult.newsFeeds.filter(f => f.category === cat);
+                  const allOk = catFeeds.every(f => f.status === "pass");
+                  return (
+                    <div key={cat} className="rounded-xl p-3 space-y-2" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)" }}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.55)" }}>{cat}</span>
+                        <DiagBadge status={allOk ? "pass" : catFeeds.some(f => f.status === "pass") ? "warn" : "fail"} />
+                      </div>
+                      {catFeeds.map((feed, i) => (
+                        <div key={i} className="flex flex-col gap-0.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs truncate" style={{ color: "rgba(255,255,255,0.4)" }}>{feed.url.replace(/^https?:\/\//, "")}</span>
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              <span className="text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>{feed.headlineCount} headlines</span>
+                              <DiagBadge status={feed.status as "pass" | "fail"} />
+                            </div>
+                          </div>
+                          {feed.sample && <p className="text-xs italic" style={{ color: "rgba(255,255,255,0.3)" }}>"{feed.sample}"</p>}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
+          </DiagSection>
 
-            <button
-              data-testid="button-trigger-qotd"
-              className="aero-btn w-full justify-center"
-              onClick={() => qotdTriggerMutation.mutate()}
-              disabled={!status?.online || qotdTriggerMutation.isPending}
-            >
-              {qotdTriggerMutation.isPending
-                ? <><RefreshCw className="w-4 h-4 animate-spin" />Sending…</>
-                : <><Play className="w-4 h-4" />Send QOTD Now</>}
-            </button>
-            <p className="text-xs text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
-              Sends next type immediately · resets 24h timer
-            </p>
-          </div>
-        </Panel>
-
-        <Panel title="Service Health" icon={ShieldCheck}>
-          <div className="space-y-3">
-            <div className="rounded-xl p-3 space-y-3" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>Process uptime</span>
-                <span className="text-sm font-bold text-white" data-testid="text-process-uptime">
-                  {serviceHealth ? formatUptime(serviceHealth.processStartTime) : "—"}
-                </span>
+          {/* Section: Bot Status Generator */}
+          <DiagSection id="botStatus" title="Bot Status Generator" icon={Radio}
+            badge={diagResult ? <DiagBadge status={diagResult.botStatus.status as any} /> : undefined}
+            open={diagOpen.botStatus} onToggle={() => toggleDiag("botStatus")}
+          >
+            {!diagResult ? (
+              <div className="flex items-center gap-2 py-4 text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
+                <Radio className="w-4 h-4 opacity-40" />
+                Run diagnostics to test the AI status generator.
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>Keep-alive pings</span>
-                <span
-                  className="text-sm font-bold"
-                  style={{ color: serviceHealth?.keepAliveEnabled ? "rgb(74,222,128)" : "rgb(250,204,21)" }}
-                  data-testid="text-keepalive-status"
-                >
-                  {serviceHealth ? (serviceHealth.keepAliveEnabled ? "Active" : "Dev mode") : "—"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>Bot connection</span>
-                <span
-                  className="text-sm font-bold flex items-center gap-1.5"
-                  style={{ color: status?.online ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                  data-testid="text-health-bot-status"
-                >
-                  <StatusDot status={status?.status ?? "offline"} />
-                  {status?.online ? "Online" : "Offline"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>Health endpoint</span>
-                <a
-                  href="/health"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-semibold"
-                  style={{ color: "rgba(125,211,252,0.8)" }}
-                  data-testid="link-health-endpoint"
-                >
-                  /health ↗
-                </a>
-              </div>
-            </div>
-
-            {!serviceHealth?.keepAliveEnabled && (
-              <div className="rounded-xl px-3 py-2 flex items-start gap-2 text-xs" style={{ background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.2)", color: "rgba(255,255,255,0.6)" }}>
-                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: "rgb(250,204,21)" }} />
-                Keep-alive pings are inactive. Set <code className="mx-1 px-1 rounded" style={{ background: "rgba(255,255,255,0.1)" }}>RENDER_EXTERNAL_URL</code> on Render to enable them.
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>Generator result</span>
+                  <DiagBadge status={diagResult.botStatus.status as any} />
+                </div>
+                {diagResult.botStatus.generated ? (
+                  <div className="rounded-xl px-4 py-3" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}>
+                    <p className="text-sm text-white font-medium">"{diagResult.botStatus.generated}"</p>
+                    <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.35)" }}>Sample status that would be set on Discord</p>
+                  </div>
+                ) : (
+                  <div className="rounded-xl px-3 py-2 text-xs" style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", color: "rgb(248,113,113)" }}>
+                    {diagResult.botStatus.error ?? "Generator returned nothing."}
+                  </div>
+                )}
               </div>
             )}
+          </DiagSection>
 
-            <div className="rounded-xl px-3 py-2 flex items-start gap-2 text-xs" style={{ background: "rgba(56,189,248,0.06)", border: "1px solid rgba(56,189,248,0.15)", color: "rgba(255,255,255,0.5)" }}>
-              <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: "rgba(125,211,252,0.7)" }} />
-              Bot commands: <code className="mx-1">?ping</code> <code className="mx-1">?status</code> <code className="mx-1">?info</code> <code className="mx-1">?help</code> <code className="mx-1">?bubbl &lt;msg&gt;</code>
+          {/* Section: QOTD */}
+          <DiagSection id="qotd" title="QOTD" icon={CalendarClock}
+            badge={diagResult ? <DiagBadge status={diagResult.qotd.status as any} /> : undefined}
+            open={diagOpen.qotd} onToggle={() => toggleDiag("qotd")}
+          >
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl px-4 py-3" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                  <p className="text-xs font-semibold tracking-wider uppercase mb-1" style={{ color: "rgba(255,255,255,0.45)" }}>Next Type</p>
+                  <p className="text-sm font-bold text-white capitalize" data-testid="text-qotd-next-type">
+                    {qotdStatus ? (qotdStatus.nextType === "open" ? "Open Question" : "Poll (2 choices)") : "—"}
+                  </p>
+                </div>
+                <div className="rounded-xl px-4 py-3" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                  <p className="text-xs font-semibold tracking-wider uppercase mb-1" style={{ color: "rgba(255,255,255,0.45)" }}>Next Post</p>
+                  <p className="text-sm font-bold text-white" data-testid="text-qotd-next-at">
+                    {qotdStatus ? new Date(qotdStatus.nextAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZoneName: "short" }) : "—"}
+                  </p>
+                </div>
+              </div>
+              {qotdStatus?.last ? (
+                <div className="rounded-xl p-3 space-y-1" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                  <p className="text-xs font-semibold tracking-wider uppercase" style={{ color: "rgba(255,255,255,0.4)" }}>
+                    Last sent · <span className="normal-case capitalize">{qotdStatus.last.type}</span> · {new Date(qotdStatus.last.sentAt).toLocaleDateString()}
+                  </p>
+                  <p className="text-sm text-white leading-snug" data-testid="text-qotd-last-question">{qotdStatus.last.question}</p>
+                  {qotdStatus.last.optionA && (
+                    <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.5)" }}>{qotdStatus.last.optionA} vs {qotdStatus.last.optionB}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-xl p-3 text-xs" style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.35)" }}>
+                  No QOTD sent yet. Use the button below to send the first one.
+                </div>
+              )}
+              <button data-testid="button-trigger-qotd" className="aero-btn w-full justify-center"
+                onClick={() => qotdTriggerMutation.mutate()}
+                disabled={!status?.online || qotdTriggerMutation.isPending}>
+                {qotdTriggerMutation.isPending
+                  ? <><RefreshCw className="w-4 h-4 animate-spin" />Sending…</>
+                  : <><Play className="w-4 h-4" />Send QOTD Now</>}
+              </button>
+              <p className="text-xs text-center" style={{ color: "rgba(255,255,255,0.3)" }}>
+                Sends next type immediately · resets 24h timer
+              </p>
             </div>
-          </div>
-        </Panel>
-
-        </div>{/* end qotd+health grid */}
+          </DiagSection>
+        </div>{/* end diagnostics panel */}
 
         {!statusLoading && (isError || status?.lastError) && (
           <div
