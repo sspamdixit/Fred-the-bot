@@ -625,16 +625,20 @@ export async function askGemini(userMessage: string, authorName: string, channel
 
 const QOTD_OPEN_PROMPT = `Generate a single Question of the Day for a Discord server. Requirements:
 - Open-ended (NOT yes/no, NOT two-choice)
-- Funny, chaotic, controversial, absurd, or genuinely thought-provoking
-- Could be a hypothetical, unpopular opinion prompt, weird scenario, or philosophical chaos
+- Relevant to a Gen-Z/community Discord audience: gaming, anime/JJBA, internet culture, friendships, school/work, weird hypotheticals, harmless drama, taste debates, or current online culture
+- Funny, chaotic, mildly controversial, absurd, or genuinely thought-provoking without being random
+- Could be a hypothetical, unpopular opinion prompt, weird scenario, moral dilemma, or taste debate
 - Should spark discussion and multiple different answers
+- Avoid generic interview questions like "what's your favorite color" or stale icebreakers
 - Keep it to 1-2 sentences max
 Reply with ONLY the question itself. No quotation marks, no intro text, no explanation.`;
 
 const QOTD_POLL_PROMPT = `Generate a "would you rather" or "this or that" question for a Discord poll. Requirements:
 - Exactly TWO choices only
-- Funny, chaotic, controversial, absurd, or mildly spicy
+- Relevant to a Gen-Z/community Discord audience: gaming, anime/JJBA, internet culture, friendships, school/work, weird hypotheticals, harmless drama, taste debates, or current online culture
+- Funny, chaotic, mildly controversial, absurd, or mildly spicy without being random
 - Both options should feel like genuine dilemmas — no obvious right answer
+- Avoid generic stale choices like cats vs dogs, pizza vs burgers, or morning vs night
 - Keep each option short (under 55 characters)
 Reply with ONLY valid JSON in this exact format, no markdown, no code blocks:
 {"question":"...","optionA":"...","optionB":"..."}`;

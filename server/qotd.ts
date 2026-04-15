@@ -51,6 +51,26 @@ function findQotdRole(channel: TextChannel): Role | null {
   ) ?? null;
 }
 
+function findQotdTalkChannel(channel: TextChannel): TextChannel | null {
+  const names = new Set(["qotd-talk", "qotd-discussion", "qotd-chat", "question-talk"]);
+  return channel.guild.channels.cache.find(
+    (ch) => ch.type === ChannelType.GuildText && names.has(ch.name.toLowerCase()),
+  ) as TextChannel | undefined ?? null;
+}
+
+function buildQotdContent(channel: TextChannel): string {
+  const role = findQotdRole(channel);
+  const talkChannel = findQotdTalkChannel(channel);
+  const lines = [
+    role ? `<@&${role.id}>` : null,
+    talkChannel
+      ? `take the arguing to <#${talkChannel.id}>.`
+      : "take the arguing to the qotd talk channel.",
+  ].filter(Boolean);
+
+  return lines.join("\n");
+}
+
 async function sendOpenQotd(channel: TextChannel): Promise<void> {
   const question = await generateForQotd("open");
   if (!question) {
@@ -59,18 +79,19 @@ async function sendOpenQotd(channel: TextChannel): Promise<void> {
   }
 
   const role = findQotdRole(channel);
-  const ping = role ? `<@&${role.id}>` : null;
+  const content = buildQotdContent(channel);
 
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
     .setAuthor({ name: "❓ Question of the Day" })
     .setDescription(`**${question}**`)
-    .setFooter({ text: "Drop your answer below ↓" })
+    .setFooter({ text: "discuss it in qotd talk ↓" })
     .setTimestamp();
 
   const msg = await channel.send({
-    content: ping ?? undefined,
+    content,
     embeds: [embed],
+    allowedMentions: role ? { roles: [role.id], parse: [] } : { parse: [] },
   });
 
   _lastEntry = {
@@ -106,13 +127,10 @@ async function sendPollQotd(channel: TextChannel): Promise<void> {
   }
 
   const role = findQotdRole(channel);
-  const ping = role ? `<@&${role.id}>` : null;
-
-  if (ping) {
-    await channel.send({ content: ping });
-  }
+  const content = buildQotdContent(channel);
 
   const msg = await channel.send({
+    content,
     poll: {
       question: { text: parsed.question },
       answers: [
@@ -122,6 +140,7 @@ async function sendPollQotd(channel: TextChannel): Promise<void> {
       duration: 24,
       allowMultiselect: false,
     },
+    allowedMentions: role ? { roles: [role.id], parse: [] } : { parse: [] },
   });
 
   _lastEntry = {

@@ -33,6 +33,7 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - Discord moderation includes a non-AI slur filter at the start of `messageCreate`. It combines direct obfuscation regexes with leetspeak token normalization for configured slurs, including shortened and altered forms. Matches immediately attempt to delete the message, send a firm DM warning with a fixed random roast regardless of role, apply a 10-minute timeout when Discord permissions/role hierarchy allow it, report action status to moderator channel `1484059697123164264`, log deletion/warning/timeout/report failures, and return before live-feed emission or AI processing so no model tokens are spent.
 - The 30-minute lounge vibe check now sends at most one dead-chat follow-up (`the chat is extremely dead.`) after an unanswered bot vibe check, then stays muted until a human posts in the lounge again.
 - Discord custom status now refreshes every 30 minutes. AI-generated statuses draw from politics, gaming, anime, and pop-culture headlines and are prompted to produce short Gen-Z-friendly takes with one relevant emoji from `😭 💀 ✌🏻 👅 💔 🙏🏻`; fallbacks follow the same tone.
+- Daily QOTD generation is prompted to stay relevant to a Gen-Z/community Discord audience with gaming, anime/JJBA, internet culture, school/work, taste debates, harmless drama, and weird hypotheticals. QOTD posts mention the `qotd` role and direct discussion to a QOTD talk channel when one exists (`qotd-talk`, `qotd-discussion`, `qotd-chat`, or `question-talk`).
 
 # Migration Notes
 
