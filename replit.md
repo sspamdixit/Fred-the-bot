@@ -41,3 +41,4 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - Replit web preview is configured to use port 5000.
 - PostgreSQL schema was synced with Drizzle using the existing schema.
 - Development preview allows Replit iframe rendering; production still sends `X-Frame-Options: DENY`.
+- Render free-tier optimization pass keeps features intact while reducing idle work: dashboard polling now slows down and pauses while hidden, sockets use websocket transport, live-feed payloads are built only when a dashboard viewer is connected, bot restart clears background timers, QOTD/login/keep-alive timers are unref'd, and the dashboard uses a simpler dark low-animation style instead of animated blurred glass.

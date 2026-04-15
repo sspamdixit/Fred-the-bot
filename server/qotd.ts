@@ -174,6 +174,7 @@ async function runDailyQotd(client: Client): Promise<void> {
 }
 
 let _botClient: Client | null = null;
+let qotdTimeout: NodeJS.Timeout | null = null;
 
 export async function triggerQotdNow(): Promise<{ ok: boolean; type?: string; error?: string }> {
   if (!_botClient) return { ok: false, error: "Bot client not initialized." };
@@ -193,6 +194,7 @@ export async function triggerQotdNow(): Promise<{ ok: boolean; type?: string; er
 }
 
 export function startQotd(client: Client): void {
+  stopQotd();
   _botClient = client;
 
   const scheduleNext = () => {
@@ -200,7 +202,7 @@ export function startQotd(client: Client): void {
     const mins = Math.round(delay / 60_000);
     log(`Next QOTD in ${mins} min (UTC 00:00)`, "qotd");
 
-    setTimeout(async () => {
+    qotdTimeout = setTimeout(async () => {
       try {
         await runDailyQotd(client);
       } catch (err: any) {
@@ -209,7 +211,16 @@ export function startQotd(client: Client): void {
         scheduleNext();
       }
     }, delay);
+    qotdTimeout.unref?.();
   };
 
   scheduleNext();
+}
+
+export function stopQotd(): void {
+  if (qotdTimeout) {
+    clearTimeout(qotdTimeout);
+    qotdTimeout = null;
+  }
+  _botClient = null;
 }

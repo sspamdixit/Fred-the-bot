@@ -8,10 +8,10 @@ import {
   Message,
 } from "discord.js";
 import { log } from "./index";
-import { getIO } from "./socket";
+import { getIO, getLiveViewerCount } from "./socket";
 import { askGemini, askGeminiWithImage, clearUserMemorySession, getAIStats, triggerUserMemoryUpdate, generateBotStatus, type ImageData } from "./gemini";
 import { buildBotProfileMessage } from "./ai-settings";
-import { startQotd } from "./qotd";
+import { startQotd, stopQotd } from "./qotd";
 import { storage } from "./storage";
 
 export interface BotStatus {
@@ -74,6 +74,8 @@ let botState: BotStatus = {
 
 let client: Client | null = null;
 let _messageContentEnabled = true;
+const backgroundTimers = new Set<NodeJS.Timeout>();
+let loginRetryTimer: NodeJS.Timeout | null = null;
 const SLUR_TIMEOUT_MS = 10 * 60 * 1000;
 const MOD_LOG_CHANNEL_ID = "1484059697123164264";
 const BANNED_SLUR_PATTERNS = [
@@ -150,6 +152,25 @@ function getSlurWarning(guildName: string): string {
     roast,
     "do not use slurs here again.",
   ].join("\n");
+}
+
+function trackBackgroundTimer(timer: NodeJS.Timeout): NodeJS.Timeout {
+  backgroundTimers.add(timer);
+  timer.unref?.();
+  return timer;
+}
+
+function clearBotBackgroundTasks(): void {
+  for (const timer of backgroundTimers) {
+    clearInterval(timer);
+    clearTimeout(timer);
+  }
+  backgroundTimers.clear();
+  if (loginRetryTimer) {
+    clearTimeout(loginRetryTimer);
+    loginRetryTimer = null;
+  }
+  stopQotd();
 }
 
 async function sendModerationLog(message: Message, statusLines: string[]): Promise<void> {
@@ -431,7 +452,7 @@ function startStatusShuffle(readyClient: Client): void {
   };
 
   void refreshStatus();
-  setInterval(() => void refreshStatus(), STATUS_SHUFFLE_INTERVAL_MS);
+  trackBackgroundTimer(setInterval(() => void refreshStatus(), STATUS_SHUFFLE_INTERVAL_MS));
   log("[Status] AI status shuffle started — fires every 30 minutes.", "discord");
 }
 
@@ -527,7 +548,7 @@ async function startVibeCheck(readyClient: Client) {
     }
   };
 
-  setInterval(runVibeCheck, VIBE_CHECK_INTERVAL_MS);
+  trackBackgroundTimer(setInterval(runVibeCheck, VIBE_CHECK_INTERVAL_MS));
   log("[VibeCheck] Background task started — fires every 30 minutes.", "discord");
 }
 
@@ -547,6 +568,7 @@ export async function startBot() {
 
   if (client) {
     log("Destroying existing client before restarting.", "discord");
+    clearBotBackgroundTasks();
     client.destroy();
     client = null;
   }
@@ -594,30 +616,27 @@ export async function startBot() {
     }
 
     const io = getIO();
-
-    const liveMsg: LiveMessage = {
-      id: `${message.id}-${Date.now()}`,
-      messageId: message.id,
-      channelId: message.channelId,
-      channelName: (message.channel as TextChannel).name ?? "unknown",
-      guildName: message.guild?.name ?? "DM",
-      authorId: message.author.id,
-      authorName: message.author.username,
-      authorAvatar: message.author.displayAvatarURL({ size: 64 }) ?? null,
-      content: message.content,
-      attachments: message.attachments.map((a) => ({
-        name: a.name,
-        url: a.url,
-        contentType: a.contentType ?? null,
-        size: a.size,
-      })),
-      timestamp: message.createdTimestamp,
-    };
-
-    if (io) {
+    if (io && getLiveViewerCount() > 0) {
+      const liveMsg: LiveMessage = {
+        id: `${message.id}-${Date.now()}`,
+        messageId: message.id,
+        channelId: message.channelId,
+        channelName: (message.channel as TextChannel).name ?? "unknown",
+        guildName: message.guild?.name ?? "DM",
+        authorId: message.author.id,
+        authorName: message.author.username,
+        authorAvatar: message.author.displayAvatarURL({ size: 64 }) ?? null,
+        content: message.content,
+        attachments: message.attachments.map((a) => ({
+          name: a.name,
+          url: a.url,
+          contentType: a.contentType ?? null,
+          size: a.size,
+        })),
+        timestamp: message.createdTimestamp,
+      };
       io.emit("liveFeed:message", liveMsg);
     }
-    log(`[Live] ${liveMsg.authorName} in #${liveMsg.channelName}: ${liveMsg.content.slice(0, 60)}`, "discord");
 
     const isMentioned = client?.user && message.mentions.users.has(client.user.id);
     const COMMAND_PREFIX = /^[!?]bubbl\s*/i;
@@ -1059,6 +1078,7 @@ export async function startBot() {
 
     const RETRY_DELAY_MS = 30_000;
     log(`Retrying login in ${RETRY_DELAY_MS / 1000}s…`, "discord");
-    setTimeout(() => startBot(), RETRY_DELAY_MS);
+    loginRetryTimer = setTimeout(() => startBot(), RETRY_DELAY_MS);
+    loginRetryTimer.unref?.();
   }
 }

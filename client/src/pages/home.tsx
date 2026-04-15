@@ -87,6 +87,9 @@ const STATUS_OPTIONS = [
 ] as const;
 
 const ACTIVITY_TYPES = ["Playing", "Watching", "Listening", "Competing", "Streaming", "Custom"] as const;
+const ACTIVE_STATUS_REFETCH_MS = 30_000;
+const ACTIVE_GUILDS_REFETCH_MS = 5 * 60_000;
+const ACTIVE_SERVICE_REFETCH_MS = 5 * 60_000;
 
 function formatUptime(uptimeStart: number | null): string {
   if (!uptimeStart) return "—";
@@ -309,6 +312,7 @@ function AeroLabel({ htmlFor, children }: { htmlFor?: string; children: React.Re
 function Dashboard() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [dashboardVisible, setDashboardVisible] = useState(() => document.visibilityState === "visible");
 
   const [selectedGuildId,   setSelectedGuildId]   = useState<string>("");
   const [selectedChannelId, setSelectedChannelId] = useState<string>("");
@@ -320,6 +324,12 @@ function Dashboard() {
   const [activityName,   setActivityName]   = useState<string>("the Archives");
   const [presenceSaved,  setPresenceSaved]  = useState(false);
 
+  useEffect(() => {
+    const handleVisibility = () => setDashboardVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
   const { data: aiStatus, isLoading: aiLoading } = useQuery<{
     geminiEnabled: boolean;
     groqEnabled: boolean;
@@ -329,7 +339,7 @@ function Dashboard() {
     hasHackclubKey: boolean;
   }>({
     queryKey: ["/api/ai/status"],
-    refetchInterval: 10000,
+    refetchInterval: dashboardVisible ? ACTIVE_SERVICE_REFETCH_MS : false,
   });
 
   const aiToggleMutation = useMutation({
@@ -345,12 +355,12 @@ function Dashboard() {
 
   const { data: status, isLoading: statusLoading, isError, refetch, isFetching } = useQuery<BotStatus>({
     queryKey: ["/api/bot/status"],
-    refetchInterval: 5000,
+    refetchInterval: dashboardVisible ? ACTIVE_STATUS_REFETCH_MS : false,
   });
 
   const { data: guilds = [], isLoading: guildsLoading } = useQuery<GuildInfo[]>({
     queryKey: ["/api/bot/guilds"],
-    refetchInterval: 30000,
+    refetchInterval: dashboardVisible ? ACTIVE_GUILDS_REFETCH_MS : false,
     enabled: status?.online === true,
   });
 
@@ -422,13 +432,13 @@ function Dashboard() {
     last: { type: string; question: string; optionA?: string; optionB?: string; sentAt: string } | null;
     nextType: string;
     nextAt: string;
-  }>({ queryKey: ["/api/qotd/status"], refetchInterval: 60_000 });
+  }>({ queryKey: ["/api/qotd/status"], refetchInterval: dashboardVisible ? ACTIVE_SERVICE_REFETCH_MS : false });
 
   const { data: serviceHealth } = useQuery<{
     processStartTime: number;
     keepAliveEnabled: boolean;
     renderUrl: string | null;
-  }>({ queryKey: ["/api/service/health"], refetchInterval: 30_000 });
+  }>({ queryKey: ["/api/service/health"], refetchInterval: dashboardVisible ? ACTIVE_SERVICE_REFETCH_MS : false });
 
   const qotdTriggerMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/qotd/trigger", {}),
@@ -475,12 +485,6 @@ function Dashboard() {
 
   return (
     <div className="relative min-h-screen overflow-x-hidden">
-      <div className="bubble" style={{ width: 520, height: 520, top: -160, right: -130, animationDuration: "15s" }} />
-      <div className="bubble" style={{ width: 300, height: 300, top: 350,  left: -90,  animationDuration: "11s", animationDelay: "2.5s" }} />
-      <div className="bubble" style={{ width: 200, height: 200, bottom: 200, right: 220, animationDuration: "13s", animationDelay: "1s" }} />
-      <div className="bubble" style={{ width: 130, height: 130, top: 220,  left: 320,  animationDuration: "9s",  animationDelay: "3.5s" }} />
-      <div className="bubble" style={{ width: 80,  height: 80,  bottom: 100, left: 180, animationDuration: "8s",  animationDelay: "0.5s" }} />
-
       <div className="relative z-10 max-w-4xl mx-auto px-5 py-10 space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -1210,7 +1214,7 @@ function Dashboard() {
         )}
 
         <p className="text-center text-xs" style={{ color: "rgba(255,255,255,0.3)" }} data-testid="text-footer">
-          Status · 5s &nbsp;·&nbsp; QOTD · 60s &nbsp;·&nbsp; Health · 30s
+          Low-resource mode · status 30s · details 5m · pauses while hidden
         </p>
       </div>
     </div>

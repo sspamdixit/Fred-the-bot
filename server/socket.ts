@@ -36,7 +36,7 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
   const allowedOrigins = getOriginAllowlist();
 
   _io = new SocketIOServer(httpServer, {
-    transports: ["websocket", "polling"],
+    transports: ["websocket"],
     cors: {
       origin: (origin, callback) => {
         if (allowedOrigins.length === 0) {
@@ -73,4 +73,8 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
 
 export function getIO(): SocketIOServer | null {
   return _io;
+}
+
+export function getLiveViewerCount(): number {
+  return _io?.sockets.sockets.size ?? 0;
 }

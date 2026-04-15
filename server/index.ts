@@ -109,7 +109,7 @@ function startKeepAlive() {
 
   log(`Keep-alive active → pinging ${pingUrl} every 10 min`, "keep-alive");
 
-  setInterval(async () => {
+  const keepAliveTimer = setInterval(async () => {
     try {
       const res = await fetch(pingUrl, { signal: AbortSignal.timeout(15_000) });
       log(`Keep-alive ping → ${res.status}`, "keep-alive");
@@ -117,6 +117,7 @@ function startKeepAlive() {
       log(`Keep-alive ping failed: ${err.message}`, "keep-alive");
     }
   }, INTERVAL_MS);
+  keepAliveTimer.unref?.();
 }
 
 (async () => {

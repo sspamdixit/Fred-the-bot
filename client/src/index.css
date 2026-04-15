@@ -2,33 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── FRUTIGER AERO THEME ─────────────────────────────────────── */
 :root {
-  --background:          199 100% 12%;
+  --background:          222 47% 6%;
   --foreground:          0 0% 100%;
-  --border:              200 60% 65%;
-  --card:                200 80% 90%;
+  --border:              222 25% 18%;
+  --card:                222 35% 9%;
   --card-foreground:     0 0% 100%;
-  --card-border:         200 60% 65%;
-  --sidebar:             200 90% 10%;
+  --card-border:         222 25% 18%;
+  --sidebar:             222 47% 6%;
   --sidebar-foreground:  0 0% 100%;
-  --sidebar-border:      200 60% 30%;
-  --sidebar-primary:     199 89% 48%;
+  --sidebar-border:      222 25% 16%;
+  --sidebar-primary:     217 91% 60%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent:      187 85% 43%;
+  --sidebar-accent:      217 91% 60%;
   --sidebar-accent-foreground: 0 0% 100%;
-  --sidebar-ring:        199 89% 60%;
-  --popover:             205 80% 11%;
+  --sidebar-ring:        217 91% 60%;
+  --popover:             222 35% 9%;
   --popover-foreground:  0 0% 100%;
-  --popover-border:      200 60% 40%;
-  --primary:             199 89% 48%;
+  --popover-border:      222 25% 18%;
+  --primary:             217 91% 60%;
   --primary-foreground:  0 0% 100%;
-  --secondary:           200 55% 22%;
+  --secondary:           222 28% 14%;
   --secondary-foreground:0 0% 100%;
-  --muted:               200 50% 18%;
-  --muted-foreground:    200 40% 72%;
-  --accent:              187 85% 50%;
-  --accent-foreground:   200 100% 8%;
+  --muted:               222 24% 13%;
+  --muted-foreground:    215 18% 68%;
+  --accent:              217 91% 60%;
+  --accent-foreground:   222 47% 6%;
   --destructive:         0 72% 51%;
   --destructive-foreground: 0 0% 100%;
   --input:               200 55% 20%;
@@ -56,44 +55,26 @@
   body {
     @apply antialiased;
     font-family: var(--font-sans);
-    background: linear-gradient(160deg,
-      #082d3e 0%,
-      #0a4a6e 20%,
-      #0b6fa3 50%,
-      #0898d0 75%,
-      #23d4f0 100%
-    );
-    background-attachment: fixed;
+    background: #050814;
     min-height: 100vh;
     color: white;
   }
 }
 
-/* ─── GLASS PANEL ─────────────────────────────────────────────── */
 .glass-panel {
-  background: rgba(255, 255, 255, 0.11);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
-  border: 1px solid rgba(255, 255, 255, 0.26);
-  border-radius: 18px;
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.38),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.06);
+  background: rgba(10, 15, 30, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
 }
 
 .glass-panel-sm {
-  background: rgba(255, 255, 255, 0.09);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: 14px;
-  box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  box-shadow: none;
 }
 
-/* ─── AQUA GLOSSY BUTTON ──────────────────────────────────────── */
 .aero-btn {
   display: inline-flex;
   align-items: center;
@@ -101,45 +82,25 @@
   gap: 8px;
   padding: 9px 24px;
   border-radius: 50px;
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  background: linear-gradient(180deg,
-    rgba(255, 255, 255, 0.90) 0%,
-    rgba(186, 230, 253, 0.88) 30%,
-    rgba(56,  189, 248, 0.95) 58%,
-    rgba(2,   132, 199, 1.00) 100%
-  );
-  box-shadow:
-    0 3px 10px rgba(0, 100, 180, 0.38),
-    0 1px 2px  rgba(0, 0,   0,   0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
-  color: #0c3d56;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  background: #2563eb;
+  box-shadow: none;
+  color: #ffffff;
   font-weight: 700;
   font-size: 13.5px;
   letter-spacing: 0.01em;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
   white-space: nowrap;
 }
 
 .aero-btn:hover:not(:disabled) {
-  background: linear-gradient(180deg,
-    rgba(255, 255, 255, 0.97) 0%,
-    rgba(224, 242, 254, 0.92) 30%,
-    rgba(125, 211, 252, 0.97) 58%,
-    rgba(14,  165, 233, 1.00) 100%
-  );
-  box-shadow:
-    0 5px 18px rgba(0, 100, 180, 0.48),
-    0 2px 4px  rgba(0, 0,   0,   0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
-  transform: translateY(-1px);
+  background: #1d4ed8;
+  border-color: rgba(147, 197, 253, 0.5);
 }
 
 .aero-btn:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow:
-    0 2px 6px rgba(0, 100, 180, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  background: #1e40af;
 }
 
 .aero-btn:disabled {
@@ -147,36 +108,31 @@
   cursor: not-allowed;
 }
 
-/* Ghost variant */
 .aero-btn-ghost {
-  background: rgba(255, 255, 255, 0.13);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  color: rgba(255, 255, 255, 0.92);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  color: rgba(255, 255, 255, 0.9);
+  box-shadow: none;
 }
 
 .aero-btn-ghost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(30, 41, 59, 0.95);
+  border-color: rgba(148, 163, 184, 0.28);
   color: white;
-  transform: translateY(-1px);
-  box-shadow: 0 3px 10px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.25);
 }
 
-/* Small variant */
 .aero-btn-sm {
   padding: 6px 16px;
   font-size: 12.5px;
 }
 
-/* ─── AERO INPUTS ─────────────────────────────────────────────── */
 .aero-input {
-  background: rgba(255, 255, 255, 0.11) !important;
-  border: 1px solid rgba(255, 255, 255, 0.24) !important;
+  background: rgba(15, 23, 42, 0.94) !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
   border-radius: 12px !important;
   color: white !important;
   font-size: 13.5px !important;
-  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s !important;
+  transition: border-color 0.12s, background 0.12s !important;
 }
 
 .aero-input::placeholder {
@@ -185,25 +141,22 @@
 
 .aero-input:focus,
 .aero-input:focus-visible {
-  background: rgba(255, 255, 255, 0.16) !important;
-  border-color: rgba(125, 211, 252, 0.75) !important;
-  box-shadow:
-    0 0 0 3px rgba(56, 189, 248, 0.22),
-    0 0 18px rgba(56, 189, 248, 0.14) !important;
+  background: rgba(15, 23, 42, 1) !important;
+  border-color: rgba(96, 165, 250, 0.7) !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25) !important;
   outline: none !important;
 }
 
-/* ─── AERO SELECT TRIGGER ─────────────────────────────────────── */
 .aero-select-trigger {
-  background: rgba(255, 255, 255, 0.11) !important;
-  border: 1px solid rgba(255, 255, 255, 0.24) !important;
+  background: rgba(15, 23, 42, 0.94) !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
   border-radius: 12px !important;
   color: white !important;
 }
 
 .aero-select-trigger:focus {
-  border-color: rgba(125, 211, 252, 0.75) !important;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.22) !important;
+  border-color: rgba(96, 165, 250, 0.7) !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25) !important;
   outline: none !important;
 }
 
@@ -216,44 +169,16 @@
   background: transparent !important;
 }
 
-/* ─── FLOATING BUBBLES ────────────────────────────────────────── */
 .bubble {
-  position: absolute;
-  border-radius: 50%;
-  background: radial-gradient(circle at 32% 30%,
-    rgba(255, 255, 255, 0.32) 0%,
-    rgba(147, 210, 245, 0.10) 55%,
-    transparent 100%
-  );
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  pointer-events: none;
-  animation: bubble-float ease-in-out infinite;
+  display: none;
 }
 
-@keyframes bubble-float {
-  0%,  100% { transform: translateY(0px)   scale(1); }
-  50%       { transform: translateY(-20px) scale(1.02); }
-}
-
-/* ─── STATUS DOTS ─────────────────────────────────────────────── */
 .pulse-dot {
-  animation: pulse-ring-green 2s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite;
-}
-
-@keyframes pulse-ring-green {
-  0%   { box-shadow: 0 0 0 0   rgba(74, 222, 128, 0.65); }
-  70%  { box-shadow: 0 0 0 8px rgba(74, 222, 128, 0); }
-  100% { box-shadow: 0 0 0 0   rgba(74, 222, 128, 0); }
+  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.35);
 }
 
 .pulse-dot-error {
-  animation: pulse-ring-red 2s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite;
-}
-
-@keyframes pulse-ring-red {
-  0%   { box-shadow: 0 0 0 0   rgba(248, 113, 113, 0.65); }
-  70%  { box-shadow: 0 0 0 8px rgba(248, 113, 113, 0); }
-  100% { box-shadow: 0 0 0 0   rgba(248, 113, 113, 0); }
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.35);
 }
 
 /* ─── SCROLLBAR ───────────────────────────────────────────────── */
