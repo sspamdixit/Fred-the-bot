@@ -690,12 +690,21 @@ export async function generateForQotd(type: "open" | "poll"): Promise<string | n
   return null;
 }
 
-const NEWS_FEEDS: Record<"politics" | "popculture", string[]> = {
+const NEWS_FEEDS: Record<"politics" | "gaming" | "anime" | "popculture", string[]> = {
   politics: [
     "https://feeds.bbci.co.uk/news/politics/rss.xml",
     "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
     "https://www.theguardian.com/politics/rss",
     "https://feeds.npr.org/1014/rss.xml",
+  ],
+  gaming: [
+    "https://www.gamespot.com/feeds/news/",
+    "https://www.polygon.com/rss/index.xml",
+    "https://www.ign.com/rss/articles/feed?tags=games",
+  ],
+  anime: [
+    "https://www.animenewsnetwork.com/all/rss.xml",
+    "https://www.crunchyroll.com/news/rss",
   ],
   popculture: [
     "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml",
@@ -727,14 +736,15 @@ export async function generateBotStatus(): Promise<string | null> {
   const key = process.env.GROQ_API_KEY;
   if (!key) return null;
 
-  const category = Math.random() < 0.5 ? "politics" : "popculture";
+  const categories = Object.keys(NEWS_FEEDS) as Array<keyof typeof NEWS_FEEDS>;
+  const category = categories[Math.floor(Math.random() * categories.length)];
   const feeds = NEWS_FEEDS[category];
   const feedUrl = feeds[Math.floor(Math.random() * feeds.length)];
 
   const headlines = await fetchRssHeadlines(feedUrl);
 
   if (headlines.length < 2) {
-    const allFeeds = [...NEWS_FEEDS.politics, ...NEWS_FEEDS.popculture];
+    const allFeeds = categories.flatMap((name) => NEWS_FEEDS[name]);
     for (const fallbackUrl of allFeeds) {
       if (fallbackUrl === feedUrl) continue;
       const fallbackHeadlines = await fetchRssHeadlines(fallbackUrl);
@@ -754,20 +764,29 @@ export async function generateBotStatus(): Promise<string | null> {
       messages: [
         {
           role: "system",
-          content: "You write Discord bot custom statuses. Given a list of current news headlines, write a single one-liner status. Rules: all lowercase, no emojis, no hashtags, dry sarcastic wit, max 60 characters, must fit on one line, reference a specific detail from the headlines — don't be generic. Output only the status text, nothing else.",
+          content: [
+            "You write Discord bot custom statuses for a Gen-Z Discord server.",
+            "Given current headlines, write one wild but believable take as a custom status.",
+            "Tone: sharp, casual, internet-literate, amused, not tryhard, not corporate, not random news mush.",
+            "Topics that work: game news, anime/JJBA energy, streamers, internet drama, weird AI posts, politics acting like a side quest, pop culture chaos.",
+            "Rules: all lowercase, one line only, max 75 characters, no hashtags, no quotes, no slurs, no explicit sexual content.",
+            "Use exactly one relevant emoji from this set when it fits: 😭 💀 ✌🏻 👅 💔 🙏🏻",
+            "Reference or riff on a specific headline detail, but make it sound like a status people would actually read.",
+            "Output only the status text, nothing else.",
+          ].join(" "),
         },
         {
           role: "user",
-          content: `current headlines (${category === "popculture" ? "pop culture" : "politics"}):\n${headlines.join("\n")}`,
+          content: `current headlines (${category}):\n${headlines.join("\n")}`,
         },
       ],
-      max_tokens: 40,
-      temperature: 0.95,
+      max_tokens: 48,
+      temperature: 1.05,
     });
 
     const raw = completion.choices[0]?.message?.content?.trim() ?? "";
-    const status = raw.replace(/^["']|["']$/g, "").trim().toLowerCase();
-    if (!status || status.length < 5 || status.length > 80) return null;
+    const status = raw.replace(/^["']|["']$/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (!status || status.length < 5 || status.length > 75) return null;
     log(`[Status] AI generated status from ${category} news: ${status}`, "gemini");
     return status;
   } catch (err: any) {

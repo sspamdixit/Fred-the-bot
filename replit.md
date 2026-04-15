@@ -32,6 +32,7 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - Owner-only Discord dossier commands are handled through text commands: `?dossview @user`, `?dossdelete @user`, and `?dosswipe @user`. The bot attempts to delete the visible command message, sends results by DM for privacy, `?dossdelete` removes the persisted dossier, and `?dosswipe` removes the persisted dossier plus current in-session memory state.
 - Discord moderation includes a non-AI slur filter at the start of `messageCreate`. It combines direct obfuscation regexes with leetspeak token normalization for configured slurs, including shortened and altered forms. Matches immediately attempt to delete the message, send a firm DM warning with a fixed random roast regardless of role, apply a 10-minute timeout when Discord permissions/role hierarchy allow it, report action status to moderator channel `1484059697123164264`, log deletion/warning/timeout/report failures, and return before live-feed emission or AI processing so no model tokens are spent.
 - The 30-minute lounge vibe check now sends at most one dead-chat follow-up (`the chat is extremely dead.`) after an unanswered bot vibe check, then stays muted until a human posts in the lounge again.
+- Discord custom status now refreshes every 30 minutes. AI-generated statuses draw from politics, gaming, anime, and pop-culture headlines and are prompted to produce short Gen-Z-friendly takes with one relevant emoji from `😭 💀 ✌🏻 👅 💔 🙏🏻`; fallbacks follow the same tone.
 
 # Migration Notes
 

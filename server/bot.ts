@@ -388,14 +388,16 @@ export async function dispatchMessage(
 }
 
 const STATUS_FALLBACKS: string[] = [
-  "doomscrolling as a lifestyle",
-  "the feds are watching but i'm more interesting",
-  "catching strays from geopolitics daily",
-  "logged into twitter dot com like an idiot",
-  "the world is cooked and i'm monitoring it",
-  "eating the rich in my imagination only",
-  "watching the news like it's a disaster movie",
+  "elden ring discourse in court rn 💀",
+  "jojo fans explaining peak again 😭",
+  "trump posted ai slop, pack it up 💔",
+  "nintendo lawyers spawned in 🙏🏻",
+  "watching game news like a trial 💀",
+  "anime leaks got the tl unemployed ✌🏻",
+  "the patch notes are lying again 😭",
+  "internet politics with a side quest 💔",
 ];
+const STATUS_SHUFFLE_INTERVAL_MS = 30 * 60 * 1000;
 
 function startStatusShuffle(readyClient: Client): void {
   let fallbackIndex = 0;
@@ -429,8 +431,8 @@ function startStatusShuffle(readyClient: Client): void {
   };
 
   void refreshStatus();
-  setInterval(() => void refreshStatus(), 60 * 60 * 1000);
-  log("[Status] Hourly AI news status shuffle started.", "discord");
+  setInterval(() => void refreshStatus(), STATUS_SHUFFLE_INTERVAL_MS);
+  log("[Status] AI status shuffle started — fires every 30 minutes.", "discord");
 }
 
 const VIBE_CHECK_CHANNEL_ID = "1484056100654551133";
