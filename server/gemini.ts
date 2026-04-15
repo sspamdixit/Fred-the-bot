@@ -261,6 +261,12 @@ function isSafetyBlockedError(message: string): boolean {
   );
 }
 
+function sanitizeReply(text: string): string {
+  return text
+    .replace(/^"+|"+$/g, "")
+    .trim();
+}
+
 function getClient(): GoogleGenerativeAI {
   if (!genAI) {
     const key = process.env.GEMINI_API_KEY;
@@ -333,7 +339,7 @@ async function tryGroq(prompt: string, history: HistoryEntry[], systemPrompt: st
         temperature: 0.9,
       });
 
-      const text = completion.choices[0]?.message?.content?.trim() ?? "";
+      const text = sanitizeReply(completion.choices[0]?.message?.content?.trim() ?? "");
 
       if (text === "SKIP") {
         log("[Groq] Filtered message — returning in-character refusal.", "gemini");
@@ -399,7 +405,7 @@ async function tryHackclub(prompt: string, history: HistoryEntry[], systemPrompt
     }
 
     const data = await response.json() as { choices?: { message?: { content?: string } }[] };
-    const text = data.choices?.[0]?.message?.content?.trim() ?? "";
+    const text = sanitizeReply(data.choices?.[0]?.message?.content?.trim() ?? "");
 
     if (text === "SKIP") {
       log("[Hackclub] Filtered message — returning in-character refusal.", "gemini");
@@ -469,7 +475,7 @@ export async function askGeminiWithImage(
           ];
 
           const result = await model.generateContent(contentParts);
-          const text = result.response.text().trim();
+          const text = sanitizeReply(result.response.text().trim());
 
           if (text === "SKIP") {
             log(`[Gemini] Filtered image message from ${authorName} — returning in-character refusal.`, "gemini");
@@ -577,7 +583,7 @@ export async function askGemini(userMessage: string, authorName: string, channel
           });
           const chat = model.startChat({ history: getGeminiHistory(history) });
           const result = await chat.sendMessage(prompt);
-          const text = result.response.text().trim();
+          const text = sanitizeReply(result.response.text().trim());
           if (text === "SKIP") {
             log("[Gemini/text-fallback] Filtered — returning in-character refusal.", "gemini");
             return getForbiddenResponse();
@@ -665,7 +671,7 @@ export async function generateForQotd(type: "open" | "poll"): Promise<string | n
       try {
         const model = client.getGenerativeModel({ model: modelName });
         const result = await model.generateContent(prompt);
-        const text = result.response.text().trim();
+        const text = sanitizeReply(result.response.text().trim());
         if (text) {
           log(`[QOTD] Generated ${type} via Gemini (${modelName})`, "qotd");
           return text;
@@ -690,7 +696,7 @@ export async function generateForQotd(type: "open" | "poll"): Promise<string | n
           max_tokens: 200,
           temperature: 1.1,
         });
-        const text = completion.choices[0]?.message?.content?.trim() ?? "";
+        const text = sanitizeReply(completion.choices[0]?.message?.content?.trim() ?? "");
         if (text) {
           log(`[QOTD] Generated ${type} via Groq (${modelName})`, "qotd");
           return text;
