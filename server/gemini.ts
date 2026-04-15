@@ -263,7 +263,11 @@ function isSafetyBlockedError(message: string): boolean {
 
 function sanitizeReply(text: string): string {
   return text
-    .replace(/^"+|"+$/g, "")
+    .replace(/^fred\s*(says?|:)\s*/i, "")
+    .replace(/^["]+|["]+$/g, "")
+    .split("\n")
+    .map((line) => line.replace(/^["]+|["]+$/g, "").trim())
+    .join("\n")
     .trim();
 }
 
