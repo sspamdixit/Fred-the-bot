@@ -862,10 +862,7 @@ export async function startBot() {
       let cleanContent = message.content;
 
       if (isMentioned) {
-        cleanContent = cleanContent
-          .replace(new RegExp(`<@!?${client.user.id}>`, "g"), "")
-          .replace(/@bubbl\s*manager/gi, "")
-          .replace(/@fred/gi, "");
+        cleanContent = cleanContent.replace(new RegExp(`<@!?${client.user.id}>`, "g"), "");
       }
 
       if (isPrefixed) {
