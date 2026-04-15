@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -16,6 +17,19 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    const ping = () => {
+      fetch(`/health?t=${Date.now()}`, {
+        cache: "no-store",
+        credentials: "omit",
+      }).catch(() => undefined);
+    };
+
+    ping();
+    const keepAliveTimer = window.setInterval(ping, 4 * 60 * 1000);
+    return () => window.clearInterval(keepAliveTimer);
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>

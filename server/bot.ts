@@ -76,6 +76,8 @@ let client: Client | null = null;
 let _messageContentEnabled = true;
 const backgroundTimers = new Set<NodeJS.Timeout>();
 let loginRetryTimer: NodeJS.Timeout | null = null;
+let lastDiscordDisconnectAt: number | null = null;
+let watchdogRestarting = false;
 const SLUR_TIMEOUT_MS = 10 * 60 * 1000;
 const MOD_LOG_CHANNEL_ID = "1484059697123164264";
 const BANNED_SLUR_PATTERNS = [
@@ -171,6 +173,24 @@ function clearBotBackgroundTasks(): void {
     loginRetryTimer = null;
   }
   stopQotd();
+}
+
+function startBotWatchdog(): void {
+  const WATCHDOG_INTERVAL_MS = 60_000;
+  const DISCONNECT_GRACE_MS = 120_000;
+
+  trackBackgroundTimer(setInterval(() => {
+    if (!client || watchdogRestarting) return;
+    if (botState.online) return;
+    if (!lastDiscordDisconnectAt) return;
+    if (Date.now() - lastDiscordDisconnectAt < DISCONNECT_GRACE_MS) return;
+
+    watchdogRestarting = true;
+    log("Bot stayed disconnected past grace window — restarting Discord client.", "discord");
+    void startBot().finally(() => {
+      watchdogRestarting = false;
+    });
+  }, WATCHDOG_INTERVAL_MS));
 }
 
 async function sendModerationLog(message: Message, statusLines: string[]): Promise<void> {
@@ -587,6 +607,7 @@ export async function startBot() {
 
   client.once("ready", (readyClient) => {
     log(`${readyClient.user.tag} is now active in the Lab.`, "discord");
+    lastDiscordDisconnectAt = null;
 
     botState = {
       online: true,
@@ -603,6 +624,7 @@ export async function startBot() {
     startQotd(readyClient);
     startVibeCheck(readyClient);
     startStatusShuffle(readyClient);
+    startBotWatchdog();
   });
 
   client.on("messageCreate", async (message: Message) => {
@@ -1018,17 +1040,20 @@ export async function startBot() {
 
   client.on("shardDisconnect", (_event, shardId) => {
     log(`Shard ${shardId} disconnected from gateway.`, "discord");
+    lastDiscordDisconnectAt = Date.now();
     botState.online = false;
     botState.status = "offline";
   });
 
   client.on("shardReconnecting", (shardId) => {
     log(`Shard ${shardId} reconnecting to gateway…`, "discord");
+    lastDiscordDisconnectAt ??= Date.now();
     botState.status = "reconnecting";
   });
 
   client.on("shardResume", (shardId, replayedEvents) => {
     log(`Shard ${shardId} resumed (replayed ${replayedEvents} events).`, "discord");
+    lastDiscordDisconnectAt = null;
     if (client?.user) {
       botState.online = true;
       botState.status = "online";
@@ -1040,8 +1065,18 @@ export async function startBot() {
   client.on("error", (err) => {
     log(`Discord client error: ${err.message}`, "discord");
     botState.lastError = err.message;
-    // Do NOT set online: false here — discord.js reconnects automatically.
-    // shardDisconnect is the authoritative signal for going offline.
+  });
+
+  client.on("shardError", (err, shardId) => {
+    log(`Shard ${shardId} error: ${err.message}`, "discord");
+    botState.lastError = err.message;
+  });
+
+  client.on("invalidated", () => {
+    log("Discord session invalidated — restarting client.", "discord");
+    botState.online = false;
+    botState.status = "reconnecting";
+    lastDiscordDisconnectAt = Date.now() - 120_000;
   });
 
   try {

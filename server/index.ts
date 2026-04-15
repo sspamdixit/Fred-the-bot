@@ -9,6 +9,14 @@ import { ensureUserMemoryTable } from "./storage";
 const app = express();
 const httpServer = createServer(app);
 
+process.on("unhandledRejection", (reason) => {
+  log(`Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`, "process");
+});
+
+process.on("uncaughtException", (err) => {
+  log(`Uncaught exception: ${err.message}`, "process");
+});
+
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 
@@ -121,8 +129,12 @@ function startKeepAlive() {
 }
 
 (async () => {
-  await ensureUserMemoryTable();
-  log("user_memory table ready.", "memory");
+  try {
+    await ensureUserMemoryTable();
+    log("user_memory table ready.", "memory");
+  } catch (err: any) {
+    log(`user_memory table check failed; continuing without blocking bot startup: ${err.message}`, "memory");
+  }
 
   await registerRoutes(httpServer, app);
 
