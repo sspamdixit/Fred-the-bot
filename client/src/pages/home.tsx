@@ -11,7 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SiDiscord } from "react-icons/si";
 import { Switch } from "@/components/ui/switch";
 import {
   Server,
@@ -173,17 +172,16 @@ function PasswordScreen({ onAuth }: { onAuth: () => void }) {
           <div
             className="w-14 h-14 rounded-2xl flex items-center justify-center"
             style={{
-              background: "linear-gradient(160deg, rgba(255,255,255,0.28) 0%, rgba(56,189,248,0.45) 100%)",
-              border: "1px solid rgba(255,255,255,0.4)",
-              boxShadow: "0 4px 20px rgba(56,189,248,0.3), inset 0 1px 0 rgba(255,255,255,0.5)",
+              background: "rgba(37,99,235,0.2)",
+              border: "1px solid rgba(96,165,250,0.3)",
             }}
           >
-            <SiDiscord className="w-7 h-7 text-white" />
+            <Bot className="w-7 h-7 text-white" />
           </div>
           <div className="text-center">
             <h1 className="text-2xl font-bold text-white tracking-tight">Fred</h1>
             <p className="text-sm mt-0.5" style={{ color: "rgba(255,255,255,0.6)" }}>
-              Enter your password to continue
+              yeah yeah, what's the password.
             </p>
           </div>
         </div>
@@ -230,8 +228,8 @@ function PasswordScreen({ onAuth }: { onAuth: () => void }) {
             data-testid="button-login"
           >
             {loading
-              ? <><RefreshCw className="w-4 h-4 animate-spin" />Verifying…</>
-              : "Sign In"}
+              ? <><RefreshCw className="w-4 h-4 animate-spin" />checking…</>
+              : "let me in"}
           </button>
         </form>
       </div>
@@ -565,16 +563,15 @@ function Dashboard() {
             <div
               className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0"
               style={{
-                background: "linear-gradient(160deg, rgba(255,255,255,0.28) 0%, rgba(56,189,248,0.45) 100%)",
-                border: "1px solid rgba(255,255,255,0.38)",
-                boxShadow: "0 4px 16px rgba(56,189,248,0.3), inset 0 1px 0 rgba(255,255,255,0.5)",
+                background: "rgba(37,99,235,0.2)",
+                border: "1px solid rgba(96,165,250,0.25)",
               }}
             >
-              <SiDiscord className="w-5 h-5 text-white" />
+              <Bot className="w-5 h-5 text-white" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-white leading-none" data-testid="text-title">Fred</h1>
-              <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.5)" }}>Bot Control Panel</p>
+              <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.5)" }}>fred's lair (restricted, kinda)</p>
             </div>
           </div>
 
@@ -611,14 +608,14 @@ function Dashboard() {
                   alt="Bot avatar"
                   data-testid="img-avatar"
                   className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover"
-                  style={{ border: "2px solid rgba(255,255,255,0.35)", boxShadow: "0 0 0 2px rgba(56,189,248,0.4), 0 4px 16px rgba(0,0,0,0.25)" }}
+                  style={{ border: "2px solid rgba(96,165,250,0.3)" }}
                 />
               ) : (
                 <div
                   className="w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center"
-                  style={{ background: "rgba(255,255,255,0.1)", border: "2px solid rgba(255,255,255,0.2)" }}
+                  style={{ background: "rgba(37,99,235,0.15)", border: "2px solid rgba(96,165,250,0.2)" }}
                 >
-                  <SiDiscord className="w-9 h-9" style={{ color: "rgba(255,255,255,0.4)" }} />
+                  <Bot className="w-9 h-9" style={{ color: "rgba(255,255,255,0.4)" }} />
                 </div>
               )}
               <div
@@ -719,7 +716,7 @@ function Dashboard() {
               style={{ background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)" }}
             >
               <WifiOff className="w-4 h-4 flex-shrink-0" />
-              <span>Bot must be online to change presence.</span>
+              <span>fred's offline. nothing works. classic.</span>
             </div>
           ) : (
             <>
@@ -816,7 +813,7 @@ function Dashboard() {
               style={{ background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)" }}
             >
               <WifiOff className="w-4 h-4 flex-shrink-0" />
-              <span>Bot must be online to send messages.</span>
+              <span>fred's not home. can't deliver anything. shocker.</span>
             </div>
           ) : (
             <>
@@ -838,7 +835,7 @@ function Dashboard() {
                                 <img src={g.iconUrl} alt={g.name} className="w-4 h-4 rounded-full object-cover" />
                               ) : (
                                 <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center">
-                                  <SiDiscord className="w-2.5 h-2.5 text-muted-foreground" />
+                                  <Server className="w-2.5 h-2.5 text-muted-foreground" />
                                 </div>
                               )}
                               <span>{g.name}</span>
@@ -953,7 +950,7 @@ function Dashboard() {
           {diagMutation.isPending && (
             <div className="px-6 py-3 flex items-center gap-2 text-xs" style={{ background: "rgba(56,189,248,0.06)", borderBottom: "1px solid rgba(56,189,248,0.12)", color: "rgba(125,211,252,0.8)" }}>
               <RefreshCw className="w-3 h-3 animate-spin" />
-              Checking all systems — this may take up to 20 seconds…
+              poking everything with a stick. takes like 20 seconds, sorry.
             </div>
           )}
 
@@ -1061,7 +1058,7 @@ function Dashboard() {
                 <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl text-sm"
                   style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)" }}>
                   <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "rgb(248,113,113)" }} />
-                  <span style={{ color: "rgba(255,255,255,0.65)" }}>All AI providers are disabled — the bot will not reply to mentions.</span>
+                  <span style={{ color: "rgba(255,255,255,0.65)" }}>all AI providers are off. fred is now just a name. a hollow, useless name.</span>
                 </div>
               )}
 
@@ -1082,7 +1079,7 @@ function Dashboard() {
                   {testHistory.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-8 gap-2" style={{ color: "rgba(255,255,255,0.25)" }}>
                       <FlaskConical className="w-6 h-6 opacity-30" />
-                      <p className="text-xs text-center">Type a message below to test the AI pipeline.</p>
+                      <p className="text-xs text-center">say something. fred will respond. probably rudely.</p>
                     </div>
                   ) : (
                     testHistory.map((entry, i) => (
@@ -1131,7 +1128,7 @@ function Dashboard() {
             {!diagResult ? (
               <div className="flex items-center gap-2 py-4 text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
                 <Rss className="w-4 h-4 opacity-40" />
-                Run diagnostics to check if news feeds are returning headlines.
+                run diagnostics first. fred won't just tell you stuff for free.
               </div>
             ) : (
               <div className="space-y-2">
@@ -1170,7 +1167,7 @@ function Dashboard() {
             {!diagResult ? (
               <div className="flex items-center gap-2 py-4 text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
                 <Radio className="w-4 h-4 opacity-40" />
-                Run diagnostics to test the AI status generator.
+                run diagnostics to see what garbage fred generates for his status.
               </div>
             ) : (
               <div className="space-y-3">
@@ -1223,7 +1220,7 @@ function Dashboard() {
                 </div>
               ) : (
                 <div className="rounded-xl p-3 text-xs" style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.35)" }}>
-                  No QOTD sent yet. Use the button below to send the first one.
+                  fred hasn't asked anyone anything yet. the suspense is killing nobody.
                 </div>
               )}
               <button data-testid="button-trigger-qotd" className="aero-btn w-full justify-center"
@@ -1247,7 +1244,7 @@ function Dashboard() {
           >
             <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: "rgb(248,113,113)" }} />
             <div className="space-y-1">
-              <p className="text-sm font-semibold" style={{ color: "rgb(248,113,113)" }}>Connection error</p>
+              <p className="text-sm font-semibold" style={{ color: "rgb(248,113,113)" }}>fred is unreachable. shocking.</p>
               <p className="text-sm" style={{ color: "rgba(255,255,255,0.55)" }} data-testid="text-error-message">
                 {status?.lastError ?? "Could not reach the bot. Check that your TOKEN is valid."}
               </p>
@@ -1256,7 +1253,7 @@ function Dashboard() {
         )}
 
         <p className="text-center text-xs" style={{ color: "rgba(255,255,255,0.3)" }} data-testid="text-footer">
-          Low-resource mode · status 30s · details 5m · pauses while hidden
+          checks on fred every 30s · details every 5m · naps when you look away
         </p>
       </div>
     </div>
