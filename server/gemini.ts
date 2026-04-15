@@ -317,7 +317,7 @@ async function tryGroq(prompt: string, history: HistoryEntry[], systemPrompt: st
       const completion = await client.chat.completions.create({
         model: modelName,
         messages,
-        max_tokens: 256,
+        max_tokens: 1024,
         temperature: 0.9,
       });
 
@@ -375,7 +375,7 @@ async function tryHackclub(prompt: string, history: HistoryEntry[], systemPrompt
       body: JSON.stringify({
         model: HACKCLUB_MODEL,
         messages,
-        max_tokens: 256,
+        max_tokens: 1024,
         temperature: 0.9,
       }),
     });

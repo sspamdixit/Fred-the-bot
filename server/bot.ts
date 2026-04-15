@@ -748,10 +748,13 @@ export async function startBot() {
           "- streams live messages to a dashboard",
           "- lets admins control presence, send messages, and manage settings",
           "- can explain its own capabilities and weaknesses",
+          "- can write poems, roasts, code, explanations, and translations",
+          "- can describe and analyze images/videos attached to messages",
           "",
           profileMessage,
           "",
-          "commands: `?info` `?status` `?help` `?ping` `?vibecheck`",
+          "commands: `?info` `?status` `?help` `?ping` `?vibecheck` `?tldr`",
+          "task commands: `?poem <topic>` `?roast <target>` `?explain <topic>` `?translate <lang> <text>` `?code <lang> <task>`",
           "aliases: `?fred <anything>` and `?bubbl <anything>` both work. so do `!fred` and `!bubbl`.",
         ].join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
@@ -801,11 +804,18 @@ export async function startBot() {
           "**commands**",
           "`?info` — what this bot is and does",
           "`?status` — current model, token usage, uptime",
-          "`?help` — this list (`!help` still works too)",
+          "`?help` — this list",
           "`?ping` — check if the bot is alive",
           "`?vibecheck` — analyze the current channel vibe",
+          "`?tldr` — summarize recent chat in this channel",
+          "`?poem <topic>` — write a poem about something",
+          "`?roast <target>` — roast a person, thing, or idea",
+          "`?explain <topic>` — explain something in depth",
+          "`?translate <language> <text>` — translate text",
+          "`?code <language> <task>` — write code",
           "`?fred <message>` — talk to the ai (`?bubbl`, `!fred`, `!bubbl` all work too)",
           `or just ping <@${client?.user?.id}> with your message`,
+          "or attach an image/video to any message to get a description",
         ].join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
       });
@@ -854,6 +864,89 @@ export async function startBot() {
         }
       } catch (err: any) {
         log(`[VibeCheck] Command error: ${err.message}`, "discord");
+      }
+      return;
+    }
+
+    const taskCmdMatch = rawContent.match(/^\?(poem|roast|explain|translate|code|tldr)\s*([\s\S]*)?$/i);
+    if (taskCmdMatch) {
+      const taskName = taskCmdMatch[1].toLowerCase();
+      const taskArg = (taskCmdMatch[2] ?? "").trim();
+
+      let taskPrompt: string;
+
+      if (taskName === "tldr") {
+        try {
+          await (message.channel as TextChannel).sendTyping();
+          const fetched = await (message.channel as TextChannel).messages.fetch({ limit: 50 });
+          const humanMessages = fetched
+            .filter((m) => !m.author.bot)
+            .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+          const chatSummary = humanMessages.size === 0
+            ? "[no recent messages]"
+            : humanMessages.map((m) => `${m.author.username}: ${m.content}`).join("\n");
+
+          taskPrompt = `summarize the following chat history in your style — concise, sharp, no padding. capture what actually happened or was discussed.\n\n${chatSummary}`;
+        } catch (err: any) {
+          log(`[Task:tldr] Error fetching messages: ${err.message}`, "discord");
+          await message.reply({ content: "couldn't fetch messages to summarize. classic.", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+      } else if (taskName === "poem") {
+        if (!taskArg) {
+          await message.reply({ content: "poem about what? give me a topic.", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+        taskPrompt = `write a poem about: ${taskArg}. make it actually good. keep your personality in it — sharp, darkly funny where appropriate, no sappy crap unless the topic demands it. proper length for a poem.`;
+      } else if (taskName === "roast") {
+        if (!taskArg) {
+          await message.reply({ content: "roast what? give me a target.", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+        taskPrompt = `roast this person/thing/idea as brutally and wittily as possible: ${taskArg}. go all out. be creative, specific, and devastating.`;
+      } else if (taskName === "explain") {
+        if (!taskArg) {
+          await message.reply({ content: "explain what? give me a topic.", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+        taskPrompt = `explain this thoroughly and accurately: ${taskArg}. be as detailed as the topic warrants. still in your voice, but actually useful.`;
+      } else if (taskName === "translate") {
+        const translateMatch = taskArg.match(/^(\S+)\s+([\s\S]+)$/);
+        if (!translateMatch) {
+          await message.reply({ content: "usage: `?translate <language> <text>`", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+        const [, lang, text] = translateMatch;
+        taskPrompt = `translate the following text to ${lang}. output only the translation, nothing else.\n\n${text}`;
+      } else if (taskName === "code") {
+        const codeMatch = taskArg.match(/^(\S+)\s+([\s\S]+)$/);
+        if (!codeMatch) {
+          await message.reply({ content: "usage: `?code <language> <what you need>`", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+        const [, lang, task] = codeMatch;
+        taskPrompt = `write working ${lang} code for: ${task}. give the full implementation. use a code block. add a one-line comment if it helps. no fluff.`;
+      } else {
+        taskPrompt = taskArg || taskName;
+      }
+
+      try {
+        await (message.channel as TextChannel).sendTyping();
+        const reply = await askGemini(taskPrompt, authorDisplayName, message.channelId, {
+          userId: message.author.id,
+          roles: roleNames,
+          isOwner,
+        });
+        if (reply) {
+          await message.reply({
+            content: reply,
+            allowedMentions: { parse: [], repliedUser: false },
+          });
+          triggerUserMemoryUpdate(message.author.id);
+        }
+      } catch (err: any) {
+        log(`[Task:${taskName}] Failed: ${err.message}`, "discord");
       }
       return;
     }
