@@ -435,6 +435,12 @@ function startStatusShuffle(readyClient: Client): void {
 
 const VIBE_CHECK_CHANNEL_ID = "1484056100654551133";
 const VIBE_CHECK_INTERVAL_MS = 1_800_000;
+const DEAD_CHAT_FOLLOW_UP = "the chat is extremely dead.";
+
+const vibeCheckState = {
+  lastBotMessageTimestamp: null as number | null,
+  mutedUntilHumanActivity: false,
+};
 
 async function startVibeCheck(readyClient: Client) {
   const runVibeCheck = async () => {
@@ -454,6 +460,38 @@ async function startVibeCheck(readyClient: Client) {
       const humanMessages = fetched
         .filter((m) => !m.author.bot)
         .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+      const latestHumanMessage = humanMessages.last();
+
+      if (vibeCheckState.mutedUntilHumanActivity) {
+        if (
+          latestHumanMessage &&
+          (!vibeCheckState.lastBotMessageTimestamp ||
+            latestHumanMessage.createdTimestamp > vibeCheckState.lastBotMessageTimestamp)
+        ) {
+          vibeCheckState.mutedUntilHumanActivity = false;
+          vibeCheckState.lastBotMessageTimestamp = null;
+          log("[VibeCheck] Human activity resumed — vibe checks unmuted.", "discord");
+        } else {
+          log("[VibeCheck] Skipping because lounge stayed dead after follow-up.", "discord");
+          return;
+        }
+      }
+
+      if (
+        vibeCheckState.lastBotMessageTimestamp &&
+        (!latestHumanMessage ||
+          latestHumanMessage.createdTimestamp <= vibeCheckState.lastBotMessageTimestamp)
+      ) {
+        const deadMessage = await textChannel.send({
+          content: DEAD_CHAT_FOLLOW_UP,
+          allowedMentions: { parse: [] },
+        });
+
+        vibeCheckState.lastBotMessageTimestamp = deadMessage.createdTimestamp;
+        vibeCheckState.mutedUntilHumanActivity = true;
+        log("[VibeCheck] Dead-chat follow-up sent; muting until human activity.", "discord");
+        return;
+      }
 
       let chatSummary: string;
       if (humanMessages.size === 0) {
@@ -474,11 +512,13 @@ async function startVibeCheck(readyClient: Client) {
         return;
       }
 
-      await textChannel.send({
+      const sentMessage = await textChannel.send({
         content: reply.toLowerCase(),
         allowedMentions: { parse: [] },
       });
 
+      vibeCheckState.lastBotMessageTimestamp = sentMessage.createdTimestamp;
+      vibeCheckState.mutedUntilHumanActivity = false;
       log("[VibeCheck] Vibe check sent to lounge.", "discord");
     } catch (err: any) {
       log(`[VibeCheck] Error: ${err.message}`, "discord");
@@ -544,6 +584,12 @@ export async function startBot() {
   client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
     if (await enforceSlurTimeout(message)) return;
+
+    if (message.channelId === VIBE_CHECK_CHANNEL_ID) {
+      vibeCheckState.lastBotMessageTimestamp = null;
+      vibeCheckState.mutedUntilHumanActivity = false;
+      log("[VibeCheck] Human activity detected in lounge — dead-chat mute reset.", "discord");
+    }
 
     const io = getIO();
 
