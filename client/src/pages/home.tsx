@@ -281,11 +281,11 @@ function Panel({ title, icon: Icon, children }: {
 }) {
   return (
     <div className="glass-panel overflow-hidden">
-      <div className="px-6 py-4 flex items-center gap-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
+      <div className="px-4 sm:px-6 py-4 flex items-center gap-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
         <Icon className="w-4 h-4" style={{ color: "rgba(125,211,252,0.9)" }} />
         <h3 className="text-sm font-bold tracking-wide text-white">{title}</h3>
       </div>
-      <div className="p-6">{children}</div>
+      <div className="p-4 sm:p-6">{children}</div>
     </div>
   );
 }
@@ -559,8 +559,8 @@ function Dashboard() {
 
   return (
     <div className="relative min-h-screen overflow-x-hidden">
-      <div className="relative z-10 max-w-4xl mx-auto px-5 py-10 space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-4 sm:space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
             <div
               className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0"
@@ -578,9 +578,9 @@ function Dashboard() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="grid grid-cols-2 sm:flex items-center gap-2 w-full sm:w-auto">
             <button
-              className="aero-btn aero-btn-ghost aero-btn-sm"
+              className="aero-btn aero-btn-ghost aero-btn-sm w-full sm:w-auto"
               onClick={() => refetch()}
               disabled={isFetching}
               data-testid="button-refresh"
@@ -589,7 +589,7 @@ function Dashboard() {
               Refresh
             </button>
             <button
-              className="aero-btn aero-btn-ghost aero-btn-sm"
+              className="aero-btn aero-btn-ghost aero-btn-sm w-full sm:w-auto"
               onClick={() => restartMutation.mutate()}
               disabled={restartMutation.isPending}
               data-testid="button-restart-bot"
@@ -600,22 +600,22 @@ function Dashboard() {
           </div>
         </div>
 
-        <div className="glass-panel p-6">
-          <div className="flex flex-wrap items-center gap-5">
+        <div className="glass-panel p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-5">
             <div className="relative flex-shrink-0">
               {statusLoading ? (
-                <GlassSkeleton className="w-20 h-20 rounded-full" />
+                <GlassSkeleton className="w-16 h-16 sm:w-20 sm:h-20 rounded-full" />
               ) : status?.avatarUrl ? (
                 <img
                   src={status.avatarUrl}
                   alt="Bot avatar"
                   data-testid="img-avatar"
-                  className="w-20 h-20 rounded-full object-cover"
+                  className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover"
                   style={{ border: "2px solid rgba(255,255,255,0.35)", boxShadow: "0 0 0 2px rgba(56,189,248,0.4), 0 4px 16px rgba(0,0,0,0.25)" }}
                 />
               ) : (
                 <div
-                  className="w-20 h-20 rounded-full flex items-center justify-center"
+                  className="w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center"
                   style={{ background: "rgba(255,255,255,0.1)", border: "2px solid rgba(255,255,255,0.2)" }}
                 >
                   <SiDiscord className="w-9 h-9" style={{ color: "rgba(255,255,255,0.4)" }} />
@@ -682,7 +682,7 @@ function Dashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           <StatCard label="Status" icon={Activity}>
             {statusLoading ? <GlassSkeleton className="h-8 w-24" /> : (
               <div className="flex items-center gap-2 mt-1">
@@ -711,7 +711,8 @@ function Dashboard() {
           </StatCard>
         </div>
 
-        <Panel title="Bot Presence" icon={Zap}>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
+          <Panel title="Bot Presence" icon={Zap}>
           {!status?.online && !statusLoading ? (
             <div
               className="flex items-center gap-2 p-3 rounded-xl text-sm"
@@ -806,153 +807,9 @@ function Dashboard() {
               </div>
             </>
           )}
-        </Panel>
+          </Panel>
 
-        <Panel title="AI Responses" icon={Bot}>
-          <div className="space-y-4">
-
-            {/* Gemini toggle */}
-            <div
-              className="rounded-xl p-4 space-y-3"
-              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <p className="text-sm font-semibold text-white">Gemini</p>
-                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                    Primary AI — tried first on every mention.
-                  </p>
-                </div>
-                {aiLoading ? (
-                  <GlassSkeleton className="w-11 h-6 rounded-full" />
-                ) : (
-                  <Switch
-                    data-testid="switch-gemini-enabled"
-                    checked={aiStatus?.geminiEnabled ?? false}
-                    disabled={aiToggleMutation.isPending}
-                    onCheckedChange={(val) => aiToggleMutation.mutate({ provider: "gemini", enabled: val })}
-                  />
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                <KeyRound
-                  className="w-3.5 h-3.5 flex-shrink-0"
-                  style={{ color: aiStatus?.hasGeminiKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                />
-                <span>
-                  API key:{" "}
-                  <span
-                    className="font-semibold"
-                    style={{ color: aiStatus?.hasGeminiKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                    data-testid="text-gemini-key-status"
-                  >
-                    {aiLoading ? "checking…" : aiStatus?.hasGeminiKey ? "Configured" : "Not set"}
-                  </span>
-                </span>
-              </div>
-            </div>
-
-            {/* Groq toggle */}
-            <div
-              className="rounded-xl p-4 space-y-3"
-              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <p className="text-sm font-semibold text-white">Groq</p>
-                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                    Fallback AI — used when Gemini is off or exhausted.
-                  </p>
-                </div>
-                {aiLoading ? (
-                  <GlassSkeleton className="w-11 h-6 rounded-full" />
-                ) : (
-                  <Switch
-                    data-testid="switch-groq-enabled"
-                    checked={aiStatus?.groqEnabled ?? false}
-                    disabled={aiToggleMutation.isPending}
-                    onCheckedChange={(val) => aiToggleMutation.mutate({ provider: "groq", enabled: val })}
-                  />
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                <KeyRound
-                  className="w-3.5 h-3.5 flex-shrink-0"
-                  style={{ color: aiStatus?.hasGroqKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                />
-                <span>
-                  API key:{" "}
-                  <span
-                    className="font-semibold"
-                    style={{ color: aiStatus?.hasGroqKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                    data-testid="text-groq-key-status"
-                  >
-                    {aiLoading ? "checking…" : aiStatus?.hasGroqKey ? "Configured" : "Not set"}
-                  </span>
-                </span>
-              </div>
-            </div>
-
-            {/* Hackclub toggle */}
-            <div
-              className="rounded-xl p-4 space-y-3"
-              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <p className="text-sm font-semibold text-white">Tertiary AI Fallback</p>
-                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                    Last resort — used when Gemini and Groq are off or exhausted.
-                  </p>
-                </div>
-                {aiLoading ? (
-                  <GlassSkeleton className="w-11 h-6 rounded-full" />
-                ) : (
-                  <Switch
-                    data-testid="switch-hackclub-enabled"
-                    checked={aiStatus?.hackclubEnabled ?? false}
-                    disabled={aiToggleMutation.isPending}
-                    onCheckedChange={(val) => aiToggleMutation.mutate({ provider: "hackclub", enabled: val })}
-                  />
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
-                <KeyRound
-                  className="w-3.5 h-3.5 flex-shrink-0"
-                  style={{ color: aiStatus?.hasHackclubKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                />
-                <span>
-                  API key:{" "}
-                  <span
-                    className="font-semibold"
-                    style={{ color: aiStatus?.hasHackclubKey ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
-                    data-testid="text-hackclub-key-status"
-                  >
-                    {aiLoading ? "checking…" : aiStatus?.hasHackclubKey ? "Configured" : "Not set"}
-                  </span>
-                </span>
-              </div>
-            </div>
-
-            {/* Warning if all are off */}
-            {aiStatus && !aiStatus.geminiEnabled && !aiStatus.groqEnabled && !aiStatus.hackclubEnabled && (
-              <div
-                className="flex items-start gap-2 px-4 py-3 rounded-xl text-sm"
-                style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)" }}
-              >
-                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "rgb(248,113,113)" }} />
-                <span style={{ color: "rgba(255,255,255,0.65)" }}>
-                  All AI providers are disabled — the bot will not reply to mentions.
-                </span>
-              </div>
-            )}
-
-          </div>
-        </Panel>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
-
-        <Panel title="Send a Message" icon={Send}>
+          <Panel title="Send a Message" icon={Send}>
           {!status?.online && !statusLoading ? (
             <div
               className="flex items-center gap-2 p-3 rounded-xl text-sm"
@@ -1066,14 +923,12 @@ function Dashboard() {
               </div>
             </>
           )}
-        </Panel>
+          </Panel>
 
-        </div>{/* end send+test grid */}
+        </div>
 
-        {/* Diagnostics Panel */}
         <div className="glass-panel overflow-hidden">
-          {/* Header */}
-          <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
+          <div className="px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
             <div className="flex items-center gap-2">
               <Stethoscope className="w-4 h-4" style={{ color: "rgba(125,211,252,0.9)" }} />
               <h3 className="text-sm font-bold tracking-wide text-white">Diagnostics</h3>
@@ -1085,7 +940,7 @@ function Dashboard() {
             </div>
             <button
               data-testid="button-run-diagnostics"
-              className="aero-btn aero-btn-sm"
+              className="aero-btn aero-btn-sm w-full sm:w-auto"
               onClick={() => diagMutation.mutate()}
               disabled={diagMutation.isPending}
             >
@@ -1102,7 +957,6 @@ function Dashboard() {
             </div>
           )}
 
-          {/* Section: System Health */}
           <DiagSection id="health" title="System Health" icon={ShieldCheck}
             badge={diagResult ? <DiagBadge status={diagResult.bot.status as any} /> : undefined}
             open={diagOpen.health} onToggle={() => toggleDiag("health")}
@@ -1159,7 +1013,6 @@ function Dashboard() {
             </div>
           </DiagSection>
 
-          {/* Section: AI Providers + Test Console */}
           <DiagSection id="ai" title="AI Providers" icon={Bot}
             badge={diagResult
               ? <div className="flex items-center gap-1">
@@ -1169,16 +1022,15 @@ function Dashboard() {
             open={diagOpen.ai} onToggle={() => toggleDiag("ai")}
           >
             <div className="space-y-3">
-              {/* Provider rows */}
               {([
                 { key: "gemini",   label: "Gemini",            desc: "Primary AI — tried first on every mention.", enabledKey: "geminiEnabled"   as const, hasKeyKey: "hasGeminiKey"   as const, toggle: "gemini"   as const },
                 { key: "groq",     label: "Groq",              desc: "Fallback AI — used when Gemini is off.",      enabledKey: "groqEnabled"     as const, hasKeyKey: "hasGroqKey"     as const, toggle: "groq"     as const },
                 { key: "hackclub", label: "Tertiary Fallback", desc: "Last resort when Gemini and Groq are off.",   enabledKey: "hackclubEnabled" as const, hasKeyKey: "hasHackclubKey" as const, toggle: "hackclub" as const },
               ] as const).map(({ key, label, desc, enabledKey, hasKeyKey, toggle }) => (
                 <div key={key} className="rounded-xl p-3 space-y-2" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-0.5 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-semibold text-white">{label}</p>
                         {diagResult && <DiagBadge status={diagResult.ai[key]?.status as any} />}
                         {diagResult?.ai[key]?.latencyMs !== undefined && (
@@ -1193,7 +1045,7 @@ function Dashboard() {
                         onCheckedChange={(val) => aiToggleMutation.mutate({ provider: toggle, enabled: val })} />
                     )}
                   </div>
-                  <div className="flex items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+                  <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
                     <KeyRound className="w-3.5 h-3.5 flex-shrink-0"
                       style={{ color: aiStatus?.[hasKeyKey] ? "rgb(74,222,128)" : "rgb(248,113,113)" }} />
                     API key: <span className="font-semibold ml-0.5" style={{ color: aiStatus?.[hasKeyKey] ? "rgb(74,222,128)" : "rgb(248,113,113)" }}
@@ -1213,7 +1065,6 @@ function Dashboard() {
                 </div>
               )}
 
-              {/* AI Test Console */}
               <div className="rounded-xl overflow-hidden flex flex-col" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", minHeight: 220 }}>
                 <div className="px-3 py-2.5 flex items-center justify-between flex-shrink-0" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                   <div className="flex items-center gap-1.5">
@@ -1271,7 +1122,6 @@ function Dashboard() {
             </div>
           </DiagSection>
 
-          {/* Section: News Feeds */}
           <DiagSection id="feeds" title="News Feeds" icon={Rss}
             badge={diagResult
               ? <DiagBadge status={diagResult.newsFeeds.every(f => f.status === "pass") ? "pass" : diagResult.newsFeeds.some(f => f.status === "pass") ? "warn" : "fail"} />
@@ -1313,7 +1163,6 @@ function Dashboard() {
             )}
           </DiagSection>
 
-          {/* Section: Bot Status Generator */}
           <DiagSection id="botStatus" title="Bot Status Generator" icon={Radio}
             badge={diagResult ? <DiagBadge status={diagResult.botStatus.status as any} /> : undefined}
             open={diagOpen.botStatus} onToggle={() => toggleDiag("botStatus")}
@@ -1343,7 +1192,6 @@ function Dashboard() {
             )}
           </DiagSection>
 
-          {/* Section: QOTD */}
           <DiagSection id="qotd" title="QOTD" icon={CalendarClock}
             badge={diagResult ? <DiagBadge status={diagResult.qotd.status as any} /> : undefined}
             open={diagOpen.qotd} onToggle={() => toggleDiag("qotd")}
@@ -1390,7 +1238,7 @@ function Dashboard() {
               </p>
             </div>
           </DiagSection>
-        </div>{/* end diagnostics panel */}
+        </div>
 
         {!statusLoading && (isError || status?.lastError) && (
           <div

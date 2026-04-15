@@ -19,6 +19,10 @@ function Router() {
 function App() {
   useEffect(() => {
     const ping = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
       fetch(`/health?t=${Date.now()}`, {
         cache: "no-store",
         credentials: "omit",
@@ -26,8 +30,13 @@ function App() {
     };
 
     ping();
-    const keepAliveTimer = window.setInterval(ping, 4 * 60 * 1000);
-    return () => window.clearInterval(keepAliveTimer);
+    const keepAliveTimer = window.setInterval(ping, 8 * 60 * 1000);
+    document.addEventListener("visibilitychange", ping);
+
+    return () => {
+      window.clearInterval(keepAliveTimer);
+      document.removeEventListener("visibilitychange", ping);
+    };
   }, []);
 
   return (
