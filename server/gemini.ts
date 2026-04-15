@@ -694,27 +694,30 @@ export async function generateForQotd(type: "open" | "poll"): Promise<string | n
   return null;
 }
 
-const NEWS_FEEDS: Record<"politics" | "gaming" | "anime" | "popculture", string[]> = {
-  politics: [
+const NEWS_FEEDS: Record<"worldpolitics" | "uspolitics" | "music" | "popculture", string[]> = {
+  worldpolitics: [
+    "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "https://www.theguardian.com/world/rss",
+    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+    "https://feeds.aljazeera.com/aljazeera/stories",
+  ],
+  uspolitics: [
     "https://feeds.bbci.co.uk/news/politics/rss.xml",
     "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
-    "https://www.theguardian.com/politics/rss",
+    "https://www.theguardian.com/us-news/rss",
     "https://feeds.npr.org/1014/rss.xml",
   ],
-  gaming: [
-    "https://www.gamespot.com/feeds/news/",
-    "https://www.polygon.com/rss/index.xml",
-    "https://www.ign.com/rss/articles/feed?tags=games",
-  ],
-  anime: [
-    "https://www.animenewsnetwork.com/all/rss.xml",
-    "https://www.crunchyroll.com/news/rss",
+  music: [
+    "https://pitchfork.com/feed/feed-news/rss",
+    "https://www.rollingstone.com/feed/",
+    "https://www.billboard.com/feed/",
+    "https://hiphopdx.com/feed",
   ],
   popculture: [
     "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml",
-    "https://www.rollingstone.com/feed/",
     "https://variety.com/feed/",
-    "https://pitchfork.com/feed/feed-news/rss",
+    "https://deadline.com/feed/",
+    "https://people.com/feed/",
   ],
 };
 
@@ -770,12 +773,12 @@ export async function generateBotStatus(): Promise<string | null> {
           role: "system",
           content: [
             "You write Discord bot custom statuses for a Gen-Z Discord server.",
-            "Given current headlines, write one wild but believable take as a custom status.",
-            "Tone: sharp, casual, internet-literate, amused, not tryhard, not corporate, not random news mush.",
-            "Topics that work: game news, anime/JJBA energy, streamers, internet drama, weird AI posts, politics acting like a side quest, pop culture chaos.",
+            "Given current headlines, write one sharp, funny take as a custom status.",
+            "Tone: sharp, casual, internet-literate, dry, amused — not tryhard, not corporate, not a news summary.",
+            "Topics that work: rap beefs, award shows, worldwide political drama, celebrity chaos, new laws, geopolitical conflict, pop culture moments.",
             "Rules: all lowercase, one line only, max 75 characters, no hashtags, no quotes, no slurs, no explicit sexual content.",
-            "Use exactly one relevant emoji from this set when it fits: 😭 💀 ✌🏻 👅 💔 🙏🏻",
-            "Reference or riff on a specific headline detail, but make it sound like a status people would actually read.",
+            "Emojis: only use one emoji if it genuinely fits — do NOT force one in every status. When you do use one, pick from: 😭 💀 ✌🏻 💔 🙏🏻",
+            "Reference or riff on a specific headline detail, make it sound like something a real person would put as their status.",
             "Output only the status text, nothing else.",
           ].join(" "),
         },

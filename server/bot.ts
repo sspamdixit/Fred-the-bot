@@ -429,14 +429,18 @@ export async function dispatchMessage(
 }
 
 const STATUS_FALLBACKS: string[] = [
-  "elden ring discourse in court rn 💀",
-  "jojo fans explaining peak again 😭",
-  "trump posted ai slop, pack it up 💔",
-  "nintendo lawyers spawned in 🙏🏻",
-  "watching game news like a trial 💀",
-  "anime leaks got the tl unemployed ✌🏻",
-  "the patch notes are lying again 😭",
-  "internet politics with a side quest 💔",
+  "congress is on their villain arc fr 💀",
+  "kendrick really said hold my pulitzer 😭",
+  "the grammys picked wrong again, shocker",
+  "world leaders arguing like a discord server",
+  "new beef just dropped, tl is cooked 💀",
+  "bro the un really said 'let's vote' 😭",
+  "awards season got everyone acting unwell",
+  "the news is just lore drops at this point 💔",
+  "rap beef escalation speedrun any%",
+  "another law passed while we were sleep 💀",
+  "celebrity pr team working overtime tonight",
+  "diplomacy said nah, chaos said bet ✌🏻",
 ];
 const STATUS_SHUFFLE_INTERVAL_MS = 30 * 60 * 1000;
 
