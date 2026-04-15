@@ -429,18 +429,18 @@ export async function dispatchMessage(
 }
 
 const STATUS_FALLBACKS: string[] = [
-  "congress is on their villain arc fr 💀",
-  "kendrick really said hold my pulitzer 😭",
-  "the grammys picked wrong again, shocker",
-  "world leaders arguing like a discord server",
-  "new beef just dropped, tl is cooked 💀",
-  "bro the un really said 'let's vote' 😭",
-  "awards season got everyone acting unwell",
-  "the news is just lore drops at this point 💔",
+  "the timeline is cooked again 💀",
+  "another meme entered its flop era",
+  "main character syndrome outbreak ongoing",
+  "new lore drop just hit the tl 😭",
+  "side questing through the discourse",
+  "celebrity pr team fighting for its life",
+  "npc behavior allegations everywhere",
+  "aura farming at unsafe levels",
+  "canon event detection system online",
   "rap beef escalation speedrun any%",
-  "another law passed while we were sleep 💀",
-  "celebrity pr team working overtime tonight",
-  "diplomacy said nah, chaos said bet ✌🏻",
+  "gaming discourse found a new boss fight",
+  "anime fans explaining peak again",
 ];
 const STATUS_SHUFFLE_INTERVAL_MS = 30 * 60 * 1000;
 

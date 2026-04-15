@@ -694,7 +694,37 @@ export async function generateForQotd(type: "open" | "poll"): Promise<string | n
   return null;
 }
 
-const NEWS_FEEDS: Record<"worldpolitics" | "uspolitics" | "music" | "popculture", string[]> = {
+const NEWS_FEEDS: Record<"memes" | "popculture" | "music" | "gaming" | "anime" | "worldpolitics" | "uspolitics", string[]> = {
+  memes: [
+    "https://www.reddit.com/r/memes/.rss",
+    "https://www.reddit.com/r/dankmemes/.rss",
+    "https://www.reddit.com/r/OutOfTheLoop/.rss",
+    "https://knowyourmeme.com/newsfeed.rss",
+  ],
+  popculture: [
+    "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml",
+    "https://variety.com/feed/",
+    "https://deadline.com/feed/",
+    "https://people.com/feed/",
+    "https://www.reddit.com/r/popculturechat/.rss",
+  ],
+  music: [
+    "https://pitchfork.com/feed/feed-news/rss",
+    "https://www.rollingstone.com/feed/",
+    "https://www.billboard.com/feed/",
+    "https://hiphopdx.com/feed",
+  ],
+  gaming: [
+    "https://www.polygon.com/rss/index.xml",
+    "https://www.ign.com/rss/news.xml",
+    "https://www.gamespot.com/feeds/news/",
+    "https://www.reddit.com/r/gaming/.rss",
+  ],
+  anime: [
+    "https://www.animenewsnetwork.com/all/rss.xml?ann-edition=us",
+    "https://www.crunchyroll.com/news/rss",
+    "https://www.reddit.com/r/anime/.rss",
+  ],
   worldpolitics: [
     "https://feeds.bbci.co.uk/news/world/rss.xml",
     "https://www.theguardian.com/world/rss",
@@ -706,18 +736,6 @@ const NEWS_FEEDS: Record<"worldpolitics" | "uspolitics" | "music" | "popculture"
     "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
     "https://www.theguardian.com/us-news/rss",
     "https://feeds.npr.org/1014/rss.xml",
-  ],
-  music: [
-    "https://pitchfork.com/feed/feed-news/rss",
-    "https://www.rollingstone.com/feed/",
-    "https://www.billboard.com/feed/",
-    "https://hiphopdx.com/feed",
-  ],
-  popculture: [
-    "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml",
-    "https://variety.com/feed/",
-    "https://deadline.com/feed/",
-    "https://people.com/feed/",
   ],
 };
 
@@ -745,7 +763,18 @@ export async function generateBotStatus(): Promise<string | null> {
   const key = process.env.GROQ_API_KEY;
   if (!key) return null;
 
-  const categories = Object.keys(NEWS_FEEDS) as Array<keyof typeof NEWS_FEEDS>;
+  const categories: Array<keyof typeof NEWS_FEEDS> = [
+    "memes",
+    "memes",
+    "memes",
+    "popculture",
+    "popculture",
+    "music",
+    "gaming",
+    "anime",
+    "worldpolitics",
+    "uspolitics",
+  ];
   const category = categories[Math.floor(Math.random() * categories.length)];
   const feeds = NEWS_FEEDS[category];
   const feedUrl = feeds[Math.floor(Math.random() * feeds.length)];
@@ -775,9 +804,11 @@ export async function generateBotStatus(): Promise<string | null> {
           role: "system",
           content: [
             "You write Discord bot custom statuses for a Gen-Z Discord server.",
-            "Given current headlines, write one sharp, funny take as a custom status.",
+            "Given current meme/news headlines, write one sharp, funny take as a custom status.",
+            "Default focus: recent memes people are joking about, viral internet bits, pop culture chaos, gaming, anime, music, celebrity drama, and dumb timeline discourse.",
+            "Politics should be rare. Only use political headlines if something substantial or unavoidable happened; do not make routine politics the main vibe.",
             "Tone: sharp, casual, internet-literate, dry, amused — not tryhard, not corporate, not a news summary.",
-            "Topics that work: rap beefs, award shows, worldwide political drama, celebrity chaos, new laws, geopolitical conflict, pop culture moments.",
+            "Use meme references naturally when they fit: cooked, aura, side quest, lore drop, main character, speedrun, canon event, npc behavior, generational run, or similar current internet language.",
             "Rules: all lowercase, one line only, max 75 characters, no hashtags, no quotes, no slurs, no explicit sexual content.",
             "Emojis: only use one emoji if it genuinely fits — do NOT force one in every status. When you do use one, pick from: 😭 💀 ✌🏻 💔 🙏🏻",
             "Reference or riff on a specific headline detail, make it sound like something a real person would put as their status.",
@@ -796,7 +827,7 @@ export async function generateBotStatus(): Promise<string | null> {
     const raw = completion.choices[0]?.message?.content?.trim() ?? "";
     const status = raw.replace(/^["']|["']$/g, "").replace(/\s+/g, " ").trim().toLowerCase();
     if (!status || status.length < 5 || status.length > 75) return null;
-    log(`[Status] AI generated status from ${category} news: ${status}`, "gemini");
+    log(`[Status] AI generated status from ${category} feed: ${status}`, "gemini");
     return status;
   } catch (err: any) {
     log(`[Status] AI generation failed: ${err.message}`, "gemini");

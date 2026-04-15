@@ -1135,7 +1135,7 @@ function Dashboard() {
               </div>
             ) : (
               <div className="space-y-2">
-                {(["worldpolitics", "uspolitics", "music", "popculture"] as const).map((cat) => {
+                {(["memes", "popculture", "music", "gaming", "anime", "worldpolitics", "uspolitics"] as const).map((cat) => {
                   const catFeeds = diagResult.newsFeeds.filter(f => f.category === cat);
                   const allOk = catFeeds.every(f => f.status === "pass");
                   return (
