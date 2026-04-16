@@ -82,7 +82,11 @@ const SLUR_TIMEOUT_MS = 10 * 60 * 1000;
 const MOD_LOG_CHANNEL_ID = "1484059697123164264";
 const BANNED_SLUR_PATTERNS = [
   /\bn[\W_]*[i1!|l][\W_]*g\b/i,
-  /\bn[\W_]*[i1!|l][\W_]*g[\W_]*g[\W_]*[a@4e3r]\b/i,
+  /\bn[\W_]*[i1!|l8][\W_]*g[\W_]*g[\W_]*[a@4e3r]\b/i,
+  /\bn[\W_]*[i1!|l8][\W_]*[gq][\W_]*[gq][\W_]*[a@4e3r]\b/i,
+  /\bn[\W_]*[i1!|l8][\W_]*[gkq][\W_]*[gkq][\W_]*[aeo@43r]\b/i,
+  /\bn[\W_]*[i1!|l8][\W_]*g[\W_]*h[\W_]*[e3][\W_]*r\b/i,
+  /\bn[\W_]*[i1!|l8][\W_]*k[\W_]*k[\W_]*[aeu@4]\b/i,
   /\bf[\W_]*[a@4][\W_]*g\b/i,
   /\bf[\W_]*[a@4][\W_]*g[\W_]*g[\W_]*[o0][\W_]*t\b/i,
   /\bk[\W_]*[i1!|l][\W_]*k[\W_]*e\b/i,
@@ -99,6 +103,14 @@ const BANNED_SLUR_TOKENS = new Set([
   "nig",
   "nigga",
   "nigger",
+  "nigher",
+  "niqqa",
+  "niqer",
+  "niqqer",
+  "niqqah",
+  "nikka",
+  "nikker",
+  "nikkur",
   "fag",
   "faggot",
   "kike",
@@ -120,6 +132,7 @@ const LEETSPEAK_CHARS: Record<string, string> = {
   "|": "i",
   "3": "e",
   "4": "a",
+  "8": "i",
   "@": "a",
   "$": "s",
   "5": "s",
@@ -133,7 +146,7 @@ function containsBannedSlur(content: string): boolean {
 
   const normalized = content
     .toLowerCase()
-    .replace(/[01!|34@$57]/g, (char) => LEETSPEAK_CHARS[char] ?? char);
+    .replace(/[01!|34@$578]/g, (char) => LEETSPEAK_CHARS[char] ?? char);
   const tokens = normalized.split(/[^a-z0-9]+/).filter(Boolean);
 
   return tokens.some((token) => BANNED_SLUR_TOKENS.has(token));
