@@ -9,7 +9,7 @@ import {
 } from "discord.js";
 import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
-import { askGemini, askGeminiWithImage, clearUserMemorySession, getAIStats, triggerUserMemoryUpdate, generateBotStatus, type ImageData } from "./gemini";
+import { askGemini, askGeminiWithImage, clearUserMemorySession, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, type ImageData } from "./gemini";
 import { buildBotProfileMessage } from "./ai-settings";
 import { startQotd, stopQotd } from "./qotd";
 import { storage } from "./storage";
@@ -902,6 +902,18 @@ export async function startBot() {
     const activeModeKey = message.guildId ? guildModes.get(message.guildId) : undefined;
     const activeModeInstruction = activeModeKey ? BOT_MODES[activeModeKey]?.instruction : undefined;
     const authorContext = { userId: message.author.id, roles: roleNames, sortedRoles: sortedRoleNames, isOwner, guildName, channelName, modeInstruction: activeModeInstruction };
+    if (!isMentioned && !isPrefixed && message.guildId) {
+      queuePassiveWatch({
+        messageId: message.id,
+        channelId: message.channelId,
+        guildId: message.guildId,
+        authorId: message.author.id,
+        authorName: authorDisplayName,
+        content: message.content,
+        isControversial: isPassiveWatchCandidate(message.content),
+        hasInsult: /\b(fuck|shit|ass|bitch|idiot|moron|stupid|cringe|lame|slur|racist|sexist|nazi|fascist)\b/i.test(message.content),
+      });
+    }
 
     const sendPrivate = async (content: string) => {
       try {

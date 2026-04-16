@@ -66,10 +66,22 @@ export interface AuthorContext {
   modeInstruction?: string;
 }
 
+export interface PassiveWatchContext {
+  messageId: string;
+  channelId: string;
+  guildId?: string | null;
+  authorId: string;
+  authorName: string;
+  content: string;
+  isControversial: boolean;
+  hasInsult?: boolean;
+}
+
 const channelHistories = new Map<string, HistoryEntry[]>();
 const userSessionHistories = new Map<string, HistoryEntry[]>();
 const pendingMemoryUpdates = new Set<string>();
 const processedMemoryCandidates = new Map<string, string>();
+const passiveWatchQueue = new Map<string, NodeJS.Timeout>();
 
 export interface AIStats {
   lastUsedProvider: string | null;
@@ -93,6 +105,59 @@ export function clearUserMemorySession(userId: string): void {
   userSessionHistories.delete(userId);
   pendingMemoryUpdates.delete(userId);
   processedMemoryCandidates.delete(userId);
+}
+
+export function queuePassiveWatch(context: PassiveWatchContext): void {
+  const key = context.messageId;
+  if (passiveWatchQueue.has(key)) return;
+
+  const timer = setTimeout(() => {
+    passiveWatchQueue.delete(key);
+    void handlePassiveWatch(context);
+  }, 12_000 + Math.floor(Math.random() * 18_000));
+  timer.unref?.();
+  passiveWatchQueue.set(key, timer);
+}
+
+function clearPassiveWatch(key: string): void {
+  const timer = passiveWatchQueue.get(key);
+  if (!timer) return;
+  clearTimeout(timer);
+  passiveWatchQueue.delete(key);
+}
+
+async function handlePassiveWatch(context: PassiveWatchContext): Promise<void> {
+  if (!context.isControversial && !context.hasInsult) return;
+
+  const triggerRoll = context.isControversial ? 0.72 : 0.34;
+  if (Math.random() > triggerRoll) return;
+
+  const prompt = [
+    "you are fred. decide whether you should jump into this chat unprompted.",
+    "only reply if the chat is spicy, controversial, absurd, or likely to escalate in a funny way.",
+    "do not overdo it. one short reply max, unless the thread clearly needs more.",
+    "stay in character. no meta explanation.",
+    `speaker: ${context.authorName}`,
+    `message: ${context.content}`,
+    "if the moment is not worth it, output exactly: SKIP",
+  ].join("\n");
+
+  const reply = await askGemini(prompt, context.authorName, context.channelId, {
+    userId: context.authorId,
+    guildName: context.guildId ?? undefined,
+    channelName: undefined,
+  });
+
+  if (!reply || reply === "SKIP") return;
+}
+
+export function isPassiveWatchCandidate(content: string): boolean {
+  const normalized = content.toLowerCase();
+  return (
+    /\b(politics?|political|election|vote|voting|race|racist|sexism|gender|lgbt|trans|religion|religious|abortion|war|genocide|free speech|censorship|nazi|fascist|communism|capitalism|discord mod|moderator|admin|ban|unban|toxicity|toxic|slur|slurs)\b/.test(normalized) ||
+    /\b(fuck|shit|ass|bitch|lame|cringe|degenerate|stupid|idiot|moron)\b/.test(normalized) ||
+    /[!?]{2,}|([A-Z])\1{3,}/.test(content)
+  );
 }
 
 function getHistory(channelId: string): HistoryEntry[] {
