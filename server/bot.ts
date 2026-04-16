@@ -995,33 +995,6 @@ export async function startBot() {
       return;
     }
 
-    if (standaloneCmd === "?info") {
-      const profileMessage = await buildBotProfileMessage();
-      await message.reply({
-        content: [
-          "**fred** — discord bot + ai hybrid thing.",
-          "",
-          "what it does:",
-          "- responds when you ping it or use `?fred <message>` or `?bubbl <message>`",
-          "- runs on groq first, then gemini, then grok via hackclub if needed",
-          "- has memory per channel (last 150 messages)",
-          "- streams live messages to a dashboard",
-          "- lets admins control presence, send messages, and manage settings",
-          "- can explain its own capabilities and weaknesses",
-          "- can write poems, roasts, code, explanations, and translations",
-          "- can describe and analyze images/videos attached to messages",
-          "",
-          profileMessage,
-          "",
-          "commands: `?info` `?status` `?help` `?ping` `?vibecheck` `?tldr`",
-          "task commands: `?poem <topic>` `?roast <target>` `?explain <topic>` `?translate <lang> <text>`",
-          "aliases: `?fred <anything>` and `?bubbl <anything>` both work. so do `!fred` and `!bubbl`.",
-        ].join("\n"),
-        allowedMentions: { parse: [], repliedUser: false },
-      });
-      return;
-    }
-
     if (standaloneCmd === "?capabilities" || standaloneCmd === "?weaknesses") {
       await message.reply({
         content: await buildBotProfileMessage(),
@@ -1062,7 +1035,6 @@ export async function startBot() {
       await message.reply({
         content: [
           "**commands**",
-          "`?info` — what this bot is and does",
           "`?status` — current model, token usage, uptime",
           "`?help` — this list",
           "`?ping` — check if the bot is alive",
@@ -1083,6 +1055,10 @@ export async function startBot() {
           "`?nerd` — stereotypical nerd mode",
           "`?overlord` — megalomaniac AI mode",
           "`?mode` / `?normal` — turn off current mode",
+          "",
+          "**profile commands**",
+          "`?capabilities` — what fred can do",
+          "`?weaknesses` — what fred cannot do well",
         ].join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
       });
@@ -1276,10 +1252,10 @@ export async function startBot() {
 
       if (!cleanContent && !hasMedia) return;
 
-      // Also handle ?bubbl info/status/help/ping as subcommands
+      // Also handle ?bubbl status/help/ping/capabilities/weaknesses as subcommands
       if (cleanContent) {
         const sub = cleanContent.toLowerCase();
-        if (sub === "info" || sub === "status" || sub === "capabilities" || sub === "weaknesses" || sub === "help" || sub === "ping") {
+        if (sub === "status" || sub === "capabilities" || sub === "weaknesses" || sub === "help" || sub === "ping") {
           await message.reply({
             content: `use \`?${sub}\` directly instead of \`?bubbl ${sub}\`. easier.`,
             allowedMentions: { parse: [], repliedUser: false },

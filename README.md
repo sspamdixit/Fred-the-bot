@@ -21,6 +21,8 @@ A Discord bot with a sharp personality and a web dashboard to manage it. Fred re
 - Daily question of the day (QOTD) with Discord polls
 - AI-generated custom status that refreshes every 30 minutes
 - Automatic dead-chat detection and poke in the lounge channel
+- Personality modes in a dedicated mode channel: `?uwu`, `?boomer`, `?pirate`, `?nerd`, `?overlord`
+- Mode theme changes can update nickname and status server-wide
 
 ### Dashboard
 - Live message feed via Socket.IO
@@ -39,7 +41,6 @@ A Discord bot with a sharp personality and a web dashboard to manage it. Fred re
 | Command | Description |
 |---|---|
 | `?help` | Full command list |
-| `?info` | What the bot is and does |
 | `?status` | Current model, token usage, uptime |
 | `?ping` | Latency check |
 | `?vibecheck` | AI reads the current channel vibe |
@@ -49,8 +50,13 @@ A Discord bot with a sharp personality and a web dashboard to manage it. Fred re
 | `?explain <topic>` | Explains something thoroughly |
 | `?translate <lang> <text>` | Translates text |
 | `?fred <message>` | Talk to the AI directly |
+| `?capabilities` | What fred can do |
+| `?weaknesses` | What fred cannot do well |
 
 Aliases: `?bubbl`, `!fred`, `!bubbl` all work.
+
+Mode commands work only in channel `1494385811175510259`:
+`?uwu`, `?boomer`, `?pirate`, `?nerd`, `?overlord`, `?mode`, `?normal`
 
 Owner-only (DM responses): `?dossview @user`, `?dossdelete @user`, `?dosswipe @user`
 

@@ -26,7 +26,7 @@ export const DEFAULT_BOT_CAPABILITIES = [
   "uses dossier details aggressively for personalization, callbacks, roasts, poems, and other custom replies when relevant",
   "streams live Discord messages to the dashboard",
   "lets dashboard admins view status, send Discord messages, control presence, toggle AI providers, test AI replies, and trigger QOTD",
-  "can summarize what it can and cannot do through its info/profile response",
+  "can summarize what it can and cannot do through `?capabilities` and `?weaknesses`",
 ].join("\n");
 
 export const DEFAULT_BOT_WEAKNESSES = [
