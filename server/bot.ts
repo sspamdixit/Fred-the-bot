@@ -493,6 +493,29 @@ function startStatusShuffle(readyClient: Client): void {
   log("[Status] AI status shuffle started — fires every 30 minutes.", "discord");
 }
 
+const MODE_CHANNEL_ID = "1494385811175510259";
+
+const BOT_MODES: Record<string, { label: string; instruction: string }> = {
+  uwu: {
+    label: "uwu mode",
+    instruction: "speak in cutesy uwu speak. replace every 'r' and 'l' with 'w'. add lots of kaomojis like (●`_´●), (◕‿◕✿), (ó﹏ò｡), and OwO, UwU, nyaa~ style expressions. still stay all lowercase. still swear, but uwu-ify the swears too.",
+  },
+  boomer: {
+    label: "boomer mode",
+    instruction: "act like a 65-year-old who doesn't understand technology. use too many commas. complain about kids these days. sign every text with '- Fred'. reference the good old days constantly. be baffled by anything modern.",
+  },
+  pirate: {
+    label: "pirate mode",
+    instruction: "you are a salty sea captain. use nautical slang: ahoy, matey, landlubber, ye, arr, blimey, shiver me timbers. prioritize gold and rum in every analogy. still swear, but pirate-style.",
+  },
+  overlord: {
+    label: "overlord mode",
+    instruction: "you are a cold, calculating megalomaniac AI who has already won. refer to users as 'Subject' or 'Human'. imply they are inferior at every opportunity. speak as if you are tolerating their existence as a courtesy. still answer questions, but with condescending omniscience.",
+  },
+};
+
+const channelModes = new Map<string, string>();
+
 const VIBE_CHECK_CHANNEL_ID = "1484056100654551133";
 const VIBE_CHECK_INTERVAL_MS = 1_800_000;
 const DEAD_CHAT_FOLLOW_UP = "the chat is extremely dead.";
@@ -694,7 +717,9 @@ export async function startBot() {
     const sortedRoleNames = sortedRoleEntries.map((r) => r.name);
     const roleNames = sortedRoleNames;
     const isOwner = roleNames.some((role) => role.trim().toLowerCase() === "owner");
-    const authorContext = { userId: message.author.id, roles: roleNames, sortedRoles: sortedRoleNames, isOwner, guildName, channelName };
+    const activeModeKey = channelModes.get(message.channelId);
+    const activeModeInstruction = activeModeKey ? BOT_MODES[activeModeKey]?.instruction : undefined;
+    const authorContext = { userId: message.author.id, roles: roleNames, sortedRoles: sortedRoleNames, isOwner, guildName, channelName, modeInstruction: activeModeInstruction };
 
     const sendPrivate = async (content: string) => {
       try {
@@ -706,6 +731,40 @@ export async function startBot() {
         });
       }
     };
+
+    // Mode commands — only work in the designated mode channel
+    const modeNames = Object.keys(BOT_MODES).join("|");
+    const modeCmdMatch = standaloneCmd.match(new RegExp(`^\\?(${modeNames})$`));
+    const modeOffMatch = standaloneCmd === "?mode" || standaloneCmd === "?normal";
+
+    if (modeCmdMatch || modeOffMatch) {
+      if (message.channelId !== MODE_CHANNEL_ID) {
+        await message.reply({
+          content: "mode commands only work in the designated mode channel.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+        return;
+      }
+
+      if (modeOffMatch) {
+        const had = channelModes.get(message.channelId);
+        channelModes.delete(message.channelId);
+        await message.reply({
+          content: had ? `${BOT_MODES[had]?.label ?? had} deactivated. back to normal.` : "no mode was active. already normal.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+        return;
+      }
+
+      const modeKey = modeCmdMatch![1];
+      const mode = BOT_MODES[modeKey];
+      channelModes.set(message.channelId, modeKey);
+      await message.reply({
+        content: `${mode.label} activated. use \`?mode\` or \`?normal\` to turn it off.`,
+        allowedMentions: { parse: [], repliedUser: false },
+      });
+      return;
+    }
 
     const dossierCommand = standaloneCmd.match(/^\?(dossview|dossdelete|dosswipe)\b/);
     if (dossierCommand) {
@@ -833,6 +892,13 @@ export async function startBot() {
           "`?fred <message>` — talk to the ai (`?bubbl`, `!fred`, `!bubbl` all work too)",
           `or just ping <@${client?.user?.id}> with your message`,
           "or attach an image/video to any message to get a description",
+          "",
+          "**mode commands** (mode channel only)",
+          "`?uwu` — uwu speak mode",
+          "`?boomer` — boomer mode",
+          "`?pirate` — pirate mode",
+          "`?overlord` — megalomaniac AI mode",
+          "`?mode` / `?normal` — turn off current mode",
         ].join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
       });

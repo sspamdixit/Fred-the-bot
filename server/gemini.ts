@@ -63,6 +63,7 @@ export interface AuthorContext {
   isOwner?: boolean;
   guildName?: string;
   channelName?: string;
+  modeInstruction?: string;
 }
 
 const channelHistories = new Map<string, HistoryEntry[]>();
@@ -447,7 +448,9 @@ export async function askGeminiWithImage(
   const history = getHistory(channelId);
   const userId = getMemoryUserId(authorName, context);
   const dossier = await getUserDossier(userId);
-  const systemPrompt = withUserRecord(await buildSharedSystemPrompt(), dossier);
+  const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), dossier);
+  const modeClause = context.modeInstruction ? `\n\nACTIVE MODE OVERRIDE — apply this on top of your normal personality for this response only:\n${context.modeInstruction}` : "";
+  const systemPrompt = baseSystemPrompt + modeClause;
   const fullSystemPrompt =
     systemPrompt +
     "\n\nyou can now see images, gifs, and videos. if any visual media is attached, analyze it and include your thoughts on it in your typical sarcastic, rude personality. stay all lowercase. for videos, describe what's happening and roast it accordingly.";
@@ -549,7 +552,9 @@ export async function askGemini(userMessage: string, authorName: string, channel
   const history = getHistory(channelId);
   const userId = getMemoryUserId(authorName, context);
   const dossier = await getUserDossier(userId);
-  const systemPrompt = withUserRecord(await buildSharedSystemPrompt(), dossier);
+  const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), dossier);
+  const modeClause = context.modeInstruction ? `\n\nACTIVE MODE OVERRIDE — apply this on top of your normal personality for this response only:\n${context.modeInstruction}` : "";
+  const systemPrompt = baseSystemPrompt + modeClause;
 
   // Text routing: Groq → Gemini (if Groq fails) → Hackclub → in-character error.
   log("[Text] Routing to Groq (primary).", "gemini");
