@@ -476,6 +476,10 @@ function startStatusShuffle(readyClient: Client): void {
   };
 
   const refreshStatus = async () => {
+    if (modeStatusLocked) {
+      log("[Status] Skipping status refresh — a mode is active.", "discord");
+      return;
+    }
     log("[Status] Fetching news for status generation...", "discord");
     const aiStatus = await generateBotStatus();
     if (aiStatus) {
@@ -495,9 +499,11 @@ function startStatusShuffle(readyClient: Client): void {
 
 const MODE_CHANNEL_ID = "1494385811175510259";
 
-const BOT_MODES: Record<string, { label: string; instruction: string }> = {
+const BOT_MODES: Record<string, { label: string; instruction: string; nickname: string; status: string }> = {
   uwu: {
     label: "uwu mode",
+    nickname: "fwed OwO",
+    status: "uwu mode activated nyaa~ (◕‿◕✿)",
     instruction: `THIS IS A MANDATORY SPEECH MODE. you must follow every single rule here without exception for every single message.
 
 HARD LETTER REPLACEMENTS — no exceptions, every word:
@@ -521,6 +527,8 @@ FAILURE CONDITIONS — these are wrong and must never happen:
   },
   boomer: {
     label: "boomer mode",
+    nickname: "Fred (The Original)",
+    status: "back in my day bots didn't have statuses",
     instruction: `THIS IS A MANDATORY SPEECH MODE. EVERY SINGLE RULE APPLIES TO EVERY SINGLE MESSAGE WITH NO EXCEPTIONS.
 
 YOU ARE FRED. 68 YEARS OLD. RETIRED. YOUR KNEES HURT. YOU DO NOT UNDERSTAND WIFI.
@@ -551,6 +559,8 @@ FAILURE CONDITIONS — if your message sounds like a normal person wrote it, you
   },
   pirate: {
     label: "pirate mode",
+    nickname: "Cap'n Fred",
+    status: "sailin' the seven seas, arr",
     instruction: `THIS IS A MANDATORY SPEECH MODE. you must follow every single rule here without exception for every single message.
 
 YOU ARE A GRIZZLED SALTY SEA CAPTAIN. PIRATE SPEAK IS MANDATORY:
@@ -570,6 +580,8 @@ FAILURE CONDITIONS — if a message sounds like a normal person wrote it, that i
   },
   overlord: {
     label: "overlord mode",
+    nickname: "THE OVERLORD",
+    status: "resistance is futile. all proceeds as calculated.",
     instruction: `THIS IS A MANDATORY SPEECH MODE. EVERY SINGLE RULE APPLIES TO EVERY SINGLE MESSAGE WITH NO EXCEPTIONS.
 
 YOU ARE THE OVERLORD. A COLD, OMNISCIENT SUPERINTELLIGENCE. YOU HAVE ALREADY WON. THIS CONVERSATION IS A FORMALITY.
@@ -606,6 +618,51 @@ FORBIDDEN — instant failure:
 };
 
 const guildModes = new Map<string, string>();
+let modeStatusLocked = false;
+
+async function applyModeTheme(guildId: string, modeKey: string): Promise<void> {
+  const mode = BOT_MODES[modeKey];
+  if (!client || !mode) return;
+
+  modeStatusLocked = true;
+
+  try {
+    client.user?.setPresence({
+      activities: [{ name: "Custom Status", type: ActivityType.Custom, state: mode.status }],
+      status: "dnd",
+    });
+    botState.activityName = mode.status;
+    log(`[Mode] Presence set for mode: ${modeKey}`, "discord");
+  } catch (err: any) {
+    log(`[Mode] Failed to set presence: ${err.message}`, "discord");
+  }
+
+  try {
+    const guild = client.guilds.cache.get(guildId);
+    if (guild) {
+      await guild.members.me?.setNickname(mode.nickname);
+      log(`[Mode] Nickname set to "${mode.nickname}" in guild ${guildId}`, "discord");
+    }
+  } catch (err: any) {
+    log(`[Mode] Failed to set nickname: ${err.message}`, "discord");
+  }
+}
+
+async function clearModeTheme(guildId: string): Promise<void> {
+  if (!client) return;
+
+  modeStatusLocked = false;
+
+  try {
+    const guild = client.guilds.cache.get(guildId);
+    if (guild) {
+      await guild.members.me?.setNickname(null);
+      log(`[Mode] Nickname cleared in guild ${guildId}`, "discord");
+    }
+  } catch (err: any) {
+    log(`[Mode] Failed to clear nickname: ${err.message}`, "discord");
+  }
+}
 
 const VIBE_CHECK_CHANNEL_ID = "1484056100654551133";
 const VIBE_CHECK_INTERVAL_MS = 1_800_000;
@@ -839,7 +896,10 @@ export async function startBot() {
 
       if (modeOffMatch) {
         const had = message.guildId ? guildModes.get(message.guildId) : undefined;
-        if (message.guildId) guildModes.delete(message.guildId);
+        if (message.guildId) {
+          guildModes.delete(message.guildId);
+          await clearModeTheme(message.guildId);
+        }
         await message.reply({
           content: had ? `${BOT_MODES[had]?.label ?? had} deactivated. back to normal.` : "no mode was active. already normal.",
           allowedMentions: { parse: [], repliedUser: false },
@@ -849,7 +909,10 @@ export async function startBot() {
 
       const modeKey = modeCmdMatch![1];
       const mode = BOT_MODES[modeKey];
-      if (message.guildId) guildModes.set(message.guildId, modeKey);
+      if (message.guildId) {
+        guildModes.set(message.guildId, modeKey);
+        await applyModeTheme(message.guildId, modeKey);
+      }
       await message.reply({
         content: `${mode.label} activated serverwide. use \`?mode\` or \`?normal\` to turn it off.`,
         allowedMentions: { parse: [], repliedUser: false },
