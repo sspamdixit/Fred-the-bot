@@ -10,7 +10,6 @@ import {
 import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
 import { askGemini, askGeminiWithImage, clearUserMemorySession, clearAllHistory, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, pushChannelMessage, type ImageData } from "./gemini";
-import { buildBotProfileMessage } from "./ai-settings";
 import { startQotd, stopQotd } from "./qotd";
 import { storage } from "./storage";
 
@@ -1050,14 +1049,6 @@ export async function startBot() {
       return;
     }
 
-    if (standaloneCmd === "?capabilities" || standaloneCmd === "?weaknesses") {
-      await message.reply({
-        content: await buildBotProfileMessage(),
-        allowedMentions: { parse: [], repliedUser: false },
-      });
-      return;
-    }
-
     if (standaloneCmd === "?status") {
       const s = getAIStats();
       const uptime = botState.uptimeStart
@@ -1110,10 +1101,6 @@ export async function startBot() {
           "`?nerd` — stereotypical nerd mode",
           "`?overlord` — megalomaniac AI mode",
           "`?mode` / `?normal` — turn off current mode",
-          "",
-          "**profile commands**",
-          "`?capabilities` — what fred can do",
-          "`?weaknesses` — what fred cannot do well",
         ].join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
       });
@@ -1308,10 +1295,10 @@ export async function startBot() {
 
       if (!cleanContent && !hasMedia) return;
 
-      // Also handle ?bubbl status/help/ping/capabilities/weaknesses as subcommands
+      // Also handle ?bubbl status/help/ping as subcommands
       if (cleanContent) {
         const sub = cleanContent.toLowerCase();
-        if (sub === "status" || sub === "capabilities" || sub === "weaknesses" || sub === "help" || sub === "ping") {
+        if (sub === "status" || sub === "help" || sub === "ping") {
           await message.reply({
             content: `use \`?${sub}\` directly instead of \`?bubbl ${sub}\`. easier.`,
             allowedMentions: { parse: [], repliedUser: false },

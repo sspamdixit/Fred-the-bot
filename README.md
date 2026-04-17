@@ -52,8 +52,6 @@ A Discord bot with a sharp personality and a web dashboard to manage it. Fred re
 | `?explain <topic>` | Explains something thoroughly |
 | `?translate <lang> <text>` | Translates text |
 | `?fred <message>` | Talk to the AI directly |
-| `?capabilities` | What fred can do |
-| `?weaknesses` | What fred cannot do well |
 
 Aliases: `?bubbl`, `!fred`, `!bubbl` all work.
 
