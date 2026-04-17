@@ -9,7 +9,7 @@ import {
 } from "discord.js";
 import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
-import { askGemini, askGeminiWithImage, clearUserMemorySession, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, type ImageData } from "./gemini";
+import { askGemini, askGeminiWithImage, clearUserMemorySession, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, pushChannelMessage, type ImageData } from "./gemini";
 import { buildBotProfileMessage } from "./ai-settings";
 import { startQotd, stopQotd } from "./qotd";
 import { storage } from "./storage";
@@ -901,7 +901,30 @@ export async function startBot() {
     const isOwner = roleNames.some((role) => role.trim().toLowerCase() === "owner");
     const activeModeKey = message.guildId ? guildModes.get(message.guildId) : undefined;
     const activeModeInstruction = activeModeKey ? BOT_MODES[activeModeKey]?.instruction : undefined;
-    const authorContext = { userId: message.author.id, roles: roleNames, sortedRoles: sortedRoleNames, isOwner, guildName, channelName, modeInstruction: activeModeInstruction };
+
+    // Track all channel messages for context (push before building context below)
+    if (message.content.trim()) {
+      pushChannelMessage(message.channelId, authorDisplayName, message.content.trim(), false);
+    }
+
+    // Detect Discord reply-chain context
+    let replyTo: string | undefined;
+    if (message.reference?.messageId) {
+      try {
+        const refMsg = await (message.channel as TextChannel).messages.fetch(message.reference.messageId);
+        if (refMsg) {
+          const refAuthor = refMsg.member?.displayName ?? refMsg.author.username;
+          const isRefBot = refMsg.author.bot && refMsg.author.id === client?.user?.id;
+          const refPrefix = isRefBot ? "fred" : refAuthor;
+          replyTo = `[${refPrefix}]: ${refMsg.content.slice(0, 300).trim()}`;
+        }
+      } catch {
+        // silently ignore fetch errors
+      }
+    }
+
+    const authorContext = { userId: message.author.id, roles: roleNames, sortedRoles: sortedRoleNames, isOwner, guildName, channelName, modeInstruction: activeModeInstruction, replyTo };
+
     if (!isMentioned && !isPrefixed && message.guildId) {
       queuePassiveWatch({
         messageId: message.id,
@@ -913,6 +936,7 @@ export async function startBot() {
         isControversial: isPassiveWatchCandidate(message.content),
         hasInsult: /\b(fuck|shit|ass|bitch|idiot|moron|stupid|cringe|lame|slur|racist|sexist|nazi|fascist)\b/i.test(message.content),
         modeInstruction: activeModeInstruction,
+        recentContext: replyTo ? `${replyTo}` : undefined,
         sendReply: async (text: string) => {
           try {
             await (message.channel as TextChannel).sendTyping();
@@ -1203,6 +1227,7 @@ export async function startBot() {
             content: reply,
             allowedMentions: { parse: [], repliedUser: false },
           });
+          pushChannelMessage(message.channelId, "fred", reply, true);
           triggerUserMemoryUpdate(message.author.id);
         }
       } catch (err: any) {
@@ -1352,6 +1377,7 @@ export async function startBot() {
                 content: reply,
                 allowedMentions: { parse: [], repliedUser: false },
               });
+              pushChannelMessage(message.channelId, "fred", reply, true);
               triggerUserMemoryUpdate(message.author.id);
             }
             return;
@@ -1364,6 +1390,7 @@ export async function startBot() {
             content: reply,
             allowedMentions: { parse: [], repliedUser: false },
           });
+          pushChannelMessage(message.channelId, "fred", reply, true);
           triggerUserMemoryUpdate(message.author.id);
         }
       } catch (err: any) {

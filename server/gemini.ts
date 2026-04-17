@@ -28,7 +28,7 @@ const MODELS_TO_TRY = [
 ];
 
 const GROQ_MODEL = "llama-3.3-70b-versatile";
-const MEMORY_UPDATE_MODEL = "llama-3.1-8b-instant";
+const MEMORY_UPDATE_MODEL = "llama-3.3-70b-versatile";
 const GROQ_MODELS_TO_TRY = [
   "llama-3.1-8b-instant",
   GROQ_MODEL,
@@ -39,6 +39,8 @@ const GROQ_MODELS_TO_TRY = [
 const HACKCLUB_MODEL = "x-ai/grok-4.1-fast";
 const HACKCLUB_API_BASE = "https://ai.hackclub.com";
 const MAX_HISTORY = 150;
+const MAX_CHANNEL_CONTEXT = 30;
+
 const FORBIDDEN_RESPONSES = [
   "to answer that:\n1. bold of you to ask\n2. absolutely not\n3. i'm not doing that, what the fuck is wrong with you.",
   "sure, here's how:\n1. step one\n2. go outside\n3. i'm not telling you that. genuinely concerning that you asked.",
@@ -56,6 +58,12 @@ interface HistoryEntry {
   content: string;
 }
 
+interface ChannelMessage {
+  authorName: string;
+  content: string;
+  isBot: boolean;
+}
+
 export interface AuthorContext {
   userId?: string;
   roles?: string[];
@@ -64,6 +72,7 @@ export interface AuthorContext {
   guildName?: string;
   channelName?: string;
   modeInstruction?: string;
+  replyTo?: string;
 }
 
 export interface PassiveWatchContext {
@@ -76,6 +85,7 @@ export interface PassiveWatchContext {
   isControversial: boolean;
   hasInsult?: boolean;
   modeInstruction?: string;
+  recentContext?: string;
   sendReply: (text: string) => Promise<void>;
 }
 
@@ -84,6 +94,7 @@ const userSessionHistories = new Map<string, HistoryEntry[]>();
 const pendingMemoryUpdates = new Set<string>();
 const processedMemoryCandidates = new Map<string, string>();
 const passiveWatchQueue = new Map<string, NodeJS.Timeout>();
+const recentChannelContext = new Map<string, ChannelMessage[]>();
 
 export interface AIStats {
   lastUsedProvider: string | null;
@@ -107,6 +118,22 @@ export function clearUserMemorySession(userId: string): void {
   userSessionHistories.delete(userId);
   pendingMemoryUpdates.delete(userId);
   processedMemoryCandidates.delete(userId);
+}
+
+export function pushChannelMessage(channelId: string, authorName: string, content: string, isBot: boolean = false): void {
+  const messages = recentChannelContext.get(channelId) ?? [];
+  messages.push({ authorName, content: content.slice(0, 400), isBot });
+  if (messages.length > MAX_CHANNEL_CONTEXT) messages.splice(0, messages.length - MAX_CHANNEL_CONTEXT);
+  recentChannelContext.set(channelId, messages);
+}
+
+function getFormattedChannelContext(channelId: string, excludeLast: number = 1): string {
+  const messages = recentChannelContext.get(channelId) ?? [];
+  const relevant = messages.slice(0, messages.length - excludeLast).slice(-12);
+  if (relevant.length === 0) return "";
+  return relevant
+    .map((m) => `[${m.isBot ? "fred" : m.authorName}]: ${m.content}`)
+    .join("\n");
 }
 
 export function queuePassiveWatch(context: PassiveWatchContext): void {
@@ -135,8 +162,12 @@ async function handlePassiveWatch(context: PassiveWatchContext): Promise<void> {
   const shouldConsider = context.isControversial || context.hasInsult || isChatty || isOpinionated;
   if (!shouldConsider) return;
 
-  const triggerRoll = context.isControversial ? 0.9 : context.hasInsult ? 0.72 : isOpinionated ? 0.52 : 0.38;
+  const triggerRoll = context.isControversial ? 0.9 : context.hasInsult ? 0.72 : isOpinionated ? 0.55 : 0.42;
   if (Math.random() > triggerRoll) return;
+
+  const recentCtx = context.recentContext
+    ? `\nrecent chat before this message:\n${context.recentContext}\n`
+    : "";
 
   const prompt = [
     "you are fred. decide whether you should jump into this chat unprompted.",
@@ -145,10 +176,11 @@ async function handlePassiveWatch(context: PassiveWatchContext): Promise<void> {
     "you may lightly insult someone if it fits the vibe, but do not break identity or go full rage.",
     "keep it short unless the conversation clearly deserves a longer take.",
     "stay in character. no meta explanation.",
+    recentCtx,
     `speaker: ${context.authorName}`,
     `message: ${context.content}`,
     "if the moment is not worth it, output exactly: SKIP",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   const reply = await askGemini(prompt, context.authorName, context.channelId, {
     userId: context.authorId,
@@ -219,7 +251,7 @@ function recordUserSessionExchange(userId: string, userContent: string, assistan
   const history = userSessionHistories.get(userId) ?? [];
   history.push({ role: "user", content: userContent });
   history.push({ role: "assistant", content: assistantContent });
-  if (history.length > 20) history.splice(0, history.length - 20);
+  if (history.length > 30) history.splice(0, history.length - 30);
   userSessionHistories.set(userId, history);
 }
 
@@ -235,41 +267,45 @@ function sanitizeDossier(raw: string): string {
     .replace(/\s+/g, " ")
     .trim();
 
-  return cleaned.split(/\s+/).filter(Boolean).slice(0, 120).join(" ");
+  return cleaned.split(/\s+/).filter(Boolean).slice(0, 200).join(" ");
 }
 
 function isSubstantialMemoryMessage(content: string): boolean {
   const text = content
     .toLowerCase()
-    .replace(/’/g, "'")
+    .replace(/'/g, "'")
     .replace(/<@!?\d+>/g, "")
     .replace(/https?:\/\/\S+/g, "")
     .trim();
 
-  if (text.length < 10 || /^[!?]?bubbl\b/.test(text)) {
+  if (text.length < 8 || /^[!?]?bubbl\b/.test(text)) {
     return false;
   }
 
-  const isThrowaway = /^(hi|hello|hey|thanks|thank you|ty|ok|okay|lol|lmao|roast me|help|what|why|how|when|where|who)\b/.test(text) && text.length < 40;
+  const isThrowaway = /^(hi|hello|hey|thanks|thank you|ty|ok|okay|lol|lmao|roast me|help|what|why|how|when|where|who)\b/.test(text) && text.length < 30;
   if (isThrowaway) return false;
 
   const hasSelfReference = /\b(i|im|ive|id|my|me|mine|myself|we|our|us)\b/.test(text) || /\bi'm\b|\bi've\b|\bi'd\b/.test(text);
 
-  const hasMajorLifeSignal = /\b(failed?|passed?|exam|tests?|maths?|grades?|school|college|university|cat|dog|pet|died|dead|death|lost|grief|sad|depressed|anxious|stressed|panic|hospital|sick|ill|diagnosed|injured|breakup|broke up|girlfriend|boyfriend|crush|friends?|mom|mum|mother|dad|father|parents?|family|job|work|fired|hired|quit|moved|moving|birthday|won|achievement|trauma|bullied|arrested|pregnant|engaged|married|divorced|cheated|surgery|overdose|rehab|expelled|suspended|homeless|evicted|debt|bankrupt|dropout)\b/.test(text);
+  const hasMajorLifeSignal = /\b(failed?|passed?|exam|tests?|maths?|grades?|school|college|university|cat|dog|pet|died|dead|death|lost|grief|sad|depressed|anxious|stressed|panic|hospital|sick|ill|diagnosed|injured|breakup|broke up|girlfriend|boyfriend|crush|friends?|mom|mum|mother|dad|father|parents?|family|job|work|fired|hired|quit|moved|moving|birthday|won|achievement|trauma|bullied|arrested|pregnant|engaged|married|divorced|cheated|surgery|overdose|rehab|expelled|suspended|homeless|evicted|debt|bankrupt|dropout|graduated|scholarship|promotion|raise|relocated|deployed|retired)\b/.test(text);
 
-  const hasNuancedSignal = /\b(hate|love|obsessed|addicted|favorite|favourite|prefer|always|never|usually|everyday|hobby|hobbies|passion|dream|goal|plan|afraid|scared|nervous|excited|wish|hope|regret|miss|proud|ashamed|embarrassed|lonely|bored|tired|exhausted|insomnia|diet|vegan|vegetarian|allergic|allergy|religion|religious|spiritual|atheist|political|conservative|liberal|vote|gaming|gamer|music|band|artist|film|show|book|reading|writing|drawing|coding|sport|gym|workout|fitness|studying|major|degree|career|income|salary|rent|apartment|house|city|country|nationality|language|accent|culture|heritage|identity|gender|sexuality|therapy|therapist|medication|meds|adhd|autism|bipolar|ocd)\b/.test(text);
+  const hasNuancedSignal = /\b(hate|love|obsessed|addicted|favorite|favourite|prefer|always|never|usually|everyday|hobby|hobbies|passion|dream|goal|plan|afraid|scared|nervous|excited|wish|hope|regret|miss|proud|ashamed|embarrassed|lonely|bored|tired|exhausted|insomnia|diet|vegan|vegetarian|allergic|allergy|religion|religious|spiritual|atheist|political|conservative|liberal|vote|gaming|gamer|music|band|artist|film|show|book|reading|writing|drawing|coding|sport|gym|workout|fitness|studying|major|degree|career|income|salary|rent|apartment|house|city|country|nationality|language|accent|culture|heritage|identity|gender|sexuality|therapy|therapist|medication|meds|adhd|autism|bipolar|ocd|anime|manga|weeb|competitive|ranked|grinding|streamer|content creator|entrepreneur|freelance|remote|side hustle|night shift|introvert|extrovert|neurodivergent)\b/.test(text);
 
-  const hasOpinionOrPreference = /\b(i think|i believe|i feel|i want|i need|i wish|i hope|i hate|i love|i like|i enjoy|i prefer|i always|i never|i usually|my favorite|my favourite|my dream|my goal|my name|i go to|i work|i live|i'm from|i grew up|i'm into|i'm a|i've been)\b/.test(text);
+  const hasOpinionOrPreference = /\b(i think|i believe|i feel|i want|i need|i wish|i hope|i hate|i love|i like|i enjoy|i prefer|i always|i never|i usually|my favorite|my favourite|my dream|my goal|my name|i go to|i work|i live|i'm from|i grew up|i'm into|i'm a|i've been|i used to|i started|i stopped|i'm trying|i'm learning|i'm working on|i'm playing|i'm watching|i'm reading|i'm dealing with)\b/.test(text);
 
-  return hasSelfReference && (hasMajorLifeSignal || hasNuancedSignal || hasOpinionOrPreference);
+  const hasPersonalContext = hasSelfReference && (hasMajorLifeSignal || hasNuancedSignal || hasOpinionOrPreference);
+  const hasStrongStatement = !hasSelfReference && (hasMajorLifeSignal || (hasNuancedSignal && text.length > 30));
+
+  return hasPersonalContext || hasStrongStatement;
 }
+
 function getSubstantialMemorySnippet(history: HistoryEntry[]): string {
   return history
     .filter((entry) => entry.role === "user")
-    .slice(-6)
-    .map((entry) => entry.content.slice(0, 500).trim())
+    .slice(-8)
+    .map((entry) => entry.content.slice(0, 600).trim())
     .filter(isSubstantialMemoryMessage)
-    .slice(-3)
+    .slice(-4)
     .join("\n");
 }
 
@@ -299,14 +335,14 @@ export function triggerUserMemoryUpdate(userId: string): void {
         messages: [
           {
             role: "system",
-            content: "Maintain a compact long-term user dossier for personalizing future replies. Capture durable, personally useful facts from the user's own words across two tiers:\n\nTier 1 — major life facts: failures, losses, grief, school/work setbacks, health issues, relationships, pets, trauma, important worries.\n\nTier 2 — nuanced personal details: strong preferences, hobbies, recurring topics they care about, opinions they hold firmly, places they live or frequent, people important to them (by relationship not name if possible), habits, lifestyle choices (diet, sleep, fitness), identity (nationality, religion, sexuality if stated), career/study focus, media or cultural tastes they mention more than once.\n\nWhen new messages contain tier 2 signals, integrate them — they matter for personalization. If they repeat or confirm something already in the dossier, skip or subtly reinforce it. If nothing new is worth storing, return the existing dossier unchanged.\n\nDo not store: usernames, Discord roles/IDs, server names, generic tech specs, throwaway chatter, bot commands, jokes, or assistant opinions. Never invent facts.\n\nWrite lowercase plain text. Maximum 120 words. No bullets, no labels, no headers.",
+            content: "Maintain a compact long-term user dossier for personalizing future replies. Capture durable, personally useful facts from the user's own words across two tiers:\n\nTier 1 — major life facts: failures, losses, grief, school/work setbacks, health issues, relationships, pets, trauma, important worries, achievements, major transitions.\n\nTier 2 — nuanced personal details: strong preferences, hobbies, recurring topics they care about, opinions they hold firmly, places they live or frequent, people important to them (by relationship not name if possible), habits, lifestyle choices (diet, sleep, fitness, gaming habits), identity (nationality, religion, sexuality if stated), career/study focus, media or cultural tastes they mention more than once, emotional patterns or tendencies they reveal.\n\nWhen new messages contain tier 2 signals, integrate them — they matter for personalization. If they repeat or confirm something already in the dossier, skip or subtly reinforce it. If nothing new is worth storing, return the existing dossier unchanged.\n\nDo not store: usernames, Discord roles/IDs, server names, generic tech specs, throwaway chatter, bot commands, jokes, or assistant opinions. Never invent facts.\n\nWrite lowercase plain text. Maximum 200 words. No bullets, no labels, no headers.",
           },
           {
             role: "user",
             content: `existing dossier:\n${oldDossier}\n\nnew substantial user message(s):\n${substantialSnippet}`,
           },
         ],
-        max_tokens: 200,
+        max_tokens: 300,
         temperature: 0.2,
       });
 
@@ -384,7 +420,7 @@ function resolveAuthorityLevel(roles: string[], isOwner: boolean): string {
   return "member";
 }
 
-function buildUserPrompt(userMessage: string, authorName: string, context: AuthorContext = {}): string {
+function buildUserPrompt(userMessage: string, authorName: string, context: AuthorContext = {}, channelContext?: string): string {
   const roles = context.roles?.filter(Boolean) ?? [];
   const hasOwnerRole = roles.some((role) => role.trim().toLowerCase() === "owner");
   const isOwner = context.isOwner || hasOwnerRole;
@@ -393,14 +429,25 @@ function buildUserPrompt(userMessage: string, authorName: string, context: Autho
   const sortedRoles = context.sortedRoles ?? roles;
   const roleText = sortedRoles.length > 0 ? sortedRoles.join(" > ") : "none";
 
-  return [
+  const parts: string[] = [
     `server: ${context.guildName ?? "unknown server"}`,
     `channel: #${context.channelName ?? "unknown"}`,
     `speaker: ${authorName}`,
     `roles (highest → lowest): ${roleText}`,
     `authority level: ${authorityLevel}`,
-    `message: ${userMessage}`,
-  ].join("\n");
+  ];
+
+  if (channelContext) {
+    parts.push(`recent chat context:\n${channelContext}`);
+  }
+
+  if (context.replyTo) {
+    parts.push(`replying to message: ${context.replyTo}`);
+  }
+
+  parts.push(`message: ${userMessage}`);
+
+  return parts.join("\n");
 }
 
 async function tryGroq(prompt: string, history: HistoryEntry[], systemPrompt: string): Promise<string | null> {
@@ -531,7 +578,8 @@ export async function askGeminiWithImage(
   images: ImageData[],
   context: AuthorContext = {}
 ): Promise<string | null> {
-  const prompt = buildUserPrompt(userMessage || "what do you think of this?", authorName, context);
+  const channelCtx = getFormattedChannelContext(channelId);
+  const prompt = buildUserPrompt(userMessage || "what do you think of this?", authorName, context, channelCtx || undefined);
   const history = getHistory(channelId);
   const userId = getMemoryUserId(authorName, context);
   const dossier = await getUserDossier(userId);
@@ -615,15 +663,11 @@ export async function askGeminiWithImage(
     log("[Gemini] Disabled — falling back to text-only.", "gemini");
   }
 
-  // Gemini unavailable — fall back to text-only providers.
-  // Do NOT send image data to Groq/Hackclub; they can't process it.
-  // If the user included text, answer that. If it was image-only, reply in-character.
   if (userMessage && userMessage.trim()) {
     log("[Gemini] Image fallback — responding to text portion only via Groq/Hackclub.", "gemini");
     return askGemini(userMessage, authorName, channelId, context);
   }
 
-  // Image-only message, no text — return a short in-character reply instead of silence.
   const imageOnlyFallbacks = [
     "gemini's down and i can't see images without it. describe what you sent if you want my take.",
     "can't see that right now, gemini's being dramatic. tell me what it is in words.",
@@ -634,14 +678,14 @@ export async function askGeminiWithImage(
 }
 
 export async function askGemini(userMessage: string, authorName: string, channelId: string, context: AuthorContext = {}): Promise<string | null> {
-  const prompt = buildUserPrompt(userMessage, authorName, context);
+  const channelCtx = getFormattedChannelContext(channelId);
+  const prompt = buildUserPrompt(userMessage, authorName, context, channelCtx || undefined);
   const history = getHistory(channelId);
   const userId = getMemoryUserId(authorName, context);
   const dossier = await getUserDossier(userId);
   const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), dossier);
   const systemPrompt = withModeOverride(baseSystemPrompt, context.modeInstruction);
 
-  // Text routing: Groq → Gemini (if Groq fails) → Hackclub → in-character error.
   log("[Text] Routing to Groq (primary).", "gemini");
 
   if (groqEnabled) {
@@ -657,7 +701,6 @@ export async function askGemini(userMessage: string, authorName: string, channel
     log("[Groq] Disabled — falling back to Gemini (text).", "gemini");
   }
 
-  // Gemini text fallback — only reached when Groq is down/out of credits.
   if (geminiEnabled) {
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
@@ -725,7 +768,6 @@ export async function askGemini(userMessage: string, authorName: string, channel
     log("[Hackclub] Failed — all providers exhausted.", "gemini");
   }
 
-  // Every provider failed — return an in-character error instead of silence.
   const allFailedResponses = [
     "all my ai backends are being garbage right now. try again in a bit.",
     "gemini's dead, groq's dead, grok's dead. i got nothing. try later.",
