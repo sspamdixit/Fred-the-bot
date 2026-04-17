@@ -9,7 +9,7 @@ import {
 } from "discord.js";
 import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
-import { askGemini, askGeminiWithImage, clearUserMemorySession, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, pushChannelMessage, type ImageData } from "./gemini";
+import { askGemini, askGeminiWithImage, clearUserMemorySession, clearAllHistory, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, pushChannelMessage, type ImageData } from "./gemini";
 import { buildBotProfileMessage } from "./ai-settings";
 import { startQotd, stopQotd } from "./qotd";
 import { storage } from "./storage";
@@ -982,6 +982,7 @@ export async function startBot() {
           guildModes.delete(message.guildId);
           await clearModeTheme(message.guildId);
         }
+        clearAllHistory();
         await message.reply({
           content: had ? `${BOT_MODES[had]?.label ?? had} deactivated. back to normal.` : "no mode was active. already normal.",
           allowedMentions: { parse: [], repliedUser: false },
@@ -995,6 +996,7 @@ export async function startBot() {
         guildModes.set(message.guildId, modeKey);
         await applyModeTheme(message.guildId, modeKey);
       }
+      clearAllHistory();
       await message.reply({
         content: `${mode.label} activated serverwide. use \`?mode\` or \`?normal\` to turn it off.`,
         allowedMentions: { parse: [], repliedUser: false },

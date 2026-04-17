@@ -299,6 +299,11 @@ function clearHistory(channelId: string): void {
   channelHistories.delete(channelId);
 }
 
+export function clearAllHistory(): void {
+  channelHistories.clear();
+  log("[History] All channel histories cleared (mode switch).", "gemini");
+}
+
 function getMemoryUserId(authorName: string, context: AuthorContext = {}): string {
   return context.userId?.trim() || authorName.trim().toLowerCase() || "unknown";
 }
