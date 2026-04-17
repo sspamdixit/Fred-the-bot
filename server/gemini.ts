@@ -114,7 +114,7 @@ export function queuePassiveWatch(context: PassiveWatchContext): void {
   const timer = setTimeout(() => {
     passiveWatchQueue.delete(key);
     void handlePassiveWatch(context);
-  }, 12_000 + Math.floor(Math.random() * 18_000));
+  }, 4_000 + Math.floor(Math.random() * 10_000));
   timer.unref?.();
   passiveWatchQueue.set(key, timer);
 }
@@ -127,15 +127,21 @@ function clearPassiveWatch(key: string): void {
 }
 
 async function handlePassiveWatch(context: PassiveWatchContext): Promise<void> {
-  if (!context.isControversial && !context.hasInsult) return;
+  const normalized = context.content.toLowerCase().trim();
+  const isChatty = /\b(lol|lmao|bro|dude|nah|yeah|yep|nope|fr|ngl|tbh|same|true|real|wild|crazy|insane|ur|youre|you're)\b/.test(normalized);
+  const isOpinionated = /\b(i think|i feel|i hate|i love|i like|i want|i need|i prefer|imo|imho|unpopular opinion|hot take|debate|argument)\b/.test(normalized);
+  const shouldConsider = context.isControversial || context.hasInsult || isChatty || isOpinionated;
+  if (!shouldConsider) return;
 
-  const triggerRoll = context.isControversial ? 0.72 : 0.34;
+  const triggerRoll = context.isControversial ? 0.9 : context.hasInsult ? 0.72 : isOpinionated ? 0.52 : 0.38;
   if (Math.random() > triggerRoll) return;
 
   const prompt = [
     "you are fred. decide whether you should jump into this chat unprompted.",
-    "only reply if the chat is spicy, controversial, absurd, or likely to escalate in a funny way.",
-    "do not overdo it. one short reply max, unless the thread clearly needs more.",
+    "reply more often now. you should sound like an active discord user who has opinions, jokes, and the occasional roasty comment.",
+    "only skip if the message is truly dead, purely logistical, or would make you sound forced.",
+    "you may lightly insult someone if it fits the vibe, but do not break identity or go full rage.",
+    "keep it short unless the conversation clearly deserves a longer take.",
     "stay in character. no meta explanation.",
     `speaker: ${context.authorName}`,
     `message: ${context.content}`,
