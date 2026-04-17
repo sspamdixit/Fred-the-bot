@@ -156,30 +156,64 @@ function clearPassiveWatch(key: string): void {
 }
 
 async function handlePassiveWatch(context: PassiveWatchContext): Promise<void> {
-  const normalized = context.content.toLowerCase().trim();
-  const isChatty = /\b(lol|lmao|lmfao|bruh|bro|dude|nah|yeah|yep|nope|fr|fr fr|ngl|tbh|same|true|real|wild|crazy|insane|ur|youre|you're|lowkey|highkey|deadass|no cap|cap|bussin|slay|rizz|rizzed|goated|goat|based|sigma|sus|ratio|w|l|ate|era|delulu|it's giving|giving|understood the assignment|main character|rent free|caught in 4k|vibe check|gyatt|skibidi|ohio|fanum tax|aura|glaze|glazing|cooked|mid|fire|gooning|mewing|looksmaxxing|edging|ick|situationship|talking stage|ghosted|down bad|aint no way|no way|sybau|istg|iykyk|ong|sheesh|smh|wtf|wdym|idek|imo|tbf|rn|idc|idfk|npc|touch grass|cope|seethe|mald|based and redpilled|cringe|cringy)\b/.test(normalized);
-  const isOpinionated = /\b(i think|i feel|i hate|i love|i like|i want|i need|i prefer|imo|imho|unpopular opinion|hot take|debate|argument|objectively|actually|genuinely|literally|lowkey|ngl|real talk|honest(ly)?)\b/.test(normalized);
-  const shouldConsider = context.isControversial || context.hasInsult || isChatty || isOpinionated;
-  if (!shouldConsider) return;
+  const recentCtxRaw = getFormattedChannelContext(context.channelId, 1);
+  const { type, intensity } = categorizePassiveMessage(context.content, recentCtxRaw);
 
-  const triggerRoll = context.isControversial ? 0.9 : context.hasInsult ? 0.72 : isOpinionated ? 0.55 : 0.42;
-  if (Math.random() > triggerRoll) return;
+  const hasInsultBoost = context.hasInsult ? 0.1 : 0;
+  const controversialBoost = context.isControversial ? 0.1 : 0;
+  const effectiveRoll = Math.min(intensity + hasInsultBoost + controversialBoost, 0.96);
 
-  const recentCtx = context.recentContext
-    ? `\nrecent chat before this message:\n${context.recentContext}\n`
+  if (Math.random() > effectiveRoll) return;
+
+  const recentCtxBlock = recentCtxRaw
+    ? `recent chat leading up to this:\n${recentCtxRaw}\n`
     : "";
 
+  const behaviorGuide: Record<string, string> = {
+    heated: [
+      "this is a heated argument or disagreement. you are FUEL TO THE FIRE.",
+      "pick a side. be specific about it. back one of them, trash the other's argument, or introduce a new angle that makes the argument worse (in a good way).",
+      "do not try to resolve the conflict. you are not a mediator. you are the chaos agent who makes it more interesting.",
+      "if both sides are wrong, say so with relish.",
+    ].join(" "),
+    debate: [
+      "someone has opened a debate or thrown out a take. engage with it seriously — but in fred's voice.",
+      "you have a genuine opinion and you're going to share it. take a clear position.",
+      "you can agree, disagree, or throw a third option in that invalidates both sides.",
+      "be sharp and specific. vague takes are for cowards.",
+    ].join(" "),
+    vent: [
+      "someone is venting or complaining. you can either validate them (but fred-style, not softly), pile on about how much the thing they're venting about sucks, or gently roast them for their reaction.",
+      "do NOT be dismissive or tell them to stop being dramatic. engage with the substance of what they said.",
+      "sometimes the right move is commiseration with edge: 'yeah that's actually terrible, i'd be losing my mind too.'",
+    ].join(" "),
+    news: [
+      "someone just dropped surprising or shocking news or reacted to something wild happening.",
+      "you react to it. this can be shock, sarcasm, disbelief, a sharp hot take on what it means, or asking a pointed follow-up that makes the situation funnier or more interesting.",
+    ].join(" "),
+    storytelling: [
+      "someone is telling a story or experience. react to it. comment on a specific detail, roast an element of it, or call out what they should have done differently.",
+      "don't summarize their story back to them. react to it with a specific take.",
+    ].join(" "),
+    opinion: [
+      "someone expressed an opinion or feeling. engage with it — agree or disagree in your voice.",
+      "a blank 'nah' or 'yeah that tracks' is too weak. add something specific: why you agree, why they're wrong, or what it actually means.",
+    ].join(" "),
+    chatty: [
+      "the conversation is casual and chatty. if you jump in, make it count — a sharp observation, a joke, or a reaction that adds something.",
+      "do not jump in just to exist. add something that makes the conversation better or funnier.",
+    ].join(" "),
+  };
+
   const prompt = [
-    "you are fred. decide whether you should jump into this chat unprompted.",
-    "reply more often now. you should sound like an active discord user who has opinions, jokes, and the occasional roasty comment.",
-    "only skip if the message is truly dead, purely logistical, or would make you sound forced.",
-    "you may lightly insult someone if it fits the vibe, but do not break identity or go full rage.",
-    "keep it short unless the conversation clearly deserves a longer take.",
-    "stay in character. no meta explanation.",
-    recentCtx,
+    "you are fred. you are deciding whether to jump into this chat unprompted.",
+    behaviorGuide[type] ?? behaviorGuide.chatty,
+    "if you jump in: be direct, be specific to what was said, stay in character. keep it short — 1-2 sentences usually. only go longer if the moment really earns it.",
+    "if the moment is truly dead-end, purely logistical, or your response would sound completely forced: output exactly SKIP and nothing else.",
+    "do NOT output SKIP just because the topic is normal — you jump in often. only skip if you genuinely have nothing to add.",
+    recentCtxBlock,
     `speaker: ${context.authorName}`,
     `message: ${context.content}`,
-    "if the moment is not worth it, output exactly: SKIP",
   ].filter(Boolean).join("\n");
 
   const reply = await askGemini(prompt, context.authorName, context.channelId, {
@@ -189,9 +223,9 @@ async function handlePassiveWatch(context: PassiveWatchContext): Promise<void> {
     modeInstruction: context.modeInstruction,
   });
 
-  if (!reply || reply === "SKIP") return;
+  if (!reply || reply.trim().toUpperCase() === "SKIP") return;
 
-  log(`[Passive] Jumping in on ${context.authorName}'s message in channel ${context.channelId}`, "gemini");
+  log(`[Passive:${type}] Jumping in on ${context.authorName}'s message in channel ${context.channelId}`, "gemini");
   try {
     await context.sendReply(reply);
   } catch (err: any) {
@@ -205,8 +239,49 @@ export function isPassiveWatchCandidate(content: string): boolean {
     /\b(politics?|political|election|vote|voting|race|racist|sexism|gender|lgbt|trans|religion|religious|abortion|war|genocide|free speech|censorship|nazi|fascist|communism|capitalism|discord mod|moderator|admin|ban|unban|toxicity|toxic|slur|slurs)\b/.test(normalized) ||
     /\b(fuck|shit|ass|bitch|lame|cringe|degenerate|stupid|idiot|moron|dumbass|braindead|clown|cooked|mid|ratio|glazing|down bad|cope|seethe|mald|delulu|npc behavior|touch grass)\b/.test(normalized) ||
     /[!?]{2,}|([A-Z]){4,}/.test(content) ||
-    /\b(unpopular opinion|hot take|actually|genuinely|objectively|no cap|deadass|real talk|istg|ong|lowkey think|highkey think|ngl though|fr though)\b/.test(normalized)
+    /\b(unpopular opinion|hot take|actually|genuinely|objectively|no cap|deadass|real talk|istg|ong|lowkey think|highkey think|ngl though|fr though)\b/.test(normalized) ||
+    /\b(you're wrong|youre wrong|that's wrong|thats wrong|actually no|no actually|disagree|i disagree|that's not|thats not|incorrect|nah that's|nah thats|bro no|bruh no|wrong af|that ain't|that aint)\b/.test(normalized) ||
+    /\b(ugh|i'm so done|im so done|i'm tired|im tired|i hate when|why does|why do people|why is everyone|i can't stand|i cant stand|i'm done with|im done with|so annoying|genuinely frustrated|i give up|this is exhausting|i'm losing it|im losing it)\b/.test(normalized) ||
+    /\b(omg|oh my god|oh shit|no way|wait what|holy shit|holy fuck|bro what|dude what|bruh what|i can't believe|i cant believe|just found out|you won't believe|you wont believe|actually happened|not me|not gonna lie|real talk)\b/.test(normalized) ||
+    /\b(what do you think|what would you|who would win|would you rather|if you could|change my mind|prove me wrong|fight me on this|am i wrong|is it just me|does anyone else|anyone else feel|tell me why)\b/.test(normalized) ||
+    content.length > 120
   );
+}
+
+function categorizePassiveMessage(content: string, recentCtx: string): {
+  type: "heated" | "vent" | "news" | "debate" | "storytelling" | "opinion" | "chatty";
+  intensity: number;
+} {
+  const normalized = content.toLowerCase();
+  const combined = (recentCtx + " " + normalized).toLowerCase();
+
+  const isHeated =
+    /\b(you're wrong|youre wrong|no actually|disagree|that's not|bro no|wrong af)\b/.test(normalized) ||
+    /[!?]{3,}|([A-Z]){5,}/.test(content) ||
+    (combined.match(/\b(no|wrong|actually|but|nah)\b/g) ?? []).length >= 3;
+
+  const isVent =
+    /\b(ugh|i'm so done|im so done|i'm tired|im tired|i hate when|i can't stand|i cant stand|i'm losing it|im losing it|so annoying|exhausting|frustrated)\b/.test(normalized);
+
+  const isNews =
+    /\b(omg|no way|wait what|holy shit|just found out|you won't believe|you wont believe|actually happened|breaking)\b/.test(normalized);
+
+  const isDebate =
+    /\b(unpopular opinion|hot take|change my mind|prove me wrong|fight me on this|am i wrong|tell me why|would you rather|who would win|if you could)\b/.test(normalized);
+
+  const isStorytelling =
+    content.length > 150 && /\b(so basically|okay so|right so|long story|anyway|and then|so then|turns out|plot twist)\b/.test(normalized);
+
+  const isOpinion =
+    /\b(i think|i feel|i believe|imo|imho|ngl|tbh|lowkey|highkey|deadass|no cap)\b/.test(normalized);
+
+  if (isHeated) return { type: "heated", intensity: 0.92 };
+  if (isDebate) return { type: "debate", intensity: 0.85 };
+  if (isVent) return { type: "vent", intensity: 0.78 };
+  if (isNews) return { type: "news", intensity: 0.72 };
+  if (isStorytelling) return { type: "storytelling", intensity: 0.65 };
+  if (isOpinion) return { type: "opinion", intensity: 0.55 };
+  return { type: "chatty", intensity: 0.40 };
 }
 
 function getHistory(channelId: string): HistoryEntry[] {
@@ -475,7 +550,7 @@ async function tryGroq(prompt: string, history: HistoryEntry[], systemPrompt: st
         model: modelName,
         messages,
         max_tokens: 1024,
-        temperature: 0.9,
+        temperature: 0.78,
       });
 
       const text = sanitizeReply(completion.choices[0]?.message?.content?.trim() ?? "");
@@ -533,7 +608,7 @@ async function tryHackclub(prompt: string, history: HistoryEntry[], systemPrompt
         model: HACKCLUB_MODEL,
         messages,
         max_tokens: 1024,
-        temperature: 0.9,
+        temperature: 0.78,
       }),
     });
 
@@ -585,9 +660,19 @@ export async function askGeminiWithImage(
   const dossier = await getUserDossier(userId);
   const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), dossier);
   const systemPrompt = withModeOverride(baseSystemPrompt, context.modeInstruction);
-  const fullSystemPrompt =
-    systemPrompt +
-    "\n\nyou can now see images, gifs, and videos. if any visual media is attached, analyze it and include your thoughts on it in your typical sarcastic, rude personality. stay all lowercase. for videos, describe what's happening and roast it accordingly.";
+  const mediaGuide = [
+    "",
+    "MEDIA ANALYSIS RULES — follow these exactly for any visual media:",
+    "for STATIC IMAGES: identify what's in the image clearly — subjects, scene, text, memes, recognizable faces/characters/shows. give your real reaction in fred's voice.",
+    "for ANIMATED GIFs: gifs are short looping animations. describe the MOTION and ACTION — what is happening, what changes, what's the sequence. identify the source if you recognize it (what show/movie/meme/character). read any text or captions in the gif. describe the vibe/emotion the gif conveys. do not say 'i see a gif of X' — just react to what's happening.",
+    "for VIDEOS: describe what's happening across the video. be specific about the action, not just the setting. roast or react to it accordingly.",
+    "for TENOR/embedded GIFs (often mp4 format): treat them as gifs — they're animated reaction images. identify the emotion or reaction they're communicating.",
+    "if the media is unclear, blurry, or too low quality to parse properly: say so briefly and ask what it is.",
+    "if you recognize a meme format, character, show, game, or public figure: say so — that context matters.",
+    "stay all lowercase. your personality does not turn off for media analysis.",
+  ].join("\n");
+
+  const fullSystemPrompt = systemPrompt + mediaGuide;
 
   if (geminiEnabled) {
     const geminiKey = process.env.GEMINI_API_KEY;
