@@ -199,6 +199,11 @@ function withUserRecord(systemPrompt: string, dossier: string): string {
   return `${systemPrompt}\n\nuser record: ${dossier}`;
 }
 
+function withModeOverride(systemPrompt: string, modeInstruction?: string): string {
+  if (!modeInstruction) return systemPrompt;
+  return `${systemPrompt}\n\nACTIVE MODE OVERRIDE — apply this on top of your normal personality for every request type:\n${modeInstruction}`;
+}
+
 function recordUserSessionExchange(userId: string, userContent: string, assistantContent: string): void {
   const history = userSessionHistories.get(userId) ?? [];
   history.push({ role: "user", content: userContent });
@@ -520,8 +525,7 @@ export async function askGeminiWithImage(
   const userId = getMemoryUserId(authorName, context);
   const dossier = await getUserDossier(userId);
   const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), dossier);
-  const modeClause = context.modeInstruction ? `\n\nACTIVE MODE OVERRIDE — apply this on top of your normal personality for this response only:\n${context.modeInstruction}` : "";
-  const systemPrompt = baseSystemPrompt + modeClause;
+  const systemPrompt = withModeOverride(baseSystemPrompt, context.modeInstruction);
   const fullSystemPrompt =
     systemPrompt +
     "\n\nyou can now see images, gifs, and videos. if any visual media is attached, analyze it and include your thoughts on it in your typical sarcastic, rude personality. stay all lowercase. for videos, describe what's happening and roast it accordingly.";
@@ -624,8 +628,7 @@ export async function askGemini(userMessage: string, authorName: string, channel
   const userId = getMemoryUserId(authorName, context);
   const dossier = await getUserDossier(userId);
   const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), dossier);
-  const modeClause = context.modeInstruction ? `\n\nACTIVE MODE OVERRIDE — apply this on top of your normal personality for this response only:\n${context.modeInstruction}` : "";
-  const systemPrompt = baseSystemPrompt + modeClause;
+  const systemPrompt = withModeOverride(baseSystemPrompt, context.modeInstruction);
 
   // Text routing: Groq → Gemini (if Groq fails) → Hackclub → in-character error.
   log("[Text] Routing to Groq (primary).", "gemini");
