@@ -130,8 +130,8 @@ function clearPassiveWatch(key: string): void {
 
 async function handlePassiveWatch(context: PassiveWatchContext): Promise<void> {
   const normalized = context.content.toLowerCase().trim();
-  const isChatty = /\b(lol|lmao|bro|dude|nah|yeah|yep|nope|fr|ngl|tbh|same|true|real|wild|crazy|insane|ur|youre|you're)\b/.test(normalized);
-  const isOpinionated = /\b(i think|i feel|i hate|i love|i like|i want|i need|i prefer|imo|imho|unpopular opinion|hot take|debate|argument)\b/.test(normalized);
+  const isChatty = /\b(lol|lmao|lmfao|bruh|bro|dude|nah|yeah|yep|nope|fr|fr fr|ngl|tbh|same|true|real|wild|crazy|insane|ur|youre|you're|lowkey|highkey|deadass|no cap|cap|bussin|slay|rizz|rizzed|goated|goat|based|sigma|sus|ratio|w|l|ate|era|delulu|it's giving|giving|understood the assignment|main character|rent free|caught in 4k|vibe check|gyatt|skibidi|ohio|fanum tax|aura|glaze|glazing|cooked|mid|fire|gooning|mewing|looksmaxxing|edging|ick|situationship|talking stage|ghosted|down bad|aint no way|no way|sybau|istg|iykyk|ong|sheesh|smh|wtf|wdym|idek|imo|tbf|rn|idc|idfk|npc|touch grass|cope|seethe|mald|based and redpilled|cringe|cringy)\b/.test(normalized);
+  const isOpinionated = /\b(i think|i feel|i hate|i love|i like|i want|i need|i prefer|imo|imho|unpopular opinion|hot take|debate|argument|objectively|actually|genuinely|literally|lowkey|ngl|real talk|honest(ly)?)\b/.test(normalized);
   const shouldConsider = context.isControversial || context.hasInsult || isChatty || isOpinionated;
   if (!shouldConsider) return;
 
@@ -171,8 +171,9 @@ export function isPassiveWatchCandidate(content: string): boolean {
   const normalized = content.toLowerCase();
   return (
     /\b(politics?|political|election|vote|voting|race|racist|sexism|gender|lgbt|trans|religion|religious|abortion|war|genocide|free speech|censorship|nazi|fascist|communism|capitalism|discord mod|moderator|admin|ban|unban|toxicity|toxic|slur|slurs)\b/.test(normalized) ||
-    /\b(fuck|shit|ass|bitch|lame|cringe|degenerate|stupid|idiot|moron)\b/.test(normalized) ||
-    /[!?]{2,}|([A-Z])\1{3,}/.test(content)
+    /\b(fuck|shit|ass|bitch|lame|cringe|degenerate|stupid|idiot|moron|dumbass|braindead|clown|cooked|mid|ratio|glazing|down bad|cope|seethe|mald|delulu|npc behavior|touch grass)\b/.test(normalized) ||
+    /[!?]{2,}|([A-Z]){4,}/.test(content) ||
+    /\b(unpopular opinion|hot take|actually|genuinely|objectively|no cap|deadass|real talk|istg|ong|lowkey think|highkey think|ngl though|fr though)\b/.test(normalized)
   );
 }
 
