@@ -9,7 +9,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   getUserMemory(userId: string): Promise<UserMemory | undefined>;
-  upsertUserMemory(userId: string, dossier: string): Promise<UserMemory>;
+  upsertUserMemory(userId: string, possibilities: string, sureties: string): Promise<UserMemory>;
   deleteUserMemory(userId: string): Promise<boolean>;
 }
 
@@ -17,8 +17,12 @@ export async function ensureUserMemoryTable(): Promise<void> {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS user_memory (
       user_id TEXT PRIMARY KEY,
-      dossier TEXT NOT NULL
+      dossier TEXT NOT NULL,
+      sureties TEXT
     )
+  `);
+  await db.execute(sql`
+    ALTER TABLE user_memory ADD COLUMN IF NOT EXISTS sureties TEXT
   `);
 }
 
@@ -44,13 +48,13 @@ export class DrizzleStorage implements IStorage {
     return result[0];
   }
 
-  async upsertUserMemory(userId: string, dossier: string): Promise<UserMemory> {
+  async upsertUserMemory(userId: string, possibilities: string, sureties: string): Promise<UserMemory> {
     const result = await db
       .insert(userMemory)
-      .values({ userId, dossier })
+      .values({ userId, dossier: possibilities, sureties })
       .onConflictDoUpdate({
         target: userMemory.userId,
-        set: { dossier },
+        set: { dossier: possibilities, sureties },
       })
       .returning();
     return result[0];

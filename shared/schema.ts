@@ -34,6 +34,7 @@ export type InsertQotdEntry = typeof qotdLog.$inferInsert;
 export const userMemory = pgTable("user_memory", {
   userId: text("user_id").primaryKey(),
   dossier: text("dossier").notNull(),
+  sureties: text("sureties"),
 });
 
 export const insertUserMemorySchema = createInsertSchema(userMemory);

@@ -308,18 +308,48 @@ function getMemoryUserId(authorName: string, context: AuthorContext = {}): strin
   return context.userId?.trim() || authorName.trim().toLowerCase() || "unknown";
 }
 
-async function getUserDossier(userId: string): Promise<string> {
+interface UserMemoryData {
+  possibilities: string;
+  sureties: string;
+}
+
+async function getUserMemoryData(userId: string): Promise<UserMemoryData> {
   try {
     const memory = await storage.getUserMemory(userId);
-    return memory?.dossier?.trim() || "new user. no record.";
+    return {
+      possibilities: memory?.dossier?.trim() || "",
+      sureties: memory?.sureties?.trim() || "",
+    };
   } catch (err: any) {
-    log(`[Memory] Failed to fetch dossier: ${err.message}`, "gemini");
-    return "new user. no record.";
+    log(`[Memory] Failed to fetch memory data: ${err.message}`, "gemini");
+    return { possibilities: "", sureties: "" };
   }
 }
 
-function withUserRecord(systemPrompt: string, dossier: string): string {
-  return `${systemPrompt}\n\nuser record: ${dossier}`;
+function withUserRecord(systemPrompt: string, memData: UserMemoryData): string {
+  const { possibilities, sureties } = memData;
+  const hasAny = possibilities || sureties;
+  if (!hasAny) {
+    return `${systemPrompt}\n\nuser record: new user. no record yet.`;
+  }
+
+  const lines: string[] = ["\n\nuser record:"];
+
+  if (sureties) {
+    lines.push(
+      "[confirmed facts — more reliable, but still open to correction if the user updates you]",
+      sureties,
+    );
+  }
+
+  if (possibilities) {
+    lines.push(
+      "[inferred / unconfirmed — picked up from conversation patterns; use carefully for personalization, don't assert as fact, stay open to being wrong]",
+      possibilities,
+    );
+  }
+
+  return systemPrompt + lines.join("\n");
 }
 
 function withModeOverride(systemPrompt: string, modeInstruction?: string): string {
@@ -409,31 +439,76 @@ export function triggerUserMemoryUpdate(userId: string): void {
   void (async () => {
     try {
       const client = getGroqClient();
-      const oldDossier = await getUserDossier(userId);
+      const existing = await getUserMemoryData(userId);
+
+      const systemPrompt = [
+        "You maintain a two-tier long-term memory record for a Discord user. Your job is to update BOTH tiers based on what the user has said.",
+        "",
+        "TIER 1 — POSSIBILITIES (inferred, unconfirmed):",
+        "Capture durable, personally useful signals from the user's own words. Include:",
+        "- Major life facts: failures, losses, grief, school/work setbacks, health issues, relationships, pets, trauma, worries, achievements, transitions.",
+        "- Nuanced personal details: preferences, hobbies, recurring topics, opinions held firmly, places they frequent, people important to them (by relationship not name), habits, lifestyle choices (diet, sleep, fitness, gaming), identity (nationality, religion, sexuality if stated), career/study focus, media tastes mentioned more than once, emotional patterns.",
+        "These are INFERRED. The bot will use them carefully without asserting them as facts.",
+        "Max 150 words. Lowercase plain prose. No bullets or headers.",
+        "",
+        "TIER 2 — SURETIES (confirmed, higher-confidence facts):",
+        "Promote items from Possibilities ONLY when the user has explicitly confirmed, directly stated, or repeatedly reinforced them across conversations.",
+        "A surety is something the user has stated as definite first-person fact — e.g., their birthday, that they have a child, their age, their job title, that they live somewhere specific — not something inferred from behavior.",
+        "A surety can also be promoted from Possibilities if the user explicitly corrects an inference ('no, i actually do X') or confirms it ('yeah exactly, i am X').",
+        "Sureties are more reliable but NOT permanent — update or remove them if the user contradicts or corrects them.",
+        "Max 80 words. Lowercase plain prose. No bullets or headers. Keep it very sparse — most users will have few or no sureties.",
+        "",
+        "RULES FOR BOTH TIERS:",
+        "- Do not store: usernames, Discord roles/IDs, server names, generic tech specs, throwaway chatter, bot commands, jokes, or assistant opinions.",
+        "- Never invent facts not present in the messages.",
+        "- If nothing has changed in a tier, return the existing content for that tier unchanged.",
+        "- If a tier has no content, output an empty string for it.",
+        "",
+        "OUTPUT FORMAT — return EXACTLY this structure, no extra text:",
+        "POSSIBILITIES:",
+        "<updated possibilities text or empty>",
+        "SURETIES:",
+        "<updated sureties text or empty>",
+      ].join("\n");
+
+      const userContent = [
+        `existing possibilities:\n${existing.possibilities || "(none)"}`,
+        `existing sureties:\n${existing.sureties || "(none)"}`,
+        `new user message(s):\n${substantialSnippet}`,
+      ].join("\n\n");
+
       const completion = await client.chat.completions.create({
         model: MEMORY_UPDATE_MODEL,
         messages: [
-          {
-            role: "system",
-            content: "Maintain a compact long-term user dossier for personalizing future replies. Capture durable, personally useful facts from the user's own words across two tiers:\n\nTier 1 — major life facts: failures, losses, grief, school/work setbacks, health issues, relationships, pets, trauma, important worries, achievements, major transitions.\n\nTier 2 — nuanced personal details: strong preferences, hobbies, recurring topics they care about, opinions they hold firmly, places they live or frequent, people important to them (by relationship not name if possible), habits, lifestyle choices (diet, sleep, fitness, gaming habits), identity (nationality, religion, sexuality if stated), career/study focus, media or cultural tastes they mention more than once, emotional patterns or tendencies they reveal.\n\nWhen new messages contain tier 2 signals, integrate them — they matter for personalization. If they repeat or confirm something already in the dossier, skip or subtly reinforce it. If nothing new is worth storing, return the existing dossier unchanged.\n\nDo not store: usernames, Discord roles/IDs, server names, generic tech specs, throwaway chatter, bot commands, jokes, or assistant opinions. Never invent facts.\n\nWrite lowercase plain text. Maximum 200 words. No bullets, no labels, no headers.",
-          },
-          {
-            role: "user",
-            content: `existing dossier:\n${oldDossier}\n\nnew substantial user message(s):\n${substantialSnippet}`,
-          },
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
         ],
-        max_tokens: 300,
+        max_tokens: 400,
         temperature: 0.2,
       });
 
-      const newDossier = sanitizeDossier(completion.choices[0]?.message?.content?.trim() ?? "");
-      if (!newDossier || newDossier === sanitizeDossier(oldDossier)) {
-        log("[Memory] Dossier unchanged — skipping database write.", "gemini");
+      const raw = completion.choices[0]?.message?.content?.trim() ?? "";
+
+      const possibilitiesMatch = raw.match(/POSSIBILITIES:\s*([\s\S]*?)(?=\nSURETIES:|$)/i);
+      const suretiesMatch = raw.match(/SURETIES:\s*([\s\S]*)$/i);
+
+      const newPossibilities = sanitizeDossier(possibilitiesMatch?.[1]?.trim() ?? "");
+      const newSureties = sanitizeDossier(suretiesMatch?.[1]?.trim() ?? "");
+
+      const possibilitiesChanged = newPossibilities && newPossibilities !== sanitizeDossier(existing.possibilities);
+      const suretiesChanged = newSureties !== sanitizeDossier(existing.sureties || "");
+
+      if (!possibilitiesChanged && !suretiesChanged) {
+        log("[Memory] Both tiers unchanged — skipping database write.", "gemini");
         return;
       }
 
-      await storage.upsertUserMemory(userId, newDossier);
-      log("[Memory] Dossier updated.", "gemini");
+      await storage.upsertUserMemory(
+        userId,
+        newPossibilities || existing.possibilities,
+        newSureties,
+      );
+      log(`[Memory] Updated — possibilities: ${possibilitiesChanged ? "changed" : "same"}, sureties: ${suretiesChanged ? "changed" : "same"}.`, "gemini");
     } catch (err: any) {
       log(`[Memory] Update failed: ${err.message}`, "gemini");
     } finally {
@@ -662,8 +737,8 @@ export async function askGeminiWithImage(
   const prompt = buildUserPrompt(userMessage || "what do you think of this?", authorName, context, channelCtx || undefined);
   const history = getHistory(channelId);
   const userId = getMemoryUserId(authorName, context);
-  const dossier = await getUserDossier(userId);
-  const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), dossier);
+  const memData = await getUserMemoryData(userId);
+  const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), memData);
   const systemPrompt = withModeOverride(baseSystemPrompt, context.modeInstruction);
   const mediaGuide = [
     "",
@@ -800,8 +875,8 @@ export async function askGemini(userMessage: string, authorName: string, channel
   const prompt = buildUserPrompt(userMessage, authorName, context, channelCtx || undefined);
   const history = getHistory(channelId);
   const userId = getMemoryUserId(authorName, context);
-  const dossier = await getUserDossier(userId);
-  const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), dossier);
+  const memData = await getUserMemoryData(userId);
+  const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), memData);
   const systemPrompt = withModeOverride(baseSystemPrompt, context.modeInstruction);
 
   log("[Text] Routing to Groq (primary).", "gemini");

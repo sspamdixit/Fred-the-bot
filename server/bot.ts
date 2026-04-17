@@ -1025,9 +1025,16 @@ export async function startBot() {
       try {
         if (command === "dossview") {
           const memory = await storage.getUserMemory(target.id);
+          const possibilities = memory?.dossier?.trim() || "(none)";
+          const sureties = memory?.sureties?.trim() || "(none)";
           await sendPrivate([
-            `dossier for ${target.tag}:`,
-            memory?.dossier?.trim() || "new user. no record.",
+            `memory record for ${target.tag}:`,
+            "",
+            "[confirmed / sureties]",
+            sureties,
+            "",
+            "[inferred / possibilities]",
+            possibilities,
           ].join("\n"));
           return;
         }
