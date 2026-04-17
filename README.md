@@ -8,6 +8,7 @@ A Discord bot with a sharp personality and a web dashboard to manage it. Fred re
 
 ### Bot
 - Responds when mentioned (`@fred`) or when messages start with `?fred`, `?bubbl`, `!fred`, or `!bubbl`
+- **Passive auto-reply** — jumps into conversations unprompted when chat is controversial, opinionated, or worth commenting on; no @mention required; heuristic-based with zero passive token cost
 - Full creative writing: poems, roasts, stories, lyrics, essays
 - Code generation in any language
 - Image and video analysis (requires Gemini API key)
@@ -22,7 +23,8 @@ A Discord bot with a sharp personality and a web dashboard to manage it. Fred re
 - AI-generated custom status that refreshes every 30 minutes
 - Automatic dead-chat detection and poke in the lounge channel
 - Personality modes in a dedicated mode channel: `?uwu`, `?boomer`, `?pirate`, `?nerd`, `?overlord`
-- Mode theme changes can update nickname and status server-wide
+- Modes apply server-wide to every request type (`?fred`, `?roast`, `?explain`, passive replies, etc.)
+- Mode theme changes update nickname and status server-wide
 
 ### Dashboard
 - Live message feed via Socket.IO

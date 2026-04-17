@@ -75,6 +75,8 @@ export interface PassiveWatchContext {
   content: string;
   isControversial: boolean;
   hasInsult?: boolean;
+  modeInstruction?: string;
+  sendReply: (text: string) => Promise<void>;
 }
 
 const channelHistories = new Map<string, HistoryEntry[]>();
@@ -152,9 +154,17 @@ async function handlePassiveWatch(context: PassiveWatchContext): Promise<void> {
     userId: context.authorId,
     guildName: context.guildId ?? undefined,
     channelName: undefined,
+    modeInstruction: context.modeInstruction,
   });
 
   if (!reply || reply === "SKIP") return;
+
+  log(`[Passive] Jumping in on ${context.authorName}'s message in channel ${context.channelId}`, "gemini");
+  try {
+    await context.sendReply(reply);
+  } catch (err: any) {
+    log(`[Passive] Failed to send reply: ${err.message}`, "gemini");
+  }
 }
 
 export function isPassiveWatchCandidate(content: string): boolean {

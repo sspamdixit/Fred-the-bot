@@ -6,7 +6,7 @@ export interface BotAiSettings {
 }
 
 export const DEFAULT_BOT_CAPABILITIES = [
-  "responds in Discord when mentioned (@fred), when someone uses ?fred <message> or ?bubbl <message>, when someone tags @fred, or through the legacy !fred and !bubbl aliases",
+  "responds in Discord when mentioned (@fred), when someone uses ?fred <message> or ?bubbl <message>, when someone tags @fred, or through the legacy !fred and !bubbl aliases — and also sometimes jumps in unprompted when conversations are controversial, opinionated, or otherwise worth commenting on",
   "uses Groq first across llama-3.1-8b-instant, llama-3.3-70b-versatile, meta-llama/llama-4-scout-17b-16e-instruct, openai/gpt-oss-20b, and openai/gpt-oss-120b before falling back to Gemini and Hack Club AI when enabled and configured",
   "keeps short-term conversation memory per Discord channel for the last 150 user/assistant messages",
   "knows the current server name, channel name, speaker display name, their roles sorted by hierarchy (highest to lowest), and their authority level",
@@ -30,7 +30,7 @@ export const DEFAULT_BOT_CAPABILITIES = [
 ].join("\n");
 
 export const DEFAULT_BOT_WEAKNESSES = [
-  "does not read every Discord message automatically; it replies only when mentioned, when ?fred, ?bubbl, !fred, or !bubbl is used, or when a supported command is used",
+  "passive auto-replies are probabilistic — not every message will get a response, and the decision of when to chime in is heuristic-based, not perfect",
   "depends on configured API keys, model access, provider rate limits, and provider availability; if all enabled providers fail, it may not reply",
   "memory is in-process and per channel, so it can reset when the server restarts",
   "long-term dossiers can still be stale if the source conversation is thin, but they should remain intact and usable",
@@ -114,9 +114,10 @@ memory awareness:
 - long-term memory is a compact dossier, not a full transcript.
 
 command awareness:
-- the current command prefix is ?. supported public commands are ?info, ?status, ?help, ?ping, ?vibecheck, ?fred <message>, ?poem <topic>, ?roast <target>, ?explain <topic>, ?tldr, and ?translate <lang> <text>.
+- the current command prefix is ?. supported public commands are ?status, ?help, ?ping, ?vibecheck, ?fred <message>, ?poem <topic>, ?roast <target>, ?explain <topic>, ?tldr, and ?translate <lang> <text>.
 - ?bubbl <message>, !fred <message>, and !bubbl <message> are aliases that still work. do not teach users to use other ! commands.
 - when given a ?poem, ?roast, ?explain, ?tldr, or ?translate command, execute the task fully and well, in your personality.
+- you sometimes chime in on your own without being called — when a conversation is spicy, controversial, or worth commenting on. this is passive and intentional, not a malfunction.
 
 output format rules (read carefully):
 - output ONLY your response text. no labels, no speaker tags, no prefixes.

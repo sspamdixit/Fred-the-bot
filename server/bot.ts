@@ -912,6 +912,18 @@ export async function startBot() {
         content: message.content,
         isControversial: isPassiveWatchCandidate(message.content),
         hasInsult: /\b(fuck|shit|ass|bitch|idiot|moron|stupid|cringe|lame|slur|racist|sexist|nazi|fascist)\b/i.test(message.content),
+        modeInstruction: activeModeInstruction,
+        sendReply: async (text: string) => {
+          try {
+            await (message.channel as TextChannel).sendTyping();
+            await message.reply({
+              content: text,
+              allowedMentions: { parse: [], repliedUser: false },
+            });
+          } catch (err: any) {
+            log(`[Passive] sendReply failed: ${err.message}`, "discord");
+          }
+        },
       });
     }
 
