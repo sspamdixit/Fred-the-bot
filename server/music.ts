@@ -159,6 +159,52 @@ function attachPlayerEvents(player: Player, guildId: string): void {
   });
 }
 
+export interface SearchResult {
+  title: string;
+  author: string;
+  uri: string;
+  duration: number;
+  isStream: boolean;
+}
+
+export async function searchTracks(query: string, limit = 5): Promise<SearchResult[]> {
+  if (!shoukaku) return [];
+
+  const node = shoukaku.getIdealNode();
+  if (!node) return [];
+
+  const isUrl = /^https?:\/\//i.test(query);
+  const identifier = isUrl ? query : `ytsearch:${query}`;
+
+  try {
+    const result = await node.rest.resolve(identifier);
+    if (!result) return [];
+
+    const toResult = (raw: any): SearchResult => ({
+      title: raw.info.title,
+      author: raw.info.author,
+      uri: raw.info.uri,
+      duration: raw.info.length,
+      isStream: raw.info.isStream,
+    });
+
+    if (result.loadType === "search") {
+      return (result.data as any[]).slice(0, limit).map(toResult);
+    }
+    if (result.loadType === "track") {
+      return [toResult(result.data)];
+    }
+    if (result.loadType === "playlist") {
+      const tracks = (result.data as any).tracks as any[];
+      return tracks.slice(0, limit).map(toResult);
+    }
+  } catch {
+    // silently return empty on search errors
+  }
+
+  return [];
+}
+
 export async function resolveTrack(
   query: string,
   requestedBy: string,

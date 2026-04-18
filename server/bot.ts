@@ -20,6 +20,7 @@ import {
   initMusic,
   resolveTrack,
   resolvePlaylist,
+  searchTracks,
   joinAndPlay,
   joinAndPlayMultiple,
   addToFront,
@@ -855,11 +856,15 @@ const SLASH_COMMANDS = [
   new SlashCommandBuilder()
     .setName("play")
     .setDescription("play a song or playlist in your current voice channel")
-    .addStringOption((o) => o.setName("query").setDescription("song name or url (also supports playlist urls)").setRequired(true)),
+    .addStringOption((o) =>
+      o.setName("query").setDescription("search by song name or paste a url").setRequired(true).setAutocomplete(true),
+    ),
   new SlashCommandBuilder()
     .setName("playtop")
     .setDescription("add a song to the front of the queue (plays next)")
-    .addStringOption((o) => o.setName("query").setDescription("song name or url").setRequired(true)),
+    .addStringOption((o) =>
+      o.setName("query").setDescription("search by song name or paste a url").setRequired(true).setAutocomplete(true),
+    ),
   new SlashCommandBuilder()
     .setName("skip")
     .setDescription("skip the current track"),
@@ -1859,6 +1864,31 @@ export async function startBot() {
   });
 
   client.on("interactionCreate", async (interaction) => {
+    // --- autocomplete handler ---
+    if (interaction.isAutocomplete()) {
+      const { commandName } = interaction;
+      if ((commandName === "play" || commandName === "playtop") && interaction.options.getFocused(true).name === "query") {
+        const query = interaction.options.getFocused();
+        if (!query || query.trim().length < 2) {
+          await interaction.respond([]);
+          return;
+        }
+        try {
+          const results = await searchTracks(query.trim(), 8);
+          const choices = results.map((r) => {
+            const dur = r.isStream ? "LIVE" : formatDuration(r.duration);
+            const label = `${r.title} — ${r.author} [${dur}]`.slice(0, 100);
+            const value = r.uri.slice(0, 100);
+            return { name: label, value };
+          });
+          await interaction.respond(choices);
+        } catch {
+          await interaction.respond([]);
+        }
+      }
+      return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
     const { commandName } = interaction;
 
