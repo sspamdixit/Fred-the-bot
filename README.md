@@ -8,20 +8,20 @@ A Discord bot with a sharp personality and a web dashboard to manage it. Fred re
 
 ### Bot
 - Responds when mentioned (`@fred`) or when messages start with `?fred`, `?bubbl`, `!fred`, or `!bubbl`
+- All commands available as both `?prefix` and `/slash` commands
 - **Passive auto-reply** — jumps into conversations unprompted when chat is controversial, opinionated, or worth commenting on; no @mention required; heuristic-based with zero passive token cost
 - Full creative writing: poems, roasts, stories, lyrics, essays
 - Code generation in any language
 - Image and video analysis (requires Gemini API key)
-- Channel summarization (`?tldr`)
+- Channel summarization + vibe check (`?tldr` / `/tldr`)
 - Translation to any language
-- Vibecheck — reads recent chat and judges it
 - Per-channel conversation memory (last 150 messages)
 - Long-term per-user memory dossier stored in PostgreSQL
 - Authority hierarchy via Discord roles: `owner`, `moderator`, `developer`, `member`
 - Slur filter with auto-delete, DM warning, and 10-minute timeout
 - Daily question of the day (QOTD) with Discord polls
 - AI-generated custom status that refreshes every 30 minutes
-- Automatic dead-chat detection and poke in the lounge channel
+- Automatic dead-chat detection in the lounge channel with unique messages each time
 - Personality modes in a dedicated mode channel: `?uwu`, `?boomer`, `?pirate`, `?nerd`, `?overlord`
 - Modes apply server-wide to every request type (`?fred`, `?roast`, `?explain`, passive replies, etc.)
 - Mode theme changes update nickname and status server-wide
@@ -40,25 +40,35 @@ A Discord bot with a sharp personality and a web dashboard to manage it. Fred re
 
 ## Commands
 
+All commands work with both `/` (slash) and `?` (prefix). Slash commands show autocomplete in Discord.
+
 | Command | Description |
 |---|---|
-| `?help` | Full command list |
-| `?status` | Current model, token usage, uptime |
-| `?ping` | Latency check |
-| `?vibecheck` | AI reads the current channel vibe |
-| `?tldr` | Summarizes recent chat |
-| `?poem <topic>` | Writes a poem |
-| `?roast <target>` | Roasts a person, thing, or idea |
-| `?explain <topic>` | Explains something thoroughly |
-| `?translate <lang> <text>` | Translates text |
-| `?fred <message>` | Talk to the AI directly |
+| `/help` / `?help` | Full command list |
+| `/status` / `?status` | Current model, token usage, uptime |
+| `/ping` / `?ping` | Latency check |
+| `/tldr` / `?tldr` | Summarizes recent chat and checks the vibe |
+| `/poem <topic>` / `?poem <topic>` | Writes a poem |
+| `/roast <target>` / `?roast <target>` | Roasts a person, thing, or idea |
+| `/explain <topic>` / `?explain <topic>` | Explains something thoroughly |
+| `/translate <lang> <text>` / `?translate <lang> <text>` | Translates text |
+| `/fred <message>` / `?fred <message>` | Talk to the AI directly |
 
-Aliases: `?bubbl`, `!fred`, `!bubbl` all work.
+`?` aliases: `?bubbl`, `!fred`, `!bubbl` all work for direct AI chat.
 
-Mode commands work only in channel `1494385811175510259`:
-`?uwu`, `?boomer`, `?pirate`, `?nerd`, `?overlord`, `?mode`, `?normal`
+Mode commands work only in the designated mode channel:
 
-Owner-only (DM responses): `?dossview @user`, `?dossdelete @user`, `?dosswipe @user`
+| Command | Description |
+|---|---|
+| `/uwu` / `?uwu` | Activate uwu mode |
+| `/boomer` / `?boomer` | Activate boomer mode |
+| `/pirate` / `?pirate` | Activate pirate mode |
+| `/nerd` / `?nerd` | Activate nerd mode |
+| `/overlord` / `?overlord` | Activate overlord mode |
+| `/mode` / `?mode` / `?normal` | Deactivate current mode |
+
+Owner-only (reply sent privately): `/dossview @user`, `/dossdelete @user`, `/dosswipe @user`  
+`?` equivalents also work: `?dossview @user`, `?dossdelete @user`, `?dosswipe @user`
 
 ---
 
