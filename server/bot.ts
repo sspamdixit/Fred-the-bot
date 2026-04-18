@@ -19,12 +19,23 @@ import { storage } from "./storage";
 import {
   initMusic,
   resolveTrack,
+  resolvePlaylist,
   joinAndPlay,
+  joinAndPlayMultiple,
+  addToFront,
   skipTrack,
   stopMusic,
+  disconnectMusic,
   pauseMusic,
   resumeMusic,
   setMusicVolume,
+  shuffleQueue,
+  cycleLoop,
+  removeTrack,
+  moveTrack,
+  clearQueue,
+  seekTrack,
+  parseSeekTime,
   getQueue,
   formatDuration,
 } from "./music";
@@ -1230,6 +1241,23 @@ export async function startBot() {
           `or just ping <@${client?.user?.id}> with your message`,
           "or attach an image/video to any message to get a description",
           "",
+          "**music commands**",
+          "`?play <song/url>` — play a song or playlist by name or url",
+          "`?playtop <song>` — add a song to the front of the queue",
+          "`?skip` — skip the current track",
+          "`?stop` — stop music and disconnect",
+          "`?disconnect` / `?leave` — disconnect from voice",
+          "`?pause` / `?resume` — pause or resume playback",
+          "`?np` — show what's currently playing",
+          "`?queue` — show the queue",
+          "`?volume <0-100>` — set volume",
+          "`?shuffle` — shuffle the queue",
+          "`?loop` / `?repeat` — cycle loop mode (off → track → queue)",
+          "`?seek <time>` — seek to a position, e.g. `?seek 1:30`",
+          "`?remove <position>` — remove a track from the queue",
+          "`?move <from> <to>` — reorder tracks in the queue",
+          "`?clear` — clear the queue without stopping",
+          "",
           "**mode commands** (mode channel only)",
           "`?uwu` — uwu speak mode",
           "`?boomer` — boomer mode",
@@ -1328,7 +1356,7 @@ export async function startBot() {
     }
 
     // --- music commands ---
-    const musicCmdMatch = rawContent.match(/^\?(play|skip|stop|pause|resume|queue|np|volume)\s*([\s\S]*)?$/i);
+    const musicCmdMatch = rawContent.match(/^\?(play|playtop|skip|stop|pause|resume|queue|np|volume|shuffle|loop|repeat|remove|move|clear|disconnect|leave|seek)\s*([\s\S]*)?$/i);
     if (musicCmdMatch) {
       const musicCmd = musicCmdMatch[1].toLowerCase();
       const musicArg = (musicCmdMatch[2] ?? "").trim();
@@ -1353,21 +1381,79 @@ export async function startBot() {
         }
         try {
           await (message.channel as TextChannel).sendTyping();
+          const isUrl = /^https?:\/\//i.test(musicArg);
+          if (isUrl) {
+            const { tracks, playlistName } = await resolvePlaylist(musicArg, message.author.username);
+            if (!tracks.length) {
+              await message.reply({ content: "couldn't find anything. try a different link.", allowedMentions: { parse: [], repliedUser: false } });
+              return;
+            }
+            if (tracks.length === 1) {
+              const result = await joinAndPlay(guildId, voiceChannel.id, message.channelId, tracks[0], message.guild?.shardId ?? 0);
+              const dur = tracks[0].isStream ? "LIVE" : formatDuration(tracks[0].duration);
+              await message.reply({
+                content: result === "playing"
+                  ? `now playing: **${tracks[0].title}** by ${tracks[0].author} [${dur}]`
+                  : `queued: **${tracks[0].title}** by ${tracks[0].author} [${dur}]`,
+                allowedMentions: { parse: [], repliedUser: false },
+              });
+            } else {
+              const result = await joinAndPlayMultiple(guildId, voiceChannel.id, message.channelId, tracks, message.guild?.shardId ?? 0);
+              await message.reply({
+                content: result === "playing"
+                  ? `playing playlist **${playlistName ?? "untitled"}** — ${tracks.length} tracks loaded.`
+                  : `queued playlist **${playlistName ?? "untitled"}** — ${tracks.length} tracks added.`,
+                allowedMentions: { parse: [], repliedUser: false },
+              });
+            }
+          } else {
+            const track = await resolveTrack(musicArg, message.author.username);
+            if (!track) {
+              await message.reply({ content: "couldn't find that. try a different search.", allowedMentions: { parse: [], repliedUser: false } });
+              return;
+            }
+            const result = await joinAndPlay(guildId, voiceChannel.id, message.channelId, track, message.guild?.shardId ?? 0);
+            const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
+            await message.reply({
+              content: result === "playing"
+                ? `now playing: **${track.title}** by ${track.author} [${dur}]`
+                : `queued: **${track.title}** by ${track.author} [${dur}]`,
+              allowedMentions: { parse: [], repliedUser: false },
+            });
+          }
+        } catch (err: any) {
+          log(`[Music:play] ${err.message}`, "discord");
+          await message.reply({ content: `music error: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
+        }
+        return;
+      }
+
+      if (musicCmd === "playtop") {
+        if (!musicArg) {
+          await message.reply({ content: "play what at the top? give me a song name or url.", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+        if (!voiceChannel) {
+          await message.reply({ content: "join a voice channel first.", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+        try {
+          await (message.channel as TextChannel).sendTyping();
           const track = await resolveTrack(musicArg, message.author.username);
           if (!track) {
             await message.reply({ content: "couldn't find that. try a different search.", allowedMentions: { parse: [], repliedUser: false } });
             return;
           }
-          const result = await joinAndPlay(guildId, voiceChannel.id, message.channelId, track, message.guild?.shardId ?? 0);
+          const result = await addToFront(guildId, voiceChannel.id, message.channelId, track, message.guild?.shardId ?? 0);
           const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
           await message.reply({
             content: result === "playing"
               ? `now playing: **${track.title}** by ${track.author} [${dur}]`
-              : `queued: **${track.title}** by ${track.author} [${dur}]`,
+              : `added to top of queue: **${track.title}** by ${track.author} [${dur}]`,
             allowedMentions: { parse: [], repliedUser: false },
           });
         } catch (err: any) {
-          log(`[Music:play] ${err.message}`, "discord");
+          log(`[Music:playtop] ${err.message}`, "discord");
           await message.reply({ content: `music error: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
         }
         return;
@@ -1395,6 +1481,19 @@ export async function startBot() {
           });
         } catch (err: any) {
           await message.reply({ content: `stop failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
+        }
+        return;
+      }
+
+      if (musicCmd === "disconnect" || musicCmd === "leave") {
+        try {
+          const done = await disconnectMusic(guildId);
+          await message.reply({
+            content: done ? "disconnected." : "i'm not in a voice channel.",
+            allowedMentions: { parse: [], repliedUser: false },
+          });
+        } catch (err: any) {
+          await message.reply({ content: `disconnect failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
         }
         return;
       }
@@ -1435,7 +1534,8 @@ export async function startBot() {
         if (q.current) {
           const dur = q.current.isStream ? "LIVE" : formatDuration(q.current.duration);
           const pos = formatDuration(q.player.position);
-          lines.push(`**now playing:** ${q.current.title} [${pos}/${dur}] — req by ${q.current.requestedBy}`);
+          const loopLabel = q.loop !== "none" ? ` | loop: ${q.loop}` : "";
+          lines.push(`**now playing:** ${q.current.title} [${pos}/${dur}] — req by ${q.current.requestedBy}${loopLabel}`);
         }
         if (q.tracks.length > 0) {
           lines.push("");
@@ -1458,8 +1558,9 @@ export async function startBot() {
         }
         const dur = q.current.isStream ? "LIVE" : formatDuration(q.current.duration);
         const pos = formatDuration(q.player.position);
+        const loopLabel = q.loop !== "none" ? ` | loop: ${q.loop}` : "";
         await message.reply({
-          content: `now playing: **${q.current.title}** by ${q.current.author} [${pos}/${dur}]`,
+          content: `now playing: **${q.current.title}** by ${q.current.author} [${pos}/${dur}]${loopLabel}`,
           allowedMentions: { parse: [], repliedUser: false },
         });
         return;
@@ -1479,6 +1580,87 @@ export async function startBot() {
           });
         } catch (err: any) {
           await message.reply({ content: `volume failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
+        }
+        return;
+      }
+
+      if (musicCmd === "shuffle") {
+        const done = shuffleQueue(guildId);
+        await message.reply({
+          content: done ? "queue shuffled." : "not enough tracks in the queue to shuffle.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+        return;
+      }
+
+      if (musicCmd === "loop" || musicCmd === "repeat") {
+        const newMode = cycleLoop(guildId);
+        if (newMode === null) {
+          await message.reply({ content: "nothing is playing.", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+        const labels: Record<string, string> = { none: "loop off", track: "looping current track", queue: "looping entire queue" };
+        await message.reply({ content: labels[newMode] ?? newMode, allowedMentions: { parse: [], repliedUser: false } });
+        return;
+      }
+
+      if (musicCmd === "remove") {
+        const idx = parseInt(musicArg, 10);
+        if (isNaN(idx) || idx < 1) {
+          await message.reply({ content: "usage: `?remove <position>` (use `?queue` to see positions)", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+        const removed = removeTrack(guildId, idx);
+        await message.reply({
+          content: removed ? `removed **${removed.title}** from the queue.` : "no track at that position.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+        return;
+      }
+
+      if (musicCmd === "move") {
+        const parts = musicArg.split(/\s+/);
+        const from = parseInt(parts[0], 10);
+        const to = parseInt(parts[1], 10);
+        if (isNaN(from) || isNaN(to)) {
+          await message.reply({ content: "usage: `?move <from> <to>` (positions from `?queue`)", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+        const done = moveTrack(guildId, from, to);
+        await message.reply({
+          content: done ? `moved track from position ${from} to ${to}.` : "invalid positions.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+        return;
+      }
+
+      if (musicCmd === "clear") {
+        const count = clearQueue(guildId);
+        await message.reply({
+          content: count > 0 ? `cleared ${count} track${count === 1 ? "" : "s"} from the queue.` : "queue was already empty.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+        return;
+      }
+
+      if (musicCmd === "seek") {
+        if (!musicArg) {
+          await message.reply({ content: "usage: `?seek <time>` — e.g. `?seek 1:30` or `?seek 90`", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+        const ms = parseSeekTime(musicArg);
+        if (ms === null) {
+          await message.reply({ content: "invalid time format. use `1:30` or `90` (seconds).", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+        try {
+          const done = await seekTrack(guildId, ms);
+          await message.reply({
+            content: done ? `seeked to ${formatDuration(ms)}.` : "can't seek — nothing playing or it's a livestream.",
+            allowedMentions: { parse: [], repliedUser: false },
+          });
+        } catch (err: any) {
+          await message.reply({ content: `seek failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
         }
         return;
       }

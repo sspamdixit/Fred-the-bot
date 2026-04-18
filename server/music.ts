@@ -34,11 +34,14 @@ export interface QueueTrack {
   requestedBy: string;
 }
 
+export type LoopMode = "none" | "track" | "queue";
+
 export interface GuildQueue {
   player: Player;
   tracks: QueueTrack[];
   current: QueueTrack | null;
   volume: number;
+  loop: LoopMode;
   voiceChannelId: string;
   textChannelId: string;
 }
@@ -88,6 +91,16 @@ export function formatDuration(ms: number): string {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
+export function parseSeekTime(input: string): number | null {
+  // Supports: "90", "1:30", "1:30:00"
+  const parts = input.trim().split(":").map(Number);
+  if (parts.some(isNaN)) return null;
+  if (parts.length === 1) return parts[0] * 1000;
+  if (parts.length === 2) return (parts[0] * 60 + parts[1]) * 1000;
+  if (parts.length === 3) return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
+  return null;
+}
+
 function scheduleAutoDisconnect(guildId: string): void {
   setTimeout(async () => {
     const q = queues.get(guildId);
@@ -103,6 +116,15 @@ function attachPlayerEvents(player: Player, guildId: string): void {
   player.on("trackEnd", () => {
     const queue = queues.get(guildId);
     if (!queue) return;
+
+    if (queue.loop === "track" && queue.current) {
+      player.playTrack({ track: { encoded: queue.current.encoded } });
+      return;
+    }
+
+    if (queue.loop === "queue" && queue.current) {
+      queue.tracks.push(queue.current);
+    }
 
     if (queue.tracks.length === 0) {
       queue.current = null;
@@ -178,6 +200,50 @@ export async function resolveTrack(
   };
 }
 
+export async function resolvePlaylist(
+  query: string,
+  requestedBy: string,
+): Promise<{ tracks: QueueTrack[]; playlistName: string | null }> {
+  if (!shoukaku) throw new Error("Music not initialised.");
+
+  const node = shoukaku.getIdealNode();
+  if (!node) throw new Error("No Lavalink nodes available.");
+
+  const isUrl = /^https?:\/\//i.test(query);
+  const identifier = isUrl ? query : `ytsearch:${query}`;
+
+  const result = await node.rest.resolve(identifier);
+  if (!result) return { tracks: [], playlistName: null };
+
+  const toTrack = (raw: any): QueueTrack => ({
+    encoded: raw.encoded,
+    title: raw.info.title,
+    author: raw.info.author,
+    uri: raw.info.uri,
+    duration: raw.info.length,
+    isStream: raw.info.isStream,
+    requestedBy,
+  });
+
+  if (result.loadType === "playlist") {
+    const data = result.data as any;
+    const tracks: QueueTrack[] = (data.tracks as any[]).map(toTrack);
+    return { tracks, playlistName: data.info?.name ?? null };
+  }
+
+  if (result.loadType === "search") {
+    const tracks = result.data as any[];
+    if (!tracks.length) return { tracks: [], playlistName: null };
+    return { tracks: [toTrack(tracks[0])], playlistName: null };
+  }
+
+  if (result.loadType === "track") {
+    return { tracks: [toTrack(result.data)], playlistName: null };
+  }
+
+  return { tracks: [], playlistName: null };
+}
+
 export async function joinAndPlay(
   guildId: string,
   voiceChannelId: string,
@@ -202,6 +268,7 @@ export async function joinAndPlay(
       tracks: [],
       current: null,
       volume: 100,
+      loop: "none",
       voiceChannelId,
       textChannelId,
     };
@@ -212,6 +279,97 @@ export async function joinAndPlay(
 
   if (queue.current || queue.player.paused) {
     queue.tracks.push(track);
+    return "queued";
+  }
+
+  queue.current = track;
+  queue.player.playTrack({ track: { encoded: track.encoded } });
+  await queue.player.setVolume(queue.volume / 100);
+  return "playing";
+}
+
+export async function joinAndPlayMultiple(
+  guildId: string,
+  voiceChannelId: string,
+  textChannelId: string,
+  tracks: QueueTrack[],
+  shardId = 0,
+): Promise<"playing" | "queued"> {
+  if (!shoukaku) throw new Error("Music not initialised.");
+  if (!tracks.length) throw new Error("No tracks provided.");
+
+  let queue = queues.get(guildId);
+
+  if (!queue) {
+    const player = await shoukaku.joinVoiceChannel({
+      guildId,
+      channelId: voiceChannelId,
+      shardId,
+      deaf: true,
+    });
+
+    queue = {
+      player,
+      tracks: [],
+      current: null,
+      volume: 100,
+      loop: "none",
+      voiceChannelId,
+      textChannelId,
+    };
+
+    attachPlayerEvents(player, guildId);
+    queues.set(guildId, queue);
+  }
+
+  if (queue.current || queue.player.paused) {
+    queue.tracks.push(...tracks);
+    return "queued";
+  }
+
+  const [first, ...rest] = tracks;
+  queue.tracks.push(...rest);
+  queue.current = first;
+  queue.player.playTrack({ track: { encoded: first.encoded } });
+  await queue.player.setVolume(queue.volume / 100);
+  return "playing";
+}
+
+export async function addToFront(
+  guildId: string,
+  voiceChannelId: string,
+  textChannelId: string,
+  track: QueueTrack,
+  shardId = 0,
+): Promise<"playing" | "queued"> {
+  if (!shoukaku) throw new Error("Music not initialised.");
+
+  let queue = queues.get(guildId);
+
+  if (!queue) {
+    const player = await shoukaku.joinVoiceChannel({
+      guildId,
+      channelId: voiceChannelId,
+      shardId,
+      deaf: true,
+    });
+
+    queue = {
+      player,
+      tracks: [],
+      current: null,
+      volume: 100,
+      loop: "none",
+      voiceChannelId,
+      textChannelId,
+    };
+
+    attachPlayerEvents(player, guildId);
+    queues.set(guildId, queue);
+  }
+
+  if (queue.current || queue.player.paused) {
+    queue.tracks.unshift(track);
     return "queued";
   }
 
@@ -234,6 +392,19 @@ export async function stopMusic(guildId: string): Promise<boolean> {
   if (!queue) return false;
   queue.tracks = [];
   queue.current = null;
+  queue.loop = "none";
+  await queue.player.stopTrack();
+  await shoukaku?.leaveVoiceChannel(guildId);
+  queues.delete(guildId);
+  return true;
+}
+
+export async function disconnectMusic(guildId: string): Promise<boolean> {
+  const queue = queues.get(guildId);
+  if (!queue) return false;
+  queue.tracks = [];
+  queue.current = null;
+  queue.loop = "none";
   await queue.player.stopTrack();
   await shoukaku?.leaveVoiceChannel(guildId);
   queues.delete(guildId);
@@ -264,5 +435,64 @@ export async function setMusicVolume(
   if (!queue) return false;
   queue.volume = Math.max(0, Math.min(100, volume));
   await queue.player.setVolume(queue.volume / 100);
+  return true;
+}
+
+export function shuffleQueue(guildId: string): boolean {
+  const queue = queues.get(guildId);
+  if (!queue || queue.tracks.length < 2) return false;
+  for (let i = queue.tracks.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [queue.tracks[i], queue.tracks[j]] = [queue.tracks[j], queue.tracks[i]];
+  }
+  return true;
+}
+
+export function setLoop(guildId: string, mode: LoopMode): boolean {
+  const queue = queues.get(guildId);
+  if (!queue) return false;
+  queue.loop = mode;
+  return true;
+}
+
+export function cycleLoop(guildId: string): LoopMode | null {
+  const queue = queues.get(guildId);
+  if (!queue) return null;
+  const next: Record<LoopMode, LoopMode> = { none: "track", track: "queue", queue: "none" };
+  queue.loop = next[queue.loop];
+  return queue.loop;
+}
+
+export function removeTrack(guildId: string, index: number): QueueTrack | null {
+  const queue = queues.get(guildId);
+  if (!queue || index < 1 || index > queue.tracks.length) return null;
+  const [removed] = queue.tracks.splice(index - 1, 1);
+  return removed ?? null;
+}
+
+export function moveTrack(guildId: string, from: number, to: number): boolean {
+  const queue = queues.get(guildId);
+  if (!queue) return false;
+  if (from < 1 || from > queue.tracks.length) return false;
+  if (to < 1 || to > queue.tracks.length) return false;
+  if (from === to) return true;
+  const [track] = queue.tracks.splice(from - 1, 1);
+  queue.tracks.splice(to - 1, 0, track);
+  return true;
+}
+
+export function clearQueue(guildId: string): number {
+  const queue = queues.get(guildId);
+  if (!queue) return 0;
+  const count = queue.tracks.length;
+  queue.tracks = [];
+  return count;
+}
+
+export async function seekTrack(guildId: string, ms: number): Promise<boolean> {
+  const queue = queues.get(guildId);
+  if (!queue || !queue.current) return false;
+  if (queue.current.isStream) return false;
+  await queue.player.seekTo(ms);
   return true;
 }
