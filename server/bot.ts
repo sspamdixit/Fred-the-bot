@@ -6,6 +6,9 @@ import {
   TextChannel,
   PresenceStatusData,
   Message,
+  REST,
+  Routes,
+  SlashCommandBuilder,
 } from "discord.js";
 import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
@@ -790,6 +793,72 @@ async function startDeadChatChecker(readyClient: Client) {
   log("[DeadChat] Dead chat checker started — fires every 30 minutes.", "discord");
 }
 
+const SLASH_COMMANDS = [
+  new SlashCommandBuilder()
+    .setName("fred")
+    .setDescription("talk to fred")
+    .addStringOption((o) => o.setName("message").setDescription("what to say").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("poem")
+    .setDescription("write a poem about something")
+    .addStringOption((o) => o.setName("topic").setDescription("poem topic").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("roast")
+    .setDescription("roast a person, thing, or idea")
+    .addStringOption((o) => o.setName("target").setDescription("who or what to roast").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("explain")
+    .setDescription("explain something in depth")
+    .addStringOption((o) => o.setName("topic").setDescription("what to explain").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("translate")
+    .setDescription("translate text to another language")
+    .addStringOption((o) => o.setName("language").setDescription("target language").setRequired(true))
+    .addStringOption((o) => o.setName("text").setDescription("text to translate").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("tldr")
+    .setDescription("summarize recent chat and check the vibe"),
+  new SlashCommandBuilder()
+    .setName("ping")
+    .setDescription("check if the bot is alive"),
+  new SlashCommandBuilder()
+    .setName("status")
+    .setDescription("show bot status and ai usage stats"),
+  new SlashCommandBuilder()
+    .setName("help")
+    .setDescription("list all commands"),
+  new SlashCommandBuilder()
+    .setName("uwu")
+    .setDescription("activate uwu mode (mode channel only)"),
+  new SlashCommandBuilder()
+    .setName("boomer")
+    .setDescription("activate boomer mode (mode channel only)"),
+  new SlashCommandBuilder()
+    .setName("pirate")
+    .setDescription("activate pirate mode (mode channel only)"),
+  new SlashCommandBuilder()
+    .setName("nerd")
+    .setDescription("activate nerd mode (mode channel only)"),
+  new SlashCommandBuilder()
+    .setName("overlord")
+    .setDescription("activate overlord mode (mode channel only)"),
+  new SlashCommandBuilder()
+    .setName("mode")
+    .setDescription("deactivate the current mode (mode channel only)"),
+  new SlashCommandBuilder()
+    .setName("dossview")
+    .setDescription("view a user's memory record (owner only)")
+    .addUserOption((o) => o.setName("user").setDescription("target user").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("dossdelete")
+    .setDescription("delete a user's saved memory record (owner only)")
+    .addUserOption((o) => o.setName("user").setDescription("target user").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("dosswipe")
+    .setDescription("wipe a user's saved record and live session (owner only)")
+    .addUserOption((o) => o.setName("user").setDescription("target user").setRequired(true)),
+].map((cmd) => cmd.toJSON());
+
 export async function startBot() {
   const rawToken = (
     process.env.TOKEN ??
@@ -823,7 +892,7 @@ export async function startBot() {
 
   client = new Client({ intents });
 
-  client.once("ready", (readyClient) => {
+  client.once("ready", async (readyClient) => {
     log(`${readyClient.user.tag} is now active in the Lab.`, "discord");
     lastDiscordDisconnectAt = null;
 
@@ -843,6 +912,13 @@ export async function startBot() {
     startDeadChatChecker(readyClient);
     startStatusShuffle(readyClient);
     startBotWatchdog();
+
+    try {
+      await readyClient.application.commands.set(SLASH_COMMANDS);
+      log(`Registered ${SLASH_COMMANDS.length} slash commands.`, "discord");
+    } catch (err: any) {
+      log(`Failed to register slash commands: ${err.message}`, "discord");
+    }
   });
 
   client.on("messageCreate", async (message: Message) => {
@@ -1354,6 +1430,237 @@ export async function startBot() {
       } catch (err: any) {
         log(`[Gemini] Failed to reply: ${err.message}`, "discord");
       }
+    }
+  });
+
+  client.on("interactionCreate", async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+    const { commandName } = interaction;
+
+    // Build role names from guild member cache
+    const roleNames: string[] = [];
+    if (interaction.guild) {
+      const guildMember = interaction.guild.members.cache.get(interaction.user.id);
+      if (guildMember) {
+        guildMember.roles.cache
+          .filter((r) => r.name !== "@everyone")
+          .sort((a, b) => b.position - a.position)
+          .forEach((r) => roleNames.push(r.name));
+      }
+    }
+    const isOwner = roleNames.some((r) => r.trim().toLowerCase() === "owner");
+    const authorDisplayName = (interaction.member as any)?.displayName ?? interaction.user.username;
+    const guildName = interaction.guild?.name ?? "unknown server";
+    const channelName = (interaction.channel as TextChannel)?.name ?? "unknown";
+    const activeModeKey = interaction.guildId ? guildModes.get(interaction.guildId) : undefined;
+    const activeModeInstruction = activeModeKey ? BOT_MODES[activeModeKey]?.instruction : undefined;
+    const authorContext = {
+      userId: interaction.user.id,
+      roles: roleNames,
+      sortedRoles: roleNames,
+      isOwner,
+      guildName,
+      channelName,
+      modeInstruction: activeModeInstruction,
+    };
+
+    const replyEph = (content: string) =>
+      interaction.reply({ content, ephemeral: true, allowedMentions: { parse: [] } });
+
+    // --- ping ---
+    if (commandName === "ping") {
+      const start = Date.now();
+      await interaction.reply({ content: "pong.", allowedMentions: { parse: [] } });
+      await interaction.editReply(`pong. roundtrip: **${Date.now() - start}ms** | ws: **${client?.ws.ping ?? -1}ms**`);
+      return;
+    }
+
+    // --- status ---
+    if (commandName === "status") {
+      const s = getAIStats();
+      const uptime = botState.uptimeStart ? Math.floor((Date.now() - botState.uptimeStart) / 1000) : null;
+      const uptimeStr = uptime != null
+        ? `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${uptime % 60}s`
+        : "unknown";
+      const totalTokens = s.totalTokens.gemini + s.totalTokens.groq + s.totalTokens.hackclub;
+      await interaction.reply({
+        content: [
+          "**bot status**",
+          `online: ${botState.online ? "yes" : "no"}`,
+          `uptime: ${uptimeStr}`,
+          `servers: ${botState.guildCount}`,
+          "",
+          "**ai usage (this session)**",
+          `last provider: ${s.lastUsedProvider ?? "none yet"}`,
+          `last model: ${s.lastUsedModel ?? "none yet"}`,
+          `total requests: ${s.totalRequests}`,
+          `total tokens: ${totalTokens.toLocaleString()} (gemini: ${s.totalTokens.gemini.toLocaleString()} | groq: ${s.totalTokens.groq.toLocaleString()} | grok: ${s.totalTokens.hackclub.toLocaleString()})`,
+        ].join("\n"),
+        allowedMentions: { parse: [] },
+      });
+      return;
+    }
+
+    // --- help ---
+    if (commandName === "help") {
+      await interaction.reply({
+        content: [
+          "**commands** (use `/` or `?` prefix)",
+          "`/status` — current model, token usage, uptime",
+          "`/help` — this list",
+          "`/ping` — check if the bot is alive",
+          "`/tldr` — summarize recent chat and check the vibe",
+          "`/poem <topic>` — write a poem about something",
+          "`/roast <target>` — roast a person, thing, or idea",
+          "`/explain <topic>` — explain something in depth",
+          "`/translate <language> <text>` — translate text",
+          "`/fred <message>` — talk to the ai",
+          `or just ping <@${client?.user?.id}> with your message`,
+          "or attach an image/video to any message to get a description",
+          "",
+          "**mode commands** (mode channel only)",
+          "`/uwu` — uwu speak mode",
+          "`/boomer` — boomer mode",
+          "`/pirate` — pirate mode",
+          "`/nerd` — stereotypical nerd mode",
+          "`/overlord` — megalomaniac AI mode",
+          "`/mode` — turn off current mode",
+        ].join("\n"),
+        allowedMentions: { parse: [] },
+      });
+      return;
+    }
+
+    // --- mode commands ---
+    const modeCommandNames = Object.keys(BOT_MODES);
+    if (modeCommandNames.includes(commandName) || commandName === "mode") {
+      if (interaction.channelId !== MODE_CHANNEL_ID) {
+        await replyEph("mode commands only work in the designated mode channel.");
+        return;
+      }
+      if (commandName === "mode") {
+        const had = interaction.guildId ? guildModes.get(interaction.guildId) : undefined;
+        if (interaction.guildId) {
+          guildModes.delete(interaction.guildId);
+          await clearModeTheme(interaction.guildId);
+        }
+        clearAllHistory();
+        await interaction.reply({
+          content: had ? `${BOT_MODES[had]?.label ?? had} deactivated. back to normal.` : "no mode was active. already normal.",
+          allowedMentions: { parse: [] },
+        });
+      } else {
+        const mode = BOT_MODES[commandName];
+        if (interaction.guildId) {
+          guildModes.set(interaction.guildId, commandName);
+          await applyModeTheme(interaction.guildId, commandName);
+        }
+        clearAllHistory();
+        await interaction.reply({
+          content: `${mode.label} activated serverwide. use \`/mode\` or \`?mode\` to turn it off.`,
+          allowedMentions: { parse: [] },
+        });
+      }
+      return;
+    }
+
+    // --- dossier commands ---
+    if (["dossview", "dossdelete", "dosswipe"].includes(commandName)) {
+      if (!isOwner) {
+        await replyEph("no. dossier commands are owner-only.");
+        return;
+      }
+      const target = interaction.options.getUser("user", true);
+      try {
+        if (commandName === "dossview") {
+          const memory = await storage.getUserMemory(target.id);
+          const possibilities = memory?.dossier?.trim() || "(none)";
+          const sureties = memory?.sureties?.trim() || "(none)";
+          await replyEph([
+            `memory record for ${target.tag}:`,
+            "",
+            "[confirmed / sureties]",
+            sureties,
+            "",
+            "[inferred / possibilities]",
+            possibilities,
+          ].join("\n"));
+          return;
+        }
+        const deleted = await storage.deleteUserMemory(target.id);
+        if (commandName === "dosswipe") clearUserMemorySession(target.id);
+        await replyEph(
+          commandName === "dosswipe"
+            ? `${target.tag}'s saved dossier ${deleted ? "and live memory were wiped." : "was already empty; live memory was wiped."}`
+            : `${target.tag}'s saved dossier ${deleted ? "was deleted." : "was already empty."}`,
+        );
+      } catch (err: any) {
+        log(`[Slash:dossier] Command failed: ${err.message}`, "discord");
+        await replyEph(`dossier command failed: ${err.message}`);
+      }
+      return;
+    }
+
+    // --- AI commands ---
+    if (["fred", "poem", "roast", "explain", "translate", "tldr"].includes(commandName)) {
+      await interaction.deferReply();
+      try {
+        let taskPrompt: string;
+
+        if (commandName === "tldr") {
+          const channel = interaction.channel as TextChannel | null;
+          if (!channel) {
+            await interaction.editReply({ content: "can't access this channel.", allowedMentions: { parse: [] } });
+            return;
+          }
+          const fetched = await channel.messages.fetch({ limit: 50 });
+          const humanMessages = fetched
+            .filter((m) => !m.author.bot)
+            .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+          const chatSummary = humanMessages.size === 0
+            ? "[no recent messages — the channel is completely dead]"
+            : humanMessages.map((m) => `${m.author.username}: ${m.content}`).join("\n");
+          taskPrompt = `You're given a chat log. Do two things back to back, no labels or headers:\n1. Summarize what was discussed — concise, sharp, no padding, your usual style.\n2. Then on a new line, describe the current vibe in one sarcastic sentence. If it's dead, mock the silence. Stay all lowercase, no emojis, be a prick.\n\nChat log:\n${chatSummary}`;
+        } else if (commandName === "fred") {
+          const msg = interaction.options.getString("message", true);
+          const reply = await askGemini(msg, authorDisplayName, interaction.channelId, authorContext);
+          if (reply) {
+            await interaction.editReply({ content: reply, allowedMentions: { parse: [] } });
+            pushChannelMessage(interaction.channelId, "fred", reply, true);
+            triggerUserMemoryUpdate(interaction.user.id);
+          } else {
+            await interaction.editReply({ content: "something went wrong on my end.", allowedMentions: { parse: [] } });
+          }
+          return;
+        } else if (commandName === "poem") {
+          const topic = interaction.options.getString("topic", true);
+          taskPrompt = `write a poem about: ${topic}. make it actually good. keep your personality in it — sharp, darkly funny where appropriate, no sappy crap unless the topic demands it.`;
+        } else if (commandName === "roast") {
+          const target = interaction.options.getString("target", true);
+          taskPrompt = `roast this person/thing/idea as brutally and wittily as possible: ${target}. go all out. be creative, specific, and devastating.`;
+        } else if (commandName === "explain") {
+          const topic = interaction.options.getString("topic", true);
+          taskPrompt = `explain this thoroughly and accurately: ${topic}. be as detailed as the topic warrants. still in your voice, but actually useful.`;
+        } else {
+          // translate
+          const lang = interaction.options.getString("language", true);
+          const text = interaction.options.getString("text", true);
+          taskPrompt = `translate the following text to ${lang}. output only the translation, nothing else.\n\n${text}`;
+        }
+
+        const reply = await askGemini(taskPrompt, authorDisplayName, interaction.channelId, authorContext);
+        if (reply) {
+          await interaction.editReply({ content: reply, allowedMentions: { parse: [] } });
+          pushChannelMessage(interaction.channelId, "fred", reply, true);
+          triggerUserMemoryUpdate(interaction.user.id);
+        } else {
+          await interaction.editReply({ content: "something went wrong on my end.", allowedMentions: { parse: [] } });
+        }
+      } catch (err: any) {
+        log(`[Slash:${commandName}] Failed: ${err.message}`, "discord");
+        try { await interaction.editReply({ content: "something broke. try again.", allowedMentions: { parse: [] } }); } catch {}
+      }
+      return;
     }
   });
 
