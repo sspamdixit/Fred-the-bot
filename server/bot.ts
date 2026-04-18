@@ -9,6 +9,7 @@ import {
   REST,
   Routes,
   SlashCommandBuilder,
+  PermissionFlagsBits,
 } from "discord.js";
 import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
@@ -794,6 +795,7 @@ async function startDeadChatChecker(readyClient: Client) {
 }
 
 const SLASH_COMMANDS = [
+  // ── user accessible ──────────────────────────────────────────────────────
   new SlashCommandBuilder()
     .setName("fred")
     .setDescription("talk to fred")
@@ -827,36 +829,49 @@ const SLASH_COMMANDS = [
   new SlashCommandBuilder()
     .setName("help")
     .setDescription("list all commands"),
+
+  // ── mod accessible ───────────────────────────────────────────────────────
   new SlashCommandBuilder()
     .setName("uwu")
-    .setDescription("activate uwu mode (mode channel only)"),
+    .setDescription("activate uwu mode (mode channel only)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
   new SlashCommandBuilder()
     .setName("boomer")
-    .setDescription("activate boomer mode (mode channel only)"),
+    .setDescription("activate boomer mode (mode channel only)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
   new SlashCommandBuilder()
     .setName("pirate")
-    .setDescription("activate pirate mode (mode channel only)"),
+    .setDescription("activate pirate mode (mode channel only)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
   new SlashCommandBuilder()
     .setName("nerd")
-    .setDescription("activate nerd mode (mode channel only)"),
+    .setDescription("activate nerd mode (mode channel only)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
   new SlashCommandBuilder()
     .setName("overlord")
-    .setDescription("activate overlord mode (mode channel only)"),
+    .setDescription("activate overlord mode (mode channel only)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
   new SlashCommandBuilder()
     .setName("mode")
-    .setDescription("deactivate the current mode (mode channel only)"),
+    .setDescription("deactivate the current mode (mode channel only)")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+
+  // ── owner only ───────────────────────────────────────────────────────────
   new SlashCommandBuilder()
     .setName("dossview")
-    .setDescription("view a user's memory record (owner only)")
-    .addUserOption((o) => o.setName("user").setDescription("target user").setRequired(true)),
+    .setDescription("view a user's memory record")
+    .addUserOption((o) => o.setName("user").setDescription("target user").setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder()
     .setName("dossdelete")
-    .setDescription("delete a user's saved memory record (owner only)")
-    .addUserOption((o) => o.setName("user").setDescription("target user").setRequired(true)),
+    .setDescription("delete a user's saved memory record")
+    .addUserOption((o) => o.setName("user").setDescription("target user").setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder()
     .setName("dosswipe")
-    .setDescription("wipe a user's saved record and live session (owner only)")
-    .addUserOption((o) => o.setName("user").setDescription("target user").setRequired(true)),
+    .setDescription("wipe a user's saved record and live session")
+    .addUserOption((o) => o.setName("user").setDescription("target user").setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 ].map((cmd) => cmd.toJSON());
 
 export async function startBot() {
