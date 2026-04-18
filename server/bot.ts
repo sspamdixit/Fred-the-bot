@@ -697,100 +697,97 @@ async function clearModeTheme(guildId: string): Promise<void> {
   }
 }
 
-const VIBE_CHECK_CHANNEL_ID = "1484056100654551133";
-const VIBE_CHECK_INTERVAL_MS = 1_800_000;
-const DEAD_CHAT_FOLLOW_UP = "the chat is extremely dead.";
+const DEAD_CHAT_CHANNEL_ID = "1484056100654551133";
+const DEAD_CHAT_INTERVAL_MS = 1_800_000;
+const DEAD_CHAT_MESSAGES = [
+  "the chat is extremely dead.",
+  "anyone home? genuinely asking.",
+  "this channel has flatlined.",
+  "crickets. actual crickets.",
+  "chat is on life support at this point.",
+  "we've reached terminal silence.",
+  "the vibe: nonexistent.",
+  "last one here, turn off the lights.",
+  "hello? is this thing on?",
+  "chat died and nobody held a funeral.",
+  "not a single thought being shared. wild.",
+  "i have seen more activity at a cemetery.",
+  "the silence is genuinely impressive at this point.",
+  "chat went offline and forgot to leave a note.",
+  "thirty minutes of nothing. you're all cowards.",
+  "dead air. peak performance from this channel.",
+  "no one talking. bold strategy.",
+  "ghost town vibes. population: zero ambition.",
+  "i came here to chat and all i got was silence.",
+  "congratulations on successfully saying nothing.",
+];
 
-const vibeCheckState = {
-  lastBotMessageTimestamp: null as number | null,
+const deadChatState = {
   mutedUntilHumanActivity: false,
+  lastDeadMessageTimestamp: null as number | null,
 };
 
-async function startVibeCheck(readyClient: Client) {
-  const runVibeCheck = async () => {
+function getRandomDeadChatMessage(): string {
+  return DEAD_CHAT_MESSAGES[Math.floor(Math.random() * DEAD_CHAT_MESSAGES.length)];
+}
+
+async function startDeadChatChecker(readyClient: Client) {
+  const runCheck = async () => {
     try {
-      const channel = await readyClient.channels.fetch(VIBE_CHECK_CHANNEL_ID);
+      const channel = await readyClient.channels.fetch(DEAD_CHAT_CHANNEL_ID);
       if (
         !channel ||
         (channel.type !== ChannelType.GuildText &&
           channel.type !== ChannelType.GuildAnnouncement)
       ) {
-        log("[VibeCheck] Could not fetch lounge channel.", "discord");
+        log("[DeadChat] Could not fetch lounge channel.", "discord");
         return;
       }
 
       const textChannel = channel as TextChannel;
-      const fetched = await textChannel.messages.fetch({ limit: 50 });
-      const humanMessages = fetched
-        .filter((m) => !m.author.bot)
-        .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-      const latestHumanMessage = humanMessages.last();
+      const fetched = await textChannel.messages.fetch({ limit: 20 });
+      const humanMessages = fetched.filter((m) => !m.author.bot);
+      const latestHumanMessage = humanMessages.sort((a, b) => b.createdTimestamp - a.createdTimestamp).first();
 
-      if (vibeCheckState.mutedUntilHumanActivity) {
+      if (deadChatState.mutedUntilHumanActivity) {
         if (
           latestHumanMessage &&
-          (!vibeCheckState.lastBotMessageTimestamp ||
-            latestHumanMessage.createdTimestamp > vibeCheckState.lastBotMessageTimestamp)
+          (!deadChatState.lastDeadMessageTimestamp ||
+            latestHumanMessage.createdTimestamp > deadChatState.lastDeadMessageTimestamp)
         ) {
-          vibeCheckState.mutedUntilHumanActivity = false;
-          vibeCheckState.lastBotMessageTimestamp = null;
-          log("[VibeCheck] Human activity resumed — vibe checks unmuted.", "discord");
+          deadChatState.mutedUntilHumanActivity = false;
+          deadChatState.lastDeadMessageTimestamp = null;
+          log("[DeadChat] Human activity resumed — dead chat checker unmuted.", "discord");
         } else {
-          log("[VibeCheck] Skipping because lounge stayed dead after follow-up.", "discord");
-          return;
+          log("[DeadChat] Still no activity — staying muted.", "discord");
         }
-      }
-
-      if (
-        vibeCheckState.lastBotMessageTimestamp &&
-        (!latestHumanMessage ||
-          latestHumanMessage.createdTimestamp <= vibeCheckState.lastBotMessageTimestamp)
-      ) {
-        const deadMessage = await textChannel.send({
-          content: DEAD_CHAT_FOLLOW_UP,
-          allowedMentions: { parse: [] },
-        });
-
-        vibeCheckState.lastBotMessageTimestamp = deadMessage.createdTimestamp;
-        vibeCheckState.mutedUntilHumanActivity = true;
-        log("[VibeCheck] Dead-chat follow-up sent; muting until human activity.", "discord");
         return;
       }
 
-      let chatSummary: string;
-      if (humanMessages.size === 0) {
-        chatSummary = "[no recent messages — the channel is completely dead]";
-      } else {
-        chatSummary = humanMessages
-          .map((m) => `${m.author.username}: ${m.content}`)
-          .join("\n");
-      }
+      const cutoff = Date.now() - DEAD_CHAT_INTERVAL_MS;
+      const recentHumanMessage = latestHumanMessage && latestHumanMessage.createdTimestamp > cutoff;
 
-      const vibePrompt =
-        "Analyze this chat history and describe the current mood or the stupidity of these people in one sharp, sarcastic sentence. If it's dead, mock the silence. Stay all lowercase, no emojis, be a prick.\n\n" +
-        chatSummary;
-
-      const reply = await askGemini(vibePrompt, "system", "vibe-check-internal", {});
-      if (!reply) {
-        log("[VibeCheck] AI returned no reply — skipping.", "discord");
+      if (recentHumanMessage) {
+        log("[DeadChat] Chat is active — no dead-chat message needed.", "discord");
         return;
       }
 
+      const msg = getRandomDeadChatMessage();
       const sentMessage = await textChannel.send({
-        content: reply.toLowerCase(),
+        content: msg,
         allowedMentions: { parse: [] },
       });
 
-      vibeCheckState.lastBotMessageTimestamp = sentMessage.createdTimestamp;
-      vibeCheckState.mutedUntilHumanActivity = false;
-      log("[VibeCheck] Vibe check sent to lounge.", "discord");
+      deadChatState.lastDeadMessageTimestamp = sentMessage.createdTimestamp;
+      deadChatState.mutedUntilHumanActivity = true;
+      log(`[DeadChat] Dead-chat message sent: "${msg}"`, "discord");
     } catch (err: any) {
-      log(`[VibeCheck] Error: ${err.message}`, "discord");
+      log(`[DeadChat] Error: ${err.message}`, "discord");
     }
   };
 
-  trackBackgroundTimer(setInterval(runVibeCheck, VIBE_CHECK_INTERVAL_MS));
-  log("[VibeCheck] Background task started — fires every 30 minutes.", "discord");
+  trackBackgroundTimer(setInterval(runCheck, DEAD_CHAT_INTERVAL_MS));
+  log("[DeadChat] Dead chat checker started — fires every 30 minutes.", "discord");
 }
 
 export async function startBot() {
@@ -843,7 +840,7 @@ export async function startBot() {
     };
 
     startQotd(readyClient);
-    startVibeCheck(readyClient);
+    startDeadChatChecker(readyClient);
     startStatusShuffle(readyClient);
     startBotWatchdog();
   });
@@ -852,10 +849,10 @@ export async function startBot() {
     if (message.author.bot) return;
     if (await enforceSlurTimeout(message)) return;
 
-    if (message.channelId === VIBE_CHECK_CHANNEL_ID) {
-      vibeCheckState.lastBotMessageTimestamp = null;
-      vibeCheckState.mutedUntilHumanActivity = false;
-      log("[VibeCheck] Human activity detected in lounge — dead-chat mute reset.", "discord");
+    if (message.channelId === DEAD_CHAT_CHANNEL_ID) {
+      deadChatState.lastDeadMessageTimestamp = null;
+      deadChatState.mutedUntilHumanActivity = false;
+      log("[DeadChat] Human activity detected in lounge — dead-chat mute reset.", "discord");
     }
 
     const io = getIO();
@@ -1091,8 +1088,7 @@ export async function startBot() {
           "`?status` — current model, token usage, uptime",
           "`?help` — this list",
           "`?ping` — check if the bot is alive",
-          "`?vibecheck` — analyze the current channel vibe",
-          "`?tldr` — summarize recent chat in this channel",
+          "`?tldr` — summarize recent chat and check the vibe",
           "`?poem <topic>` — write a poem about something",
           "`?roast <target>` — roast a person, thing, or idea",
           "`?explain <topic>` — explain something in depth",
@@ -1126,40 +1122,6 @@ export async function startBot() {
       return;
     }
 
-    if (standaloneCmd === "?vibecheck") {
-      try {
-        await (message.channel as TextChannel).sendTyping();
-        const fetched = await (message.channel as TextChannel).messages.fetch({ limit: 50 });
-        const humanMessages = fetched
-          .filter((m) => !m.author.bot)
-          .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-
-        let chatSummary: string;
-        if (humanMessages.size === 0) {
-          chatSummary = "[no recent messages — the channel is completely dead]";
-        } else {
-          chatSummary = humanMessages
-            .map((m) => `${m.author.username}: ${m.content}`)
-            .join("\n");
-        }
-
-        const vibePrompt =
-          "Analyze this chat history and describe the current mood or the stupidity of these people in one sharp, sarcastic sentence. If it's dead, mock the silence. Stay all lowercase, no emojis, be a prick.\n\n" +
-          chatSummary;
-
-        const reply = await askGemini(vibePrompt, "system", "vibe-check-internal", {});
-        if (reply) {
-          await message.reply({
-            content: reply.toLowerCase(),
-            allowedMentions: { parse: [], repliedUser: false },
-          });
-        }
-      } catch (err: any) {
-        log(`[VibeCheck] Command error: ${err.message}`, "discord");
-      }
-      return;
-    }
-
     const taskCmdMatch = rawContent.match(/^\?(poem|roast|explain|translate|tldr)\s*([\s\S]*)?$/i);
     if (taskCmdMatch) {
       const taskName = taskCmdMatch[1].toLowerCase();
@@ -1176,10 +1138,10 @@ export async function startBot() {
             .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
 
           const chatSummary = humanMessages.size === 0
-            ? "[no recent messages]"
+            ? "[no recent messages — the channel is completely dead]"
             : humanMessages.map((m) => `${m.author.username}: ${m.content}`).join("\n");
 
-          taskPrompt = `summarize the following chat history in your style — concise, sharp, no padding. capture what actually happened or was discussed.\n\n${chatSummary}`;
+          taskPrompt = `You're given a chat log. Do two things back to back, no labels or headers:\n1. Summarize what was discussed — concise, sharp, no padding, your usual style.\n2. Then on a new line, describe the current vibe in one sarcastic sentence. If it's dead, mock the silence. Stay all lowercase, no emojis, be a prick.\n\nChat log:\n${chatSummary}`;
         } catch (err: any) {
           log(`[Task:tldr] Error fetching messages: ${err.message}`, "discord");
           await message.reply({ content: "couldn't fetch messages to summarize. classic.", allowedMentions: { parse: [], repliedUser: false } });
