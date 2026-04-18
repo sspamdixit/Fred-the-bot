@@ -1232,7 +1232,7 @@ export async function startBot() {
             ? "[no recent messages — the channel is completely dead]"
             : humanMessages.map((m) => `${m.author.username}: ${m.content}`).join("\n");
 
-          taskPrompt = `You're given a chat log. Do two things back to back, no labels or headers:\n1. Summarize what was discussed — concise, sharp, no padding, your usual style.\n2. Then on a new line, describe the current vibe in one sarcastic sentence. If it's dead, mock the silence. Stay all lowercase, no emojis, be a prick.\n\nChat log:\n${chatSummary}`;
+          taskPrompt = `summarize the following chat in your style — concise, sharp, no padding. do not quote or repeat any messages verbatim. then on a new line, describe the current vibe in one sarcastic sentence. all lowercase, no emojis. output only your summary and vibe line, nothing else.\n\nchat log:\n${chatSummary}`;
         } catch (err: any) {
           log(`[Task:tldr] Error fetching messages: ${err.message}`, "discord");
           await message.reply({ content: "couldn't fetch messages to summarize. classic.", allowedMentions: { parse: [], repliedUser: false } });
@@ -1635,7 +1635,7 @@ export async function startBot() {
           const chatSummary = humanMessages.size === 0
             ? "[no recent messages — the channel is completely dead]"
             : humanMessages.map((m) => `${m.author.username}: ${m.content}`).join("\n");
-          taskPrompt = `You're given a chat log. Do two things back to back, no labels or headers:\n1. Summarize what was discussed — concise, sharp, no padding, your usual style.\n2. Then on a new line, describe the current vibe in one sarcastic sentence. If it's dead, mock the silence. Stay all lowercase, no emojis, be a prick.\n\nChat log:\n${chatSummary}`;
+          taskPrompt = `summarize the following chat in your style — concise, sharp, no padding. do not quote or repeat any messages verbatim. then on a new line, describe the current vibe in one sarcastic sentence. all lowercase, no emojis. output only your summary and vibe line, nothing else.\n\nchat log:\n${chatSummary}`;
         } else if (commandName === "fred") {
           const msg = interaction.options.getString("message", true);
           const reply = await askGemini(msg, authorDisplayName, interaction.channelId, authorContext);
