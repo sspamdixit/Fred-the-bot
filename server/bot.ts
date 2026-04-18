@@ -854,7 +854,11 @@ const SLASH_COMMANDS = [
     .setDescription("list all commands"),
   new SlashCommandBuilder()
     .setName("play")
-    .setDescription("play a song in your current voice channel")
+    .setDescription("play a song or playlist in your current voice channel")
+    .addStringOption((o) => o.setName("query").setDescription("song name or url (also supports playlist urls)").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("playtop")
+    .setDescription("add a song to the front of the queue (plays next)")
     .addStringOption((o) => o.setName("query").setDescription("song name or url").setRequired(true)),
   new SlashCommandBuilder()
     .setName("skip")
@@ -862,6 +866,9 @@ const SLASH_COMMANDS = [
   new SlashCommandBuilder()
     .setName("stop")
     .setDescription("stop music and disconnect"),
+  new SlashCommandBuilder()
+    .setName("disconnect")
+    .setDescription("disconnect fred from the voice channel"),
   new SlashCommandBuilder()
     .setName("pause")
     .setDescription("pause the current track"),
@@ -880,6 +887,28 @@ const SLASH_COMMANDS = [
     .addIntegerOption((o) =>
       o.setName("level").setDescription("volume level 0–100").setRequired(true).setMinValue(0).setMaxValue(100),
     ),
+  new SlashCommandBuilder()
+    .setName("shuffle")
+    .setDescription("shuffle the queue"),
+  new SlashCommandBuilder()
+    .setName("loop")
+    .setDescription("cycle loop mode: off → track → queue → off"),
+  new SlashCommandBuilder()
+    .setName("seek")
+    .setDescription("seek to a position in the current track")
+    .addStringOption((o) => o.setName("time").setDescription("time to seek to, e.g. 1:30 or 90").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("remove")
+    .setDescription("remove a track from the queue by position")
+    .addIntegerOption((o) => o.setName("position").setDescription("queue position (from /queue)").setRequired(true).setMinValue(1)),
+  new SlashCommandBuilder()
+    .setName("move")
+    .setDescription("move a track to a different position in the queue")
+    .addIntegerOption((o) => o.setName("from").setDescription("current position").setRequired(true).setMinValue(1))
+    .addIntegerOption((o) => o.setName("to").setDescription("new position").setRequired(true).setMinValue(1)),
+  new SlashCommandBuilder()
+    .setName("clear")
+    .setDescription("clear the queue without stopping the current track"),
 
   // ── mod accessible ───────────────────────────────────────────────────────
   new SlashCommandBuilder()
@@ -1937,7 +1966,8 @@ export async function startBot() {
     }
 
     // --- music slash commands ---
-    if (["play", "skip", "stop", "pause", "resume", "queue", "nowplaying", "volume"].includes(commandName)) {
+    const MUSIC_SLASH_CMDS = ["play", "playtop", "skip", "stop", "disconnect", "pause", "resume", "queue", "nowplaying", "volume", "shuffle", "loop", "seek", "remove", "move", "clear"];
+    if (MUSIC_SLASH_CMDS.includes(commandName)) {
       const guildId = interaction.guildId;
       if (!guildId) {
         await interaction.reply({ content: "music only works in servers.", ephemeral: true, allowedMentions: { parse: [] } });
@@ -1954,21 +1984,78 @@ export async function startBot() {
         }
         await interaction.deferReply();
         try {
+          const isUrl = /^https?:\/\//i.test(query);
+          if (isUrl) {
+            const { tracks, playlistName } = await resolvePlaylist(query, interaction.user.username);
+            if (!tracks.length) {
+              await interaction.editReply({ content: "couldn't find anything. try a different link.", allowedMentions: { parse: [] } });
+              return;
+            }
+            if (tracks.length === 1) {
+              const result = await joinAndPlay(guildId, voiceChannel.id, interaction.channelId, tracks[0], interaction.guild?.shardId ?? 0);
+              const dur = tracks[0].isStream ? "LIVE" : formatDuration(tracks[0].duration);
+              await interaction.editReply({
+                content: result === "playing"
+                  ? `now playing: **${tracks[0].title}** by ${tracks[0].author} [${dur}]`
+                  : `queued: **${tracks[0].title}** by ${tracks[0].author} [${dur}]`,
+                allowedMentions: { parse: [] },
+              });
+            } else {
+              const result = await joinAndPlayMultiple(guildId, voiceChannel.id, interaction.channelId, tracks, interaction.guild?.shardId ?? 0);
+              await interaction.editReply({
+                content: result === "playing"
+                  ? `playing playlist **${playlistName ?? "untitled"}** — ${tracks.length} tracks loaded.`
+                  : `queued playlist **${playlistName ?? "untitled"}** — ${tracks.length} tracks added.`,
+                allowedMentions: { parse: [] },
+              });
+            }
+          } else {
+            const track = await resolveTrack(query, interaction.user.username);
+            if (!track) {
+              await interaction.editReply({ content: "couldn't find that. try a different search.", allowedMentions: { parse: [] } });
+              return;
+            }
+            const result = await joinAndPlay(guildId, voiceChannel.id, interaction.channelId, track, interaction.guild?.shardId ?? 0);
+            const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
+            await interaction.editReply({
+              content: result === "playing"
+                ? `now playing: **${track.title}** by ${track.author} [${dur}]`
+                : `queued: **${track.title}** by ${track.author} [${dur}]`,
+              allowedMentions: { parse: [] },
+            });
+          }
+        } catch (err: any) {
+          log(`[Music/slash:play] ${err.message}`, "discord");
+          await interaction.editReply({ content: `music error: ${err.message}`, allowedMentions: { parse: [] } });
+        }
+        return;
+      }
+
+      if (commandName === "playtop") {
+        const query = interaction.options.getString("query", true);
+        const member = interaction.guild?.members.cache.get(interaction.user.id);
+        const voiceChannel = member?.voice?.channel;
+        if (!voiceChannel) {
+          await interaction.reply({ content: "join a voice channel first.", ephemeral: true, allowedMentions: { parse: [] } });
+          return;
+        }
+        await interaction.deferReply();
+        try {
           const track = await resolveTrack(query, interaction.user.username);
           if (!track) {
             await interaction.editReply({ content: "couldn't find that. try a different search.", allowedMentions: { parse: [] } });
             return;
           }
-          const result = await joinAndPlay(guildId, voiceChannel.id, interaction.channelId, track, interaction.guild?.shardId ?? 0);
+          const result = await addToFront(guildId, voiceChannel.id, interaction.channelId, track, interaction.guild?.shardId ?? 0);
           const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
           await interaction.editReply({
             content: result === "playing"
               ? `now playing: **${track.title}** by ${track.author} [${dur}]`
-              : `queued: **${track.title}** by ${track.author} [${dur}]`,
+              : `added to top of queue: **${track.title}** by ${track.author} [${dur}]`,
             allowedMentions: { parse: [] },
           });
         } catch (err: any) {
-          log(`[Music/slash:play] ${err.message}`, "discord");
+          log(`[Music/slash:playtop] ${err.message}`, "discord");
           await interaction.editReply({ content: `music error: ${err.message}`, allowedMentions: { parse: [] } });
         }
         return;
@@ -1996,6 +2083,19 @@ export async function startBot() {
           });
         } catch (err: any) {
           await interaction.reply({ content: `stop failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
+        }
+        return;
+      }
+
+      if (commandName === "disconnect") {
+        try {
+          const done = await disconnectMusic(guildId);
+          await interaction.reply({
+            content: done ? "disconnected." : "i'm not in a voice channel.",
+            allowedMentions: { parse: [] },
+          });
+        } catch (err: any) {
+          await interaction.reply({ content: `disconnect failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
         }
         return;
       }
@@ -2036,7 +2136,8 @@ export async function startBot() {
         if (q.current) {
           const dur = q.current.isStream ? "LIVE" : formatDuration(q.current.duration);
           const pos = formatDuration(q.player.position);
-          lines.push(`**now playing:** ${q.current.title} [${pos}/${dur}] — req by ${q.current.requestedBy}`);
+          const loopLabel = q.loop !== "none" ? ` | loop: ${q.loop}` : "";
+          lines.push(`**now playing:** ${q.current.title} [${pos}/${dur}] — req by ${q.current.requestedBy}${loopLabel}`);
         }
         if (q.tracks.length > 0) {
           lines.push("");
@@ -2059,8 +2160,9 @@ export async function startBot() {
         }
         const dur = q.current.isStream ? "LIVE" : formatDuration(q.current.duration);
         const pos = formatDuration(q.player.position);
+        const loopLabel = q.loop !== "none" ? ` | loop: ${q.loop}` : "";
         await interaction.reply({
-          content: `now playing: **${q.current.title}** by ${q.current.author} [${pos}/${dur}]`,
+          content: `now playing: **${q.current.title}** by ${q.current.author} [${pos}/${dur}]${loopLabel}`,
           allowedMentions: { parse: [] },
         });
         return;
@@ -2077,6 +2179,75 @@ export async function startBot() {
         } catch (err: any) {
           await interaction.reply({ content: `volume failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
         }
+        return;
+      }
+
+      if (commandName === "shuffle") {
+        const done = shuffleQueue(guildId);
+        await interaction.reply({
+          content: done ? "queue shuffled." : "not enough tracks in the queue to shuffle.",
+          allowedMentions: { parse: [] },
+        });
+        return;
+      }
+
+      if (commandName === "loop") {
+        const newMode = cycleLoop(guildId);
+        if (newMode === null) {
+          await interaction.reply({ content: "nothing is playing.", allowedMentions: { parse: [] } });
+          return;
+        }
+        const labels: Record<string, string> = { none: "loop off", track: "looping current track", queue: "looping entire queue" };
+        await interaction.reply({ content: labels[newMode] ?? newMode, allowedMentions: { parse: [] } });
+        return;
+      }
+
+      if (commandName === "seek") {
+        const timeStr = interaction.options.getString("time", true);
+        const ms = parseSeekTime(timeStr);
+        if (ms === null) {
+          await interaction.reply({ content: "invalid time format. use `1:30` or `90` (seconds).", ephemeral: true, allowedMentions: { parse: [] } });
+          return;
+        }
+        try {
+          const done = await seekTrack(guildId, ms);
+          await interaction.reply({
+            content: done ? `seeked to ${formatDuration(ms)}.` : "can't seek — nothing playing or it's a livestream.",
+            allowedMentions: { parse: [] },
+          });
+        } catch (err: any) {
+          await interaction.reply({ content: `seek failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
+        }
+        return;
+      }
+
+      if (commandName === "remove") {
+        const idx = interaction.options.getInteger("position", true);
+        const removed = removeTrack(guildId, idx);
+        await interaction.reply({
+          content: removed ? `removed **${removed.title}** from the queue.` : "no track at that position.",
+          allowedMentions: { parse: [] },
+        });
+        return;
+      }
+
+      if (commandName === "move") {
+        const from = interaction.options.getInteger("from", true);
+        const to = interaction.options.getInteger("to", true);
+        const done = moveTrack(guildId, from, to);
+        await interaction.reply({
+          content: done ? `moved track from position ${from} to ${to}.` : "invalid positions.",
+          allowedMentions: { parse: [] },
+        });
+        return;
+      }
+
+      if (commandName === "clear") {
+        const count = clearQueue(guildId);
+        await interaction.reply({
+          content: count > 0 ? `cleared ${count} track${count === 1 ? "" : "s"} from the queue.` : "queue was already empty.",
+          allowedMentions: { parse: [] },
+        });
         return;
       }
     }
