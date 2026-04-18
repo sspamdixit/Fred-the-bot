@@ -25,6 +25,9 @@ A Discord bot with a sharp personality and a web dashboard to manage it. Fred re
 - Personality modes in a dedicated mode channel: `?uwu`, `?boomer`, `?pirate`, `?nerd`, `?overlord`
 - Modes apply server-wide to every request type (`?fred`, `?roast`, `?explain`, passive replies, etc.)
 - Mode theme changes update nickname and status server-wide
+- Full Lavalink music system with `?` and `/` equivalents for play, playtop, skip, stop, leave/disconnect, pause, resume, queue, now playing, volume, shuffle, loop/repeat, seek, remove, move, and clear
+- `/play` and `/playtop` support live autocomplete track search
+- Music playback uses Lavalink node failover and queue auto-advance for more reliable playback
 
 ### Dashboard
 - Live message feed via Socket.IO
