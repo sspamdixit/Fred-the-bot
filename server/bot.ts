@@ -1016,18 +1016,17 @@ export async function startBot() {
     startBotWatchdog();
 
     try {
-      // Register globally (permanent, can take up to 1h to propagate on Discord's side)
-      await readyClient.application.commands.set(SLASH_COMMANDS);
-      log(`Registered ${SLASH_COMMANDS.length} slash commands globally.`, "discord");
+      // Clear any leftover global commands to avoid duplicates with guild commands
+      await readyClient.application.commands.set([]);
 
-      // Also register per-guild for immediate appearance in all current guilds
+      // Register per-guild for immediate appearance (no propagation delay)
       const guildRegistrations = readyClient.guilds.cache.map((guild) =>
         guild.commands.set(SLASH_COMMANDS).catch((e: any) =>
           log(`Failed to register slash commands in guild ${guild.name}: ${e.message}`, "discord"),
         ),
       );
       await Promise.allSettled(guildRegistrations);
-      log(`Registered slash commands in ${readyClient.guilds.cache.size} guild(s) for instant availability.`, "discord");
+      log(`Registered ${SLASH_COMMANDS.length} slash commands in ${readyClient.guilds.cache.size} guild(s).`, "discord");
     } catch (err: any) {
       log(`Failed to register slash commands: ${err.message}`, "discord");
     }
