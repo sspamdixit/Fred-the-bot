@@ -1109,7 +1109,10 @@ export async function startBot() {
 
     const authorContext = { userId: message.author.id, roles: roleNames, sortedRoles: sortedRoleNames, isOwner, guildName, channelName, modeInstruction: activeModeInstruction, replyTo };
 
-    if (!isMentioned && !isPrefixed && message.guildId) {
+    // Any message starting with a known ? or ! command should never trigger passive watch
+    const isAnyCommand = /^[!?](fred|bubbl|status|help|ping|tldr|poem|roast|explain|translate|play|playtop|skip|stop|pause|resume|queue|np|volume|shuffle|loop|repeat|remove|move|clear|disconnect|leave|seek|uwu|boomer|pirate|nerd|overlord|mode|normal|dossview|dossdelete|dosswipe|qotd)\b/i.test(rawContent);
+
+    if (!isMentioned && !isPrefixed && !isAnyCommand && message.guildId) {
       queuePassiveWatch({
         messageId: message.id,
         channelId: message.channelId,
