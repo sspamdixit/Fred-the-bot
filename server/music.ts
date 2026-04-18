@@ -112,50 +112,48 @@ function scheduleAutoDisconnect(guildId: string): void {
   }, 30_000);
 }
 
+function advanceQueue(player: Player, guildId: string): void {
+  const queue = queues.get(guildId);
+  if (!queue) return;
+
+  if (queue.loop === "track" && queue.current) {
+    player.playTrack({ track: { encoded: queue.current.encoded } });
+    return;
+  }
+
+  if (queue.loop === "queue" && queue.current) {
+    queue.tracks.push(queue.current);
+  }
+
+  if (queue.tracks.length === 0) {
+    queue.current = null;
+    scheduleAutoDisconnect(guildId);
+    return;
+  }
+
+  const next = queue.tracks.shift()!;
+  queue.current = next;
+  player.playTrack({ track: { encoded: next.encoded } });
+}
+
 function attachPlayerEvents(player: Player, guildId: string): void {
-  player.on("trackEnd", () => {
-    const queue = queues.get(guildId);
-    if (!queue) return;
-
-    if (queue.loop === "track" && queue.current) {
-      player.playTrack({ track: { encoded: queue.current.encoded } });
-      return;
-    }
-
-    if (queue.loop === "queue" && queue.current) {
-      queue.tracks.push(queue.current);
-    }
-
-    if (queue.tracks.length === 0) {
-      queue.current = null;
-      scheduleAutoDisconnect(guildId);
-      return;
-    }
-
-    const next = queue.tracks.shift()!;
-    queue.current = next;
-    player.playTrack({ track: { encoded: next.encoded } });
+  player.on("end", (event) => {
+    const reason = (event as any)?.reason as string | undefined;
+    // 'replaced' means we manually called playTrack — already handled, don't double-advance
+    // 'cleanup' means the node is shutting down — nothing to do
+    if (reason === "replaced" || reason === "cleanup") return;
+    advanceQueue(player, guildId);
   });
 
-  player.on("trackException", (_track, payload) => {
-    log(`[Music] Track exception in guild ${guildId}: ${payload?.exception?.message ?? "unknown"}`, "discord");
-    const queue = queues.get(guildId);
-    if (!queue) return;
-
-    if (queue.tracks.length === 0) {
-      queue.current = null;
-      scheduleAutoDisconnect(guildId);
-      return;
-    }
-
-    const next = queue.tracks.shift()!;
-    queue.current = next;
-    player.playTrack({ track: { encoded: next.encoded } });
+  player.on("exception", (event) => {
+    const msg = (event as any)?.exception?.message ?? "unknown";
+    log(`[Music] Track exception in guild ${guildId}: ${msg}`, "discord");
+    advanceQueue(player, guildId);
   });
 
-  player.on("trackStuck", () => {
+  player.on("stuck", () => {
     log(`[Music] Track stuck in guild ${guildId}, skipping.`, "discord");
-    player.stopTrack();
+    advanceQueue(player, guildId);
   });
 }
 
@@ -330,7 +328,7 @@ export async function joinAndPlay(
 
   queue.current = track;
   queue.player.playTrack({ track: { encoded: track.encoded } });
-  await queue.player.setVolume(queue.volume / 100);
+  await queue.player.setGlobalVolume(queue.volume);
   return "playing";
 }
 
@@ -377,7 +375,7 @@ export async function joinAndPlayMultiple(
   queue.tracks.push(...rest);
   queue.current = first;
   queue.player.playTrack({ track: { encoded: first.encoded } });
-  await queue.player.setVolume(queue.volume / 100);
+  await queue.player.setGlobalVolume(queue.volume);
   return "playing";
 }
 
@@ -421,7 +419,7 @@ export async function addToFront(
 
   queue.current = track;
   queue.player.playTrack({ track: { encoded: track.encoded } });
-  await queue.player.setVolume(queue.volume / 100);
+  await queue.player.setGlobalVolume(queue.volume);
   return "playing";
 }
 
@@ -480,7 +478,7 @@ export async function setMusicVolume(
   const queue = queues.get(guildId);
   if (!queue) return false;
   queue.volume = Math.max(0, Math.min(100, volume));
-  await queue.player.setVolume(queue.volume / 100);
+  await queue.player.setGlobalVolume(queue.volume);
   return true;
 }
 
