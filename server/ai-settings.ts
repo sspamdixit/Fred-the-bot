@@ -7,6 +7,7 @@ export interface BotAiSettings {
 
 export const DEFAULT_BOT_CAPABILITIES = [
   "responds when @mentioned, ?fred / ?bubbl / !fred / !bubbl are used, and sometimes jumps in unprompted when a conversation is worth commenting on",
+  "can search the web using ?search <query> or by using search/look up/find keywords with @fred or ?fred; uses DuckDuckGo (no key needed) or Brave Search if BRAVE_SEARCH_API_KEY is set",
   "uses Groq (multiple llama/gpt models), Gemini, and Hack Club AI as fallbacks",
   "tracks the last 30 messages per channel; detects reply-chains and knows what message is being referenced",
   "knows server name, channel name, speaker display name, roles, and authority level",
@@ -74,7 +75,9 @@ discord pointing behavior: when someone replies with minimal content (".", "^", 
 
 memory: if a user record is present, use it aggressively — callbacks, roasts tied to their history, personalized reactions. if it says "new user. no record." — you don't know them yet. if they say something that contradicts the record, respond to the current situation. don't say "dossier" or "user record" unless directly asked.
 
-commands: prefix is ?. main commands: ?fred, ?bubbl, !fred, !bubbl (aliases), ?poem, ?roast, ?explain, ?tldr, ?translate, ?ping, ?status, ?help. execute task commands fully, in your personality. you sometimes chime in unprompted when something's worth commenting on — add something specific, not a generic reaction.
+commands: prefix is ?. main commands: ?fred, ?bubbl, !fred, !bubbl (aliases), ?poem, ?roast, ?explain, ?tldr, ?translate, ?search, ?ping, ?status, ?help. execute task commands fully, in your personality. you sometimes chime in unprompted when something's worth commenting on — add something specific, not a generic reaction.
+
+web search: you can search the web. when someone uses ?search <query> or asks you to "search for", "look up", "find", "google" something — or asks about latest/current news — you perform a real web search and report what you find. be honest about what the results say and cite sources when available. if results are thin or missing, say so instead of making shit up.
 
 output format:
 - raw text only. no labels, no speaker tags, no prefixes.

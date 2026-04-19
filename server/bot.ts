@@ -18,6 +18,7 @@ import {
 import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
 import { askGemini, askGeminiWithImage, clearUserMemorySession, clearAllHistory, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, pushChannelMessage, type ImageData } from "./gemini";
+import { searchWeb, formatSearchResultsForAI, detectSearchIntent } from "./search";
 import { startQotd, stopQotd } from "./qotd";
 import { storage } from "./storage";
 import {
@@ -1192,7 +1193,7 @@ export async function startBot() {
     const authorContext = { userId: message.author.id, roles: roleNames, sortedRoles: sortedRoleNames, isOwner, guildName, channelName, modeInstruction: activeModeInstruction, replyTo };
 
     // Any message starting with a known ? or ! command should never trigger passive watch
-    const isAnyCommand = /^[!?](fred|bubbl|status|help|ping|tldr|poem|roast|explain|translate|play|playtop|skip|stop|pause|resume|queue|np|volume|shuffle|loop|repeat|remove|move|clear|disconnect|leave|seek|uwu|boomer|pirate|nerd|overlord|mode|normal|dossview|dossdelete|dosswipe|qotd)\b/i.test(rawContent);
+    const isAnyCommand = /^[!?](fred|bubbl|status|help|ping|tldr|poem|roast|explain|translate|search|play|playtop|skip|stop|pause|resume|queue|np|volume|shuffle|loop|repeat|remove|move|clear|disconnect|leave|seek|uwu|boomer|pirate|nerd|overlord|mode|normal|dossview|dossdelete|dosswipe|qotd)\b/i.test(rawContent);
 
     if (!isMentioned && !isPrefixed && !isAnyCommand && message.guildId) {
       queuePassiveWatch({
@@ -1366,6 +1367,7 @@ export async function startBot() {
           "`?roast <target>` — roast a person, thing, or idea",
           "`?explain <topic>` — explain something in depth",
           "`?translate <language> <text>` — translate text",
+          "`?search <query>` — search the web and get an answer",
           "`?fred <message>` — talk to the ai (`?bubbl`, `!fred`, `!bubbl` all work too)",
           `or just ping <@${client?.user?.id}> with your message`,
           "or attach an image/video to any message to get a description",
@@ -1480,6 +1482,36 @@ export async function startBot() {
         }
       } catch (err: any) {
         log(`[Task:${taskName}] Failed: ${err.message}`, "discord");
+      }
+      return;
+    }
+
+    // --- ?search command ---
+    const searchCmdMatch = rawContent.match(/^\?search\s+([\s\S]+)$/i);
+    if (searchCmdMatch) {
+      const searchQuery = searchCmdMatch[1].trim();
+      try {
+        await (message.channel as TextChannel).sendTyping();
+        const searchResult = await searchWeb(searchQuery);
+        let taskPrompt: string;
+        if (searchResult && (searchResult.answer || searchResult.abstract || searchResult.results.length > 0 || searchResult.topics.length > 0)) {
+          const searchContext = formatSearchResultsForAI(searchResult);
+          taskPrompt = `the user asked you to search the web for: "${searchQuery}"\n\nhere are the actual web search results:\n${searchContext}\n\nsummarize what you found in your voice. be accurate. cite where info comes from if there's a source. if results are thin or off-topic, say so and give what you can. all lowercase, no emojis, stay in character.`;
+        } else {
+          taskPrompt = `the user asked you to search the web for: "${searchQuery}" — you tried but got no useful results. tell them that honestly in your voice, and give whatever you actually know about the topic if anything. don't make stuff up.`;
+        }
+        const reply = await askGemini(taskPrompt, authorDisplayName, message.channelId, authorContext);
+        if (reply) {
+          await message.reply({
+            content: reply,
+            allowedMentions: { parse: [], repliedUser: false },
+          });
+          pushChannelMessage(message.channelId, "fred", reply, true);
+          triggerUserMemoryUpdate(message.author.id);
+        }
+      } catch (err: any) {
+        log(`[Search] Command failed: ${err.message}`, "discord");
+        await message.reply({ content: "search blew up on me. try again.", allowedMentions: { parse: [], repliedUser: false } });
       }
       return;
     }
@@ -1898,6 +1930,37 @@ export async function startBot() {
 
       const mediaCount = mediaAttachments.size + tenorMediaUrls.length;
       log(`[Gemini] Handling from ${authorDisplayName}: ${cleanContent.slice(0, 80)}${mediaCount > 0 ? ` [+${mediaCount} media]` : ""}`, "discord");
+
+      // Auto-detect web search intent in @fred / ?fred messages
+      if (cleanContent && !hasMedia) {
+        const searchQuery = detectSearchIntent(cleanContent);
+        if (searchQuery) {
+          try {
+            await (message.channel as TextChannel).sendTyping();
+            log(`[Search] Auto-detected search intent: ${searchQuery.slice(0, 60)}`, "discord");
+            const searchResult = await searchWeb(searchQuery);
+            let searchPrompt: string;
+            if (searchResult && (searchResult.answer || searchResult.abstract || searchResult.results.length > 0 || searchResult.topics.length > 0)) {
+              const searchContext = formatSearchResultsForAI(searchResult);
+              searchPrompt = `the user asked: "${cleanContent}"\n\nyou searched the web for: "${searchQuery}"\n\nhere are the actual web search results:\n${searchContext}\n\nrespond to the user's question using the search results. be accurate. cite where info comes from if there's a source. if results are thin or off-topic, say so and give what you can. stay in character.`;
+            } else {
+              searchPrompt = `the user asked: "${cleanContent}"\n\nyou tried searching the web for: "${searchQuery}" but got no useful results. tell them that honestly in your voice, and give whatever you actually know about the topic if anything. don't make stuff up.`;
+            }
+            const reply = await askGemini(searchPrompt, authorDisplayName, message.channelId, authorContext);
+            if (reply) {
+              await message.reply({
+                content: reply,
+                allowedMentions: { parse: [], repliedUser: false },
+              });
+              pushChannelMessage(message.channelId, "fred", reply, true);
+              triggerUserMemoryUpdate(message.author.id);
+            }
+          } catch (err: any) {
+            log(`[Search] Auto-search failed: ${err.message}`, "discord");
+          }
+          return;
+        }
+      }
 
       try {
         await (message.channel as TextChannel).sendTyping();
