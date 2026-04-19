@@ -1,116 +1,121 @@
 # fred
 
-A Discord bot with a sharp personality and a web dashboard to manage it. Fred responds to messages in Discord, analyzes images, writes poems, roasts people, generates code, and generally acts like it's too good for everyone — while actually being useful.
+discord bot + web dashboard. fred talks shit, plays music, reads images, searches the web, and remembers things about your server members. runs on gemini/groq/grok depending on what's alive.
 
 ---
 
-## Features
+## what it does
 
-### Bot
-- Responds when mentioned (`@fred`) or when messages start with `?fred`, `?bubbl`, `!fred`, or `!bubbl`
-- All commands available as both `?prefix` and `/slash` commands
-- **Passive auto-reply** — jumps into conversations unprompted when chat is controversial, opinionated, or worth commenting on; no @mention required; heuristic-based with zero passive token cost
-- Full creative writing: poems, roasts, stories, lyrics, essays
-- Code generation in any language
-- Image and video analysis (requires Gemini API key)
-- Channel summarization + vibe check (`?tldr` / `/tldr`)
-- Translation to any language
-- Per-channel conversation memory (last 150 messages)
-- Long-term per-user memory dossier stored in PostgreSQL
-- Authority hierarchy via Discord roles: `owner`, `moderator`, `developer`, `member`
-- Slur filter with auto-delete, DM warning, and 10-minute timeout
-- Daily question of the day (QOTD) with Discord polls
-- AI-generated custom status that refreshes every 30 minutes
-- Automatic dead-chat detection in the lounge channel with unique messages each time
-- Personality modes in a dedicated mode channel: `?uwu`, `?boomer`, `?pirate`, `?nerd`, `?overlord`
-- Modes apply server-wide to every request type (`?fred`, `?roast`, `?explain`, passive replies, etc.)
-- Mode theme changes update nickname and status server-wide
-- Full Lavalink music system with `?` and `/` equivalents for play, playtop, skip, stop, leave/disconnect, pause, resume, queue, now playing, volume, shuffle, loop/repeat, seek, remove, move, and clear
-- `/play` and `/playtop` support live autocomplete track search
-- Music playback uses Lavalink node failover and queue auto-advance for more reliable playback
+**bot stuff:**
+- responds to `@fred`, `?fred`, `?bubbl`, `!fred`, `!bubbl`
+- everything works as both `?prefix` and `/slash` commands
+- passive auto-reply — jumps in on its own when a conversation is spicy or worth commenting on, no @mention needed
+- creative writing: poems, roasts, stories, lyrics, essays, whatever
+- code gen in any language
+- image and video analysis (needs gemini key)
+- `?tldr` / `/tldr` — summarizes the last bunch of messages and rates the vibe
+- translation to any language
+- per-channel conversation memory (last 150 messages)
+- long-term per-user memory stored in postgres — fred remembers stuff about people across sessions
+- role-based authority: `owner`, `moderator`, `developer`, `member`
+- slur filter with auto-delete, DM warning, and 10-min timeout
+- daily question of the day with discord polls
+- ai-generated status that changes every 30 minutes
+- dead-chat detection — posts in the lounge when it's been quiet too long
+- personality modes in a designated channel: `?uwu`, `?boomer`, `?pirate`, `?nerd`, `?overlord` — apply server-wide to every command
+- full music system via lavalink: play, playtop, skip, stop, pause, resume, queue, nowplaying, volume, shuffle, loop, seek, remove, move, clear — all with `?` and `/` equivalents
+- `/play` and `/playtop` have autocomplete search
+- music has node failover + race condition guards so it doesn't fall apart mid-queue
 
-### Dashboard
-- Live message feed via Socket.IO
-- Bot status and AI usage stats
-- Control presence (status, activity type, activity name)
-- Send messages to any channel
-- Toggle AI providers (Groq, Gemini, Hackclub/Grok)
-- Trigger QOTD manually
-- Test AI replies directly from the dashboard
-- View and manage user memory dossiers
+**web search:**
+- `?search <query>` or just ask fred something time-sensitive
+- weather via wttr.in (no key)
+- crypto prices via coingecko (no key, live data)
+- stocks / commodities / forex via yahoo finance (no key, live data)
+- general search via duckduckgo html scraping (actual results, not the stale knowledge base api)
+- optional upgrade: set `BRAVE_SEARCH_API_KEY` to use brave search instead
+
+**dashboard:**
+- live message feed
+- bot status + ai usage stats
+- control bot presence (status, activity, etc.)
+- send messages to any channel
+- switch ai providers
+- trigger qotd manually
+- test ai replies directly
+- view and manage user memory dossiers
 
 ---
 
-## Commands
+## commands
 
-All commands work with both `/` (slash) and `?` (prefix). Slash commands show autocomplete in Discord.
+all commands work with `/` and `?`. slash commands have autocomplete.
 
-| Command | Description |
+| command | what it does |
 |---|---|
-| `/help` / `?help` | Full command list |
-| `/status` / `?status` | Current model, token usage, uptime |
-| `/ping` / `?ping` | Latency check |
-| `/tldr` / `?tldr` | Summarizes recent chat and checks the vibe |
-| `/poem <topic>` / `?poem <topic>` | Writes a poem |
-| `/roast <target>` / `?roast <target>` | Roasts a person, thing, or idea |
-| `/explain <topic>` / `?explain <topic>` | Explains something thoroughly |
-| `/translate <lang> <text>` / `?translate <lang> <text>` | Translates text |
-| `/fred <message>` / `?fred <message>` | Talk to the AI directly |
+| `?help` / `/help` | command list (context-aware — shows music cmds only if relevant) |
+| `?status` / `/status` | current model, token usage, uptime |
+| `?ping` / `/ping` | latency |
+| `?tldr` / `/tldr` | summarizes recent chat |
+| `?poem <topic>` | writes a poem |
+| `?roast <target>` | roasts something |
+| `?explain <topic>` | explains something |
+| `?translate <lang> <text>` | translates |
+| `?search <query>` | live web search |
+| `?fred <message>` | talk to fred |
 
-`?` aliases: `?bubbl`, `!fred`, `!bubbl` all work for direct AI chat.
+mode commands (mode channel only):
 
-Mode commands work only in the designated mode channel:
-
-| Command | Description |
+| command | mode |
 |---|---|
-| `/uwu` / `?uwu` | Activate uwu mode |
-| `/boomer` / `?boomer` | Activate boomer mode |
-| `/pirate` / `?pirate` | Activate pirate mode |
-| `/nerd` / `?nerd` | Activate nerd mode |
-| `/overlord` / `?overlord` | Activate overlord mode |
-| `/mode` / `?mode` / `?normal` | Deactivate current mode |
+| `?uwu` / `/uwu` | uwu |
+| `?boomer` / `/boomer` | boomer |
+| `?pirate` / `/pirate` | pirate |
+| `?nerd` / `/nerd` | nerd |
+| `?overlord` / `/overlord` | overlord |
+| `?mode` / `/mode` / `?normal` | back to normal |
 
-Owner-only (reply sent privately): `/dossview @user`, `/dossdelete @user`, `/dosswipe @user`  
-`?` equivalents also work: `?dossview @user`, `?dossdelete @user`, `?dosswipe @user`
-
----
-
-## AI Stack
-
-Requests route in this order:
-
-1. **Groq** (primary) — tries `llama-3.1-8b-instant`, `llama-3.3-70b-versatile`, `meta-llama/llama-4-scout-17b-16e-instruct`, `openai/gpt-oss-20b`, `openai/gpt-oss-120b`
-2. **Gemini** (fallback) — tries `gemini-2.5-flash-lite`, `gemini-2.5-flash`, `gemini-2.0-flash-lite`, `gemini-2.0-flash`
-3. **Hackclub / Grok** (last resort) — `x-ai/grok-4.1-fast` via `ai.hackclub.com`
-
-Image and video analysis uses Gemini only. If Gemini is unavailable, the bot falls back to text-only.
+owner-only (reply is private): `?dossview @user`, `?dossdelete @user`, `?dosswipe @user`
 
 ---
 
-## Environment Variables
+## ai stack
 
-| Variable | Required | Description |
+tries providers in this order:
+
+1. **groq** — `llama-3.1-8b-instant` → `llama-3.3-70b-versatile` → `llama-4-scout-17b` → `gpt-oss-20b` → `gpt-oss-120b`
+2. **gemini** — `gemini-2.5-flash-lite` → `gemini-2.5-flash` → `gemini-2.0-flash-lite` → `gemini-2.0-flash`
+3. **hackclub / grok** — `x-ai/grok-4.1-fast` via ai.hackclub.com
+
+image/video analysis is gemini only. if gemini's down, falls back to text.
+
+---
+
+## env vars
+
+| var | required | notes |
 |---|---|---|
-| `TOKEN` | Yes | Discord bot token |
-| `GROQ_API_KEY` | Yes | Groq API key |
-| `GEMINI_API_KEY` | Recommended | Google Gemini API key (required for image analysis) |
-| `HACKCLUB_API_KEY` | Optional | Hackclub API key for Grok fallback |
-| `DATABASE_URL` | Yes | PostgreSQL connection string (Neon or any Postgres) |
-| `ENABLE_BOT` | Optional | Set to `true` to auto-start the bot on launch |
-| `DASHBOARD_PASSWORD` | Optional | Password for the web dashboard |
-| `PORT` | Optional | Server port (default: `5000`) |
+| `TOKEN` | yes | discord bot token |
+| `GROQ_API_KEY` | yes | groq api key |
+| `GEMINI_API_KEY` | recommended | needed for image analysis |
+| `HACKCLUB_API_KEY` | optional | grok fallback |
+| `DATABASE_URL` | yes | postgres connection string |
+| `ENABLE_BOT` | optional | set to `true` to auto-start the bot |
+| `DASHBOARD_PASSWORD` | optional | dashboard login |
+| `BRAVE_SEARCH_API_KEY` | optional | upgrades general search to brave |
+| `PORT` | optional | default `5000` |
 
 ---
 
-## Setup
+## setup
 
 ```bash
 npm install
-npm run db:push    # sync database schema
-npm run dev        # start development server
+npm run db:push
+npm run dev
 ```
 
-Production:
+production:
 
 ```bash
 npm run build
@@ -119,10 +124,11 @@ npm start
 
 ---
 
-## Tech Stack
+## stack
 
-- **Backend**: Node.js, Express, TypeScript, Socket.IO
-- **Frontend**: React, Vite, TailwindCSS, shadcn/ui, TanStack Query
-- **Database**: PostgreSQL via Drizzle ORM
-- **Bot**: discord.js v14
-- **AI**: Groq SDK, Google Generative AI SDK, Hackclub AI
+- node.js, express, typescript, socket.io
+- react, vite, tailwindcss, shadcn/ui, tanstack query
+- postgres + drizzle orm
+- discord.js v14
+- groq sdk, google generative ai, hackclub ai
+- lavalink (shoukaku) for music
