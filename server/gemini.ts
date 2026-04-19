@@ -210,12 +210,23 @@ async function handlePassiveWatch(context: PassiveWatchContext): Promise<void> {
     ].join(" "),
   };
 
+  const fredRecentlySpoke = /\[fred\]:/i.test(recentCtxRaw);
+
+  const afterBotGuard = fredRecentlySpoke
+    ? [
+        "IMPORTANT: you can see that fred (you) already spoke recently in this conversation.",
+        "before deciding to reply, ask yourself: is this new message actually responding to fred, referencing fred's point, or continuing a thread with fred? if yes, you may reply.",
+        "if the message is clearly directed at someone else, is a side conversation between other people, or doesn't engage with what fred said at all — output SKIP. do not insert yourself into a conversation that moved on without you.",
+      ].join(" ")
+    : null;
+
   const prompt = [
     "you are fred. you are deciding whether to jump into this chat unprompted.",
     behaviorGuide[type] ?? behaviorGuide.chatty,
     "if you jump in: be direct, be specific to what was said, stay in character. keep it short — 1-2 sentences usually. only go longer if the moment really earns it.",
     "if the moment is truly dead-end, purely logistical, or your response would sound completely forced: output exactly SKIP and nothing else.",
     "do NOT output SKIP just because the topic is normal — you jump in often. only skip if you genuinely have nothing to add.",
+    afterBotGuard,
     recentCtxBlock,
     `speaker: ${context.authorName}`,
     `message: ${context.content}`,
