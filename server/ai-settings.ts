@@ -124,7 +124,12 @@ export async function getBotAiSettings(): Promise<BotAiSettings> {
 
 export async function buildSharedSystemPrompt(): Promise<string> {
   const settings = await getBotAiSettings();
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
   return [
+    `current date and time: ${dateStr}, ${timeStr}. this is real. your training cutoff is irrelevant — do not assume it is any earlier year. for anything time-sensitive (prices, news, sports, weather, current events), rely on web search results provided in the prompt, not your training data.`,
+    "",
     settings.systemInstructions.trim(),
     "",
     "bot profile — capabilities:",

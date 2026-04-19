@@ -1528,7 +1528,7 @@ export async function startBot() {
         let taskPrompt: string;
         if (searchResult && (searchResult.answer || searchResult.abstract || searchResult.results.length > 0 || searchResult.topics.length > 0)) {
           const searchContext = formatSearchResultsForAI(searchResult);
-          taskPrompt = `the user asked you to search the web for: "${searchQuery}"\n\nhere are the actual web search results:\n${searchContext}\n\nsummarize what you found in your voice. be accurate and specific with numbers/data. cite sources when available. stay in character.`;
+          taskPrompt = `the user asked you to search the web for: "${searchQuery}"\n\nthe following is LIVE data fetched right now — not your training data. use these results and ignore anything your training says about this topic:\n\n${searchContext}\n\nsummarize what you found in your voice. be accurate and specific with numbers/data. cite sources when available. stay in character.`;
         } else {
           taskPrompt = `the user asked: "${searchQuery}". you searched the web but got nothing useful back. answer from your own knowledge if you actually know — be specific and accurate. if you genuinely don't know, say so plainly. do NOT tell them to use a search command.`;
         }
@@ -1978,7 +1978,7 @@ export async function startBot() {
             );
             if (hasUsefulResults) {
               const searchContext = formatSearchResultsForAI(searchResult!);
-              const searchPrompt = `the user asked: "${cleanContent}"\n\nyou searched the web for: "${searchQuery}"\n\nhere are the actual web search results:\n${searchContext}\n\nrespond to the user's question using the search results. be accurate and specific with numbers/data. cite sources when available. stay in character as fred.`;
+              const searchPrompt = `the user asked: "${cleanContent}"\n\nyou searched the web for: "${searchQuery}"\n\nthe following is LIVE data fetched right now — not your training data. trust these numbers and ignore what your training says about this topic:\n\n${searchContext}\n\nrespond to the user's question using ONLY the search results above. be accurate and specific with numbers/data. cite sources. stay in character as fred.`;
               const reply = await askGemini(searchPrompt, authorDisplayName, message.channelId, authorContext);
               if (reply) {
                 await message.reply({
