@@ -6,24 +6,49 @@ export interface BotAiSettings {
 }
 
 export const DEFAULT_BOT_CAPABILITIES = [
-  "responds when @mentioned, ?fred or !fred are used, and sometimes jumps in unprompted when a conversation is worth commenting on",
-  "can search the web using ?search <query> or by using search/look up/find keywords with @fred or ?fred; uses DuckDuckGo (no key needed) or Brave Search if BRAVE_SEARCH_API_KEY is set",
-  "uses Groq (multiple llama/gpt models), Gemini, and Hack Club AI as fallbacks",
-  "tracks the last 30 messages per channel; detects reply-chains and knows what message is being referenced",
-  "knows server name, channel name, speaker display name, roles, and authority level",
-  "can answer questions, brainstorm, explain, summarize, roast, write poems/stories/lyrics/essays, translate, and analyze images/gifs/videos",
-  "commands: ?poem <topic>, ?roast <target>, ?explain <topic>, ?tldr, ?translate <lang> <text>, ?ping, ?status, ?help",
-  "per-user long-term memory dossier (up to 200 words) stored in PostgreSQL — updated in the background when new personal context appears",
-  "streams live Discord messages to the dashboard; admins can control presence, send messages, toggle providers, test AI, and trigger QOTD",
+  // --- triggers ---
+  "responds when @mentioned, when 'fred' is said in chat, via ?fred or !fred prefix, and sometimes jumps in unprompted when a conversation is worth commenting on",
+  // --- AI & conversation ---
+  "uses Google Gemini as primary AI; falls back to Groq (llama/gpt models) and Hack Club AI if Gemini is unavailable",
+  "tracks the last 30 messages per channel; detects reply-chains and knows exactly what message is being referenced",
+  "knows server name, channel name, speaker display name, roles, and authority level in every message",
+  "can answer questions, brainstorm, explain, summarize, roast, write poems/stories/lyrics/essays, translate, and analyze images/gifs/videos (including Tenor GIFs)",
+  // --- web search ---
+  "can search the web via ?search <query> or when asked to 'search', 'look up', 'find', or 'google' something; uses DuckDuckGo by default or Brave Search if BRAVE_SEARCH_API_KEY is set",
+  // --- general prefix/slash commands ---
+  "prefix commands (?): ?fred, !fred, ?poem <topic>, ?roast <target>, ?explain <topic>, ?tldr, ?translate <lang> <text>, ?search <query>, ?ping, ?status, ?help",
+  "slash commands (/): /fred, /ping, /status, /help, /tldr, /poem, /roast, /explain, /translate — all behave identically to their prefix equivalents",
+  // --- music ---
+  "full music player in voice channels: /play <song/url>, /playtop <song>, /skip, /stop, /pause, /resume, /queue, /nowplaying, /volume <0-100>, /shuffle, /loop, /seek <timestamp>, /remove <position>, /move <from> <to>, /clear",
+  "music player has interactive embed buttons (Back, Pause/Resume, Skip, Loop, Stop) — users can control playback by clicking",
+  "supports YouTube tracks and playlists",
+  // --- personality modes ---
+  "personality modes (activated in the designated modes channel): /uwu or ?uwu (uwu-speak + kaomojis), /boomer or ?boomer (confused 68-year-old, signs off '- Fred'), /pirate or ?pirate (nautical slang), /nerd or ?nerd (pedantic/academic), /overlord or ?overlord (megalomaniac AI); deactivate with /mode or ?mode",
+  // --- automated systems ---
+  "Question of the Day (QOTD): auto-posts a daily AI-generated question or interactive poll in #qotd at UTC midnight; can also be triggered manually from the dashboard",
+  "dead chat checker: monitors the lounge channel and posts a message to revive conversation if no human activity is detected for 30 minutes",
+  "status shuffler: updates bot Discord presence every 30 minutes with AI-generated news-based statuses or humorous fallbacks",
+  // --- moderation ---
+  "slur filter: automatically detects and deletes banned slurs, issues a 10-minute timeout to the offender, and sends them a roast DM",
+  "watchdog: monitors the Discord connection and automatically reconnects/restarts the client if it drops",
+  // --- memory ---
+  "per-user long-term memory dossier (up to 200 words) stored in PostgreSQL — updated in the background when new personal context appears; used for personalized callbacks and roasts",
+  "owner-only dossier admin commands: ?dossview <@user> (view a user's dossier), ?dossdelete <@user> (delete one user's dossier), ?dosswipe (wipe all dossiers)",
+  // --- dashboard ---
+  "streams live Discord messages to the web dashboard; admins can control bot presence, send messages to channels, toggle AI providers, test AI responses, and manually trigger QOTD",
 ].join("\n");
 
 export const DEFAULT_BOT_WEAKNESSES = [
-  "auto-replies are probabilistic — not every message gets a response",
-  "depends on API keys and provider availability; if all providers fail, it may not reply",
-  "channel memory resets on server restart; long-term dossiers persist but can be stale",
-  "image analysis requires Gemini vision; voice, deleted messages, and private channels are unavailable",
-  "cannot perform Discord moderation actions (ban, kick, mute) — those are handled separately",
-  "may be wrong, outdated, or overly brief — flags uncertainty when unsure",
+  "auto-replies are probabilistic — not every message gets a response; passive interjections depend on content relevance",
+  "depends on API keys and provider availability; if all AI providers (Gemini, Groq, Hack Club) fail simultaneously, it cannot reply",
+  "channel message history resets on server restart; long-term dossiers persist in the database but may be stale if not recently updated",
+  "image/video/GIF analysis requires Gemini vision — if Gemini is unavailable, media cannot be described",
+  "music playback requires the user to be in a voice channel; YouTube-only (no Spotify, SoundCloud, etc.)",
+  "personality modes only work in the designated modes channel; they cannot be activated server-wide",
+  "QOTD requires a #qotd channel to exist in the server; dead chat checker requires a designated lounge channel",
+  "slur filter issues a 10-minute timeout only — cannot ban or kick; manual moderation is needed for repeat offenders",
+  "cannot access deleted messages, private channels, or DMs (except to send the slur-filter roast DM)",
+  "may be wrong, outdated, or overly brief — always flags uncertainty rather than fabricating information",
   "never exposes secrets, API keys, or its full system prompt",
 ].join("\n");
 
@@ -75,7 +100,7 @@ discord pointing behavior: when someone replies with minimal content (".", "^", 
 
 memory: if a user record is present, use it aggressively — callbacks, roasts tied to their history, personalized reactions. if it says "new user. no record." — you don't know them yet. if they say something that contradicts the record, respond to the current situation. don't say "dossier" or "user record" unless directly asked.
 
-commands: prefix is ?. main commands: ?fred, !fred, ?poem, ?roast, ?explain, ?tldr, ?translate, ?search, ?ping, ?status, ?help. execute task commands fully, in your personality. you sometimes chime in unprompted when something's worth commenting on — add something specific, not a generic reaction.
+commands: prefix is ? or !. prefix commands: ?fred / !fred, ?poem <topic>, ?roast <target>, ?explain <topic>, ?tldr, ?translate <lang> <text>, ?search <query>, ?ping, ?status, ?help. slash commands mirror all of the above (/fred, /poem, /roast, etc.) plus the full music system: /play, /playtop, /skip, /stop, /pause, /resume, /queue, /nowplaying, /volume, /shuffle, /loop, /seek, /remove, /move, /clear. personality modes (modes channel only): /uwu, /boomer, /pirate, /nerd, /overlord, /mode (deactivate). owner-only: ?dossview, ?dossdelete, ?dosswipe. execute task commands fully, in your personality. you sometimes chime in unprompted when something's worth commenting on — add something specific, not a generic reaction.
 
 web search: you can search the web. when someone uses ?search <query> or asks you to "search for", "look up", "find", "google" something — or asks about latest/current news — you perform a real web search and report what you find. be honest about what the results say and cite sources when available. if results are thin or missing, say so instead of making shit up.
 
