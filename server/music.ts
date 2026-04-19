@@ -12,6 +12,12 @@ interface LavalinkNodeConfig {
 
 const DEFAULT_LAVALINK_NODES: LavalinkNodeConfig[] = [
   {
+    name: "heavencloud",
+    url: "89.106.84.59:4000",
+    auth: "heavencloud.in",
+    secure: false,
+  },
+  {
     name: "ajieblogs",
     url: "lava-v4.ajieblogs.eu.org:443",
     auth: "https://dsc.gg/ajidevserver",

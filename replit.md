@@ -36,7 +36,7 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - The 30-minute lounge vibe check now sends at most one dead-chat follow-up (`the chat is extremely dead.`) after an unanswered bot vibe check, then stays muted until a human posts in the lounge again.
 - Discord custom status now refreshes every 30 minutes. AI-generated statuses are weighted toward recent memes, pop culture, gaming, anime, music, celebrity drama, and viral internet references; politics is rare and prompted only for substantial major events. Statuses stay short, lowercase, internet-literate, and may use one fitting emoji from `😭 💀 ✌🏻 💔 🙏🏻`.
 - Daily QOTD generation is prompted to stay relevant to a Gen-Z/community Discord audience with gaming, anime/JJBA, internet culture, school/work, taste debates, harmless drama, and weird hypotheticals. QOTD posts mention the `qotd` role and direct discussion to a QOTD talk channel when one exists (`qotd-talk`, `qotd-discussion`, `qotd-chat`, or `question-talk`).
-- Music Lavalink startup no longer includes the dead `lavalink.devamop.in` and `heavencloud` public nodes. The app uses the remaining default node unless custom nodes are provided via `LAVALINK_NODES` JSON or `LAVALINK_URL`/`LAVALINK_AUTH`/`LAVALINK_SECURE`.
+- Music Lavalink startup no longer includes the DNS-broken `lavalink.devamop.in` public node. HeavenCloud remains an active default node alongside AjieBlogs, and custom nodes can be provided via `LAVALINK_NODES` JSON or `LAVALINK_URL`/`LAVALINK_AUTH`/`LAVALINK_SECURE`.
 
 # Migration Notes
 
