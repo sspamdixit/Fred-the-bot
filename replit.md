@@ -26,6 +26,7 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - Groq text and QOTD generation now try multiple Groq models: `llama-3.1-8b-instant`, `llama-3.3-70b-versatile`, `meta-llama/llama-4-scout-17b-16e-instruct`, `openai/gpt-oss-20b`, and `openai/gpt-oss-120b`.
 - Discord users can view the bot profile with `?info`; `?help` lists the primary public commands. Legacy aliases `!help` and `!bubbl <message>` remain supported.
 - `/overlord` and `?overlord` use a fictional English authoritarian-supervillain voice only; the prompt explicitly forbids imitating Hitler, Nazis, real dictators, extremist ideology, hate, or real-world violence.
+- When a user talks to Fred mostly in a non-English language, AI replies are formatted as the response in that language followed by a smaller Discord line (`-#...`) containing the same response translated into English.
 - Long-term user memory is stored in Neon PostgreSQL via `process.env.DATABASE_URL` in the `user_memory` table (`user_id` text primary key, `dossier` text).
 - The server runs a safe startup initializer for `user_memory` using `CREATE TABLE IF NOT EXISTS` so Render/Neon production environments self-create the table even if local `db:push` was not run against that database.
 - AI responses fetch the current user's dossier and inject it into the system prompt as `user record: ...`; missing rows use `new user. no record.`
