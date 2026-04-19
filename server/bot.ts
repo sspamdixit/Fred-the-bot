@@ -1210,13 +1210,14 @@ export async function startBot() {
 
     // Detect Discord reply-chain context
     let replyTo: string | undefined;
+    let isReplyToBot = false;
     if (message.reference?.messageId) {
       try {
         const refMsg = await (message.channel as TextChannel).messages.fetch(message.reference.messageId);
         if (refMsg) {
           const refAuthor = refMsg.member?.displayName ?? refMsg.author.username;
-          const isRefBot = refMsg.author.bot && refMsg.author.id === client?.user?.id;
-          const refPrefix = isRefBot ? "fred" : refAuthor;
+          isReplyToBot = refMsg.author.bot && refMsg.author.id === client?.user?.id;
+          const refPrefix = isReplyToBot ? "fred" : refAuthor;
           replyTo = `[${refPrefix}]: ${refMsg.content.slice(0, 300).trim()}`;
         }
       } catch {
@@ -1229,7 +1230,11 @@ export async function startBot() {
     // Any message starting with a known ? or ! command should never trigger passive watch
     const isAnyCommand = /^[!?](fred|bubbl|status|help|ping|tldr|poem|roast|explain|translate|search|play|playtop|skip|stop|pause|resume|queue|np|volume|shuffle|loop|repeat|remove|move|clear|disconnect|leave|seek|uwu|boomer|pirate|nerd|overlord|mode|normal|dossview|dossdelete|dosswipe|qotd)\b/i.test(rawContent);
 
-    if (!isMentioned && !isPrefixed && !isAnyCommand && message.guildId) {
+    // Treat as directed at the bot if: user said "fred"/"bubbl" by name, or replied to a bot message
+    const isNamedFred = /\b(fred|bubbl)\b/i.test(rawContent);
+    const isDirectedAtBot = isNamedFred || isReplyToBot;
+
+    if (!isMentioned && !isPrefixed && !isDirectedAtBot && !isAnyCommand && message.guildId) {
       queuePassiveWatch({
         messageId: message.id,
         channelId: message.channelId,
@@ -1906,7 +1911,7 @@ export async function startBot() {
       }
     }
 
-    if ((isMentioned || isPrefixed) && client?.user) {
+    if ((isMentioned || isPrefixed || isDirectedAtBot) && client?.user) {
       let cleanContent = message.content;
 
       if (isMentioned) {
