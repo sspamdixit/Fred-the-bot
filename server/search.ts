@@ -234,37 +234,50 @@ function detectYahooSymbols(query: string): YahooSymbolDef[] {
   return found;
 }
 
+async function fetchYahooChart(def: YahooSymbolDef): Promise<{ label: string; price: number; currency: string; change: number | null; changePct: number | null } | null> {
+  const symbol = encodeURIComponent(def.symbol);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Accept": "application/json",
+    },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`Yahoo Finance v8 ${res.status} for ${def.symbol}`);
+  const data = await res.json() as any;
+  const meta = data?.chart?.result?.[0]?.meta;
+  if (!meta || meta.regularMarketPrice == null) return null;
+
+  const price: number = meta.regularMarketPrice;
+  const prev: number | null = meta.chartPreviousClose ?? meta.previousClose ?? null;
+  const change = prev != null ? price - prev : null;
+  const changePct = prev != null && prev !== 0 ? ((price - prev) / prev) * 100 : null;
+
+  return {
+    label: def.label,
+    price,
+    currency: meta.currency ?? "USD",
+    change,
+    changePct,
+  };
+}
+
 async function getYahooFinance(defs: YahooSymbolDef[]): Promise<SearchResult | null> {
   try {
-    const symbols = defs.map(d => d.symbol).join(",");
-    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}&fields=shortName,regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,currency,marketState`;
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) throw new Error(`Yahoo Finance ${res.status}`);
-    const data = await res.json() as any;
-    const results: any[] = data?.quoteResponse?.result ?? [];
-    if (!results.length) return null;
-
+    // v8 chart API: one request per symbol (v7 quote API now returns 401)
+    const settled = await Promise.allSettled(defs.map(d => fetchYahooChart(d)));
     const lines: string[] = [];
-    for (const r of results) {
-      const def = defs.find(d => d.symbol === r.symbol);
-      const label = def?.label ?? r.shortName ?? r.symbol;
-      const price = r.regularMarketPrice;
-      const currency = r.currency ?? "USD";
-      const change = r.regularMarketChange;
-      const changePct = r.regularMarketChangePercent;
-      if (price == null) continue;
+
+    for (const result of settled) {
+      if (result.status !== "fulfilled" || !result.value) continue;
+      const { label, price, currency, change, changePct } = result.value;
 
       const priceStr = price >= 1000
         ? price.toLocaleString("en-US", { maximumFractionDigits: 2 })
         : price.toFixed(price >= 1 ? 2 : 4);
 
-      const changeStr = change != null
+      const changeStr = change != null && changePct != null
         ? ` (${change >= 0 ? "+" : ""}${change.toFixed(2)} / ${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%)`
         : "";
       lines.push(`${label}: ${currency} ${priceStr}${changeStr}`);
@@ -273,7 +286,7 @@ async function getYahooFinance(defs: YahooSymbolDef[]): Promise<SearchResult | n
     if (!lines.length) return null;
     const answer = lines.join("\n") + "\nsource: Yahoo Finance (live)";
     return {
-      query: symbols,
+      query: defs.map(d => d.label).join(", "),
       answer,
       abstract: answer,
       abstractSource: "Yahoo Finance",
@@ -309,10 +322,11 @@ async function scrapeDuckDuckGo(query: string): Promise<SearchResult> {
 
   const results: { title: string; snippet: string; url: string }[] = [];
 
-  // Extract result blocks: each result has a result-link, result-snippet, result-url
-  const linkRe = /<a[^>]+class="result-link"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
-  const snippetRe = /<td[^>]+class="result-snippet"[^>]*>([\s\S]*?)<\/td>/gi;
-  const urlRe = /<span[^>]+class="result-url"[^>]*>([\s\S]*?)<\/span>/gi;
+  // DDG lite uses single quotes on class attributes: class='result-link'
+  // Extract anchors: href may come before OR after class, handle both orderings
+  const linkRe = /<a\b[^>]*href=["']([^"']+)["'][^>]*class=['"]result-link['"][^>]*>([\s\S]*?)<\/a>|<a\b[^>]*class=['"]result-link['"][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  const snippetRe = /<td[^>]*class=['"]result-snippet['"][^>]*>([\s\S]*?)<\/td>/gi;
+  const urlRe = /<td[^>]*class=['"]result-url['"][^>]*>([\s\S]*?)<\/td>/gi;
 
   const links: { href: string; title: string }[] = [];
   const snippets: string[] = [];
@@ -320,13 +334,24 @@ async function scrapeDuckDuckGo(query: string): Promise<SearchResult> {
 
   let m: RegExpExecArray | null;
   while ((m = linkRe.exec(html)) !== null) {
-    links.push({ href: m[1], title: stripHtml(m[2]) });
+    // group 1+2 = href-first form, group 3+4 = class-first form
+    const href = m[1] ?? m[3] ?? "";
+    const rawTitle = m[2] ?? m[4] ?? "";
+    const title = stripHtml(rawTitle).trim();
+    if (!title || title.toLowerCase().includes("sponsored")) continue;
+    // Decode DDG redirect URL to get the real URL
+    let realUrl = href;
+    try {
+      const u = new URL(href.startsWith("//") ? "https:" + href : href);
+      realUrl = u.searchParams.get("uddg") ?? href;
+    } catch { /* keep original */ }
+    links.push({ href: realUrl, title });
   }
   while ((m = snippetRe.exec(html)) !== null) {
-    snippets.push(stripHtml(m[1]));
+    snippets.push(stripHtml(m[1]).trim());
   }
   while ((m = urlRe.exec(html)) !== null) {
-    urls.push(stripHtml(m[1]));
+    urls.push(stripHtml(m[1]).trim());
   }
 
   const count = Math.min(links.length, snippets.length, 6);
@@ -339,8 +364,8 @@ async function scrapeDuckDuckGo(query: string): Promise<SearchResult> {
     }
   }
 
-  // Also try to grab the "answer" from the instant answer box at the top
-  const answerMatch = html.match(/<div[^>]+class="[^"]*zci[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+  // Instant answer box at the top
+  const answerMatch = html.match(/<div[^>]+class=['"][^'"]*zci[^'"]*['"][^>]*>([\s\S]*?)<\/div>/i);
   const answer = answerMatch ? stripHtml(answerMatch[1]).slice(0, 300) || undefined : undefined;
 
   return {
