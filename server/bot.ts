@@ -1165,6 +1165,31 @@ export async function startBot() {
     // Standalone commands (no prefix/mention required)
     const rawContent = message.content.trim();
     const standaloneCmd = rawContent.toLowerCase();
+    const legacyCommandDiscouragements = [
+      "-# use the / commands instead. the punctuation era is tired.",
+      "-# try the / commands next time. fred is begging you to evolve.",
+      "-# / commands exist. use them before this bot develops back pain.",
+    ];
+    const shouldDiscourageLegacyCommand = /^[!?]/.test(rawContent) && !/^[!?]fred\b/i.test(rawContent);
+    const legacyCommandDiscouragement = legacyCommandDiscouragements[
+      [...rawContent].reduce((sum, char) => sum + char.charCodeAt(0), 0) % legacyCommandDiscouragements.length
+    ];
+    const appendLegacyCommandDiscouragement = (content: string): string => {
+      if (!shouldDiscourageLegacyCommand || content.includes("\n-#")) return content;
+      const next = content ? `${content}\n${legacyCommandDiscouragement}` : legacyCommandDiscouragement;
+      return next.length <= 2000 ? next : content;
+    };
+    if (shouldDiscourageLegacyCommand) {
+      const originalReply = message.reply.bind(message);
+      message.reply = ((options: any) => {
+        if (typeof options === "string") {
+          return originalReply(appendLegacyCommandDiscouragement(options));
+        }
+        const next = { ...options };
+        next.content = appendLegacyCommandDiscouragement(String(next.content ?? ""));
+        return originalReply(next);
+      }) as typeof message.reply;
+    }
     const authorDisplayName = message.member?.displayName ?? message.author.username;
     const guildName = message.guild?.name ?? "unknown server";
     const channelName = (message.channel as TextChannel).name ?? "unknown";
@@ -1445,7 +1470,7 @@ export async function startBot() {
       });
       const latency = Date.now() - start;
       const wsLatency = client?.ws.ping ?? -1;
-      await sent.edit(`pong. roundtrip: **${latency}ms** | ws: **${wsLatency}ms**`);
+      await sent.edit(appendLegacyCommandDiscouragement(`pong. roundtrip: **${latency}ms** | ws: **${wsLatency}ms**`));
       return;
     }
 

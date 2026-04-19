@@ -27,6 +27,7 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - Discord users can view the bot profile with `?info`; `?help` lists the primary public commands. Legacy aliases `!help` and `!bubbl <message>` remain supported.
 - `/overlord` and `?overlord` use a fictional English authoritarian-supervillain voice only; the prompt explicitly forbids imitating Hitler, Nazis, real dictators, extremist ideology, hate, or real-world violence.
 - When a user talks to Fred mostly in a non-English language, AI replies are formatted as the response in that language followed by a smaller Discord line (`-#...`) containing the same response translated into English.
+- Legacy `?`/`!` commands, except `?fred` and `!fred`, automatically append one of three fixed smaller Discord discouragement lines asking users to use slash commands instead. These lines are deterministic code strings and do not use AI tokens.
 - Long-term user memory is stored in Neon PostgreSQL via `process.env.DATABASE_URL` in the `user_memory` table (`user_id` text primary key, `dossier` text).
 - The server runs a safe startup initializer for `user_memory` using `CREATE TABLE IF NOT EXISTS` so Render/Neon production environments self-create the table even if local `db:push` was not run against that database.
 - AI responses fetch the current user's dossier and inject it into the system prompt as `user record: ...`; missing rows use `new user. no record.`
