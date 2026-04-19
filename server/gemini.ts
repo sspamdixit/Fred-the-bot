@@ -95,6 +95,8 @@ const pendingMemoryUpdates = new Set<string>();
 const processedMemoryCandidates = new Map<string, string>();
 const passiveWatchQueue = new Map<string, NodeJS.Timeout>();
 const recentChannelContext = new Map<string, ChannelMessage[]>();
+const lastPassiveReplyAt = new Map<string, number>();
+const PASSIVE_REPLY_COOLDOWN_MS = 45_000;
 
 export interface AIStats {
   lastUsedProvider: string | null;
@@ -139,6 +141,9 @@ function getFormattedChannelContext(channelId: string, excludeLast: number = 1):
 export function queuePassiveWatch(context: PassiveWatchContext): void {
   const key = context.messageId;
   if (passiveWatchQueue.has(key)) return;
+
+  const lastReply = lastPassiveReplyAt.get(context.channelId);
+  if (lastReply && Date.now() - lastReply < PASSIVE_REPLY_COOLDOWN_MS) return;
 
   const timer = setTimeout(() => {
     passiveWatchQueue.delete(key);
@@ -228,6 +233,8 @@ async function handlePassiveWatch(context: PassiveWatchContext): Promise<void> {
   log(`[Passive:${type}] Jumping in on ${context.authorName}'s message in channel ${context.channelId}`, "gemini");
   try {
     await context.sendReply(reply);
+    lastPassiveReplyAt.set(context.channelId, Date.now());
+    pushChannelMessage(context.channelId, "fred", reply, true);
   } catch (err: any) {
     log(`[Passive] Failed to send reply: ${err.message}`, "gemini");
   }
