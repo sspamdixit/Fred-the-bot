@@ -9,7 +9,7 @@ built with way too many api keys and a concerning amount of lavalink nodes.
 ## what fred does (that you couldn't do yourself)
 
 **talking shit:**
-- responds to `@fred`, `?fred`, `?bubbl`, `!fred`, `!bubbl` — pick your poison
+- responds to `@fred`, `?fred`, `!fred` — pick your poison
 - everything works as `/slash` commands too because fred respects accessibility
 - **passive mode** — fred jumps into conversations without being @mentioned when someone says something stupid enough to warrant a response. heuristic-based. zero extra cost. maximum chaos.
 - writes poems, roasts, stories, lyrics, essays. they're better than yours.

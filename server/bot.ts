@@ -1159,7 +1159,7 @@ export async function startBot() {
     }
 
     const isMentioned = client?.user && message.mentions.users.has(client.user.id);
-    const COMMAND_PREFIX = /^[!?](bubbl|fred)\s*/i;
+    const COMMAND_PREFIX = /^[!?]fred\s*/i;
     const isPrefixed = COMMAND_PREFIX.test(message.content);
 
     // Standalone commands (no prefix/mention required)
@@ -1228,10 +1228,10 @@ export async function startBot() {
     const authorContext = { userId: message.author.id, roles: roleNames, sortedRoles: sortedRoleNames, isOwner, guildName, channelName, modeInstruction: activeModeInstruction, replyTo };
 
     // Any message starting with a known ? or ! command should never trigger passive watch
-    const isAnyCommand = /^[!?](fred|bubbl|status|help|ping|tldr|poem|roast|explain|translate|search|play|playtop|skip|stop|pause|resume|queue|np|volume|shuffle|loop|repeat|remove|move|clear|disconnect|leave|seek|uwu|boomer|pirate|nerd|overlord|mode|normal|dossview|dossdelete|dosswipe|qotd)\b/i.test(rawContent);
+    const isAnyCommand = /^[!?](fred|status|help|ping|tldr|poem|roast|explain|translate|search|play|playtop|skip|stop|pause|resume|queue|np|volume|shuffle|loop|repeat|remove|move|clear|disconnect|leave|seek|uwu|boomer|pirate|nerd|overlord|mode|normal|dossview|dossdelete|dosswipe|qotd)\b/i.test(rawContent);
 
-    // Treat as directed at the bot if: user said "fred"/"bubbl" by name, or replied to a bot message
-    const isNamedFred = /\b(fred|bubbl)\b/i.test(rawContent);
+    // Treat as directed at the bot if: user said "fred" by name, or replied to a bot message
+    const isNamedFred = /\bfred\b/i.test(rawContent);
     const isDirectedAtBot = isNamedFred || isReplyToBot;
 
     if (!isMentioned && !isPrefixed && !isDirectedAtBot && !isAnyCommand && message.guildId) {
@@ -1412,7 +1412,7 @@ export async function startBot() {
         "`?explain <topic>` — explain something in depth",
         "`?translate <language> <text>` — translate text",
         "`?search <query>` — search the web and get an answer",
-        "`?fred <message>` — talk to the ai (`?bubbl`, `!fred`, `!bubbl` all work too)",
+        "`?fred <message>` — talk to the ai (`!fred` works too)",
         `or just ping <@${client?.user?.id}> with your message`,
         "or attach an image/video to any message to get a description",
       ];
@@ -1980,18 +1980,6 @@ export async function startBot() {
       }
 
       if (!cleanContent && !hasMedia) return;
-
-      // Also handle ?bubbl status/help/ping as subcommands
-      if (cleanContent) {
-        const sub = cleanContent.toLowerCase();
-        if (sub === "status" || sub === "help" || sub === "ping") {
-          await message.reply({
-            content: `use \`?${sub}\` directly instead of \`?bubbl ${sub}\`. easier.`,
-            allowedMentions: { parse: [], repliedUser: false },
-          });
-          return;
-        }
-      }
 
       const mediaCount = mediaAttachments.size + tenorMediaUrls.length;
       log(`[Gemini] Handling from ${authorDisplayName}: ${cleanContent.slice(0, 80)}${mediaCount > 0 ? ` [+${mediaCount} media]` : ""}`, "discord");

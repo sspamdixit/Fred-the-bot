@@ -406,7 +406,7 @@ function isSubstantialMemoryMessage(content: string): boolean {
     .replace(/https?:\/\/\S+/g, "")
     .trim();
 
-  if (text.length < 8 || /^[!?]?bubbl\b/.test(text)) {
+  if (text.length < 8) {
     return false;
   }
 
@@ -1110,7 +1110,7 @@ export async function fetchRssHeadlines(url: string): Promise<string[]> {
   try {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(8_000),
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; BubblBot/1.0)" },
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; FredBot/1.0)" },
     });
     if (!res.ok) return [];
     const xml = await res.text();
