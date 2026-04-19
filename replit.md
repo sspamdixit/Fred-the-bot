@@ -37,6 +37,7 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - Discord custom status now refreshes every 30 minutes. AI-generated statuses are weighted toward recent memes, pop culture, gaming, anime, music, celebrity drama, and viral internet references; politics is rare and prompted only for substantial major events. Statuses stay short, lowercase, internet-literate, and may use one fitting emoji from `😭 💀 ✌🏻 💔 🙏🏻`.
 - Daily QOTD generation is prompted to stay relevant to a Gen-Z/community Discord audience with gaming, anime/JJBA, internet culture, school/work, taste debates, harmless drama, and weird hypotheticals. QOTD posts mention the `qotd` role and direct discussion to a QOTD talk channel when one exists (`qotd-talk`, `qotd-discussion`, `qotd-chat`, or `question-talk`).
 - Music Lavalink startup no longer includes the DNS-broken `lavalink.devamop.in` public node. Default free/public nodes include HeavenCloud, Jirayu, Serenetia v4/universal, MilloHost, and AjieBlogs. Custom nodes can be provided via `LAVALINK_NODES` JSON or `LAVALINK_URL`/`LAVALINK_AUTH`/`LAVALINK_SECURE`.
+- During Lavalink node failover, music recovery captures the current player position and seeks the resumed track to that same timestamp on the replacement node when the track is seekable.
 
 # Migration Notes
 

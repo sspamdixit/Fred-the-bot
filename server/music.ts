@@ -120,6 +120,7 @@ export interface GuildQueue {
   loop: LoopMode;
   voiceChannelId: string;
   textChannelId: string;
+  resumePositionMs?: number;
   // Stability flags
   isAdvancing: boolean;   // true while advanceQueue is running — blocks joinAndPlay from interrupting
   isStopped: boolean;     // true after stopMusic/disconnect — prevents end-event from re-queuing
@@ -196,6 +197,7 @@ async function handleNodeDisconnect(nodeName: string): Promise<void> {
     const toResume = queue.current;
     const upcomingTracks = [...queue.tracks];
     const { voiceChannelId, textChannelId, volume, loop } = queue;
+    const resumePositionMs = getResumePositionMs(queue, toResume);
 
     // Mark as stopped to prevent stale end events from interfering
     queue.isStopped = true;
@@ -228,6 +230,7 @@ async function handleNodeDisconnect(nodeName: string): Promise<void> {
         loop,
         voiceChannelId,
         textChannelId,
+        resumePositionMs,
         isAdvancing: false,
         isStopped: false,
       };
@@ -236,7 +239,10 @@ async function handleNodeDisconnect(nodeName: string): Promise<void> {
       queues.set(guildId, newQueue);
 
       log(`[Music] Recovery: rejoined voice channel for guild ${guildId}.`, "discord");
-      textNotifyCallback?.(guildId, textChannelId, "node dropped — reconnected and resuming queue.");
+      const resumeMessage = resumePositionMs > 0
+        ? `node dropped — reconnected and resuming from ${formatDuration(resumePositionMs)}.`
+        : "node dropped — reconnected and resuming queue.";
+      textNotifyCallback?.(guildId, textChannelId, resumeMessage);
 
       await advanceQueue(newPlayer, guildId);
     } catch (err: any) {
@@ -268,6 +274,35 @@ export function parseSeekTime(input: string): number | null {
   if (parts.length === 2) return (parts[0] * 60 + parts[1]) * 1000;
   if (parts.length === 3) return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
   return null;
+}
+
+function getResumePositionMs(queue: GuildQueue, track: QueueTrack | null): number {
+  if (!track || track.isStream || track.duration <= 0) return 0;
+
+  const position = Number(queue.player.position);
+  if (!Number.isFinite(position) || position < 1000) return 0;
+
+  const latestSafePosition = Math.max(0, track.duration - 1000);
+  return Math.min(Math.floor(position), latestSafePosition);
+}
+
+async function applyResumePosition(
+  player: Player,
+  guildId: string,
+  track: QueueTrack,
+  queue: GuildQueue,
+): Promise<void> {
+  const resumePositionMs = queue.resumePositionMs ?? 0;
+  queue.resumePositionMs = undefined;
+
+  if (resumePositionMs <= 0 || track.isStream) return;
+
+  try {
+    await player.seekTo(resumePositionMs);
+    log(`[Music] Resumed "${track.title}" in guild ${guildId} at ${formatDuration(resumePositionMs)}.`, "discord");
+  } catch (err: any) {
+    log(`[Music] Failed to restore position for "${track.title}" in guild ${guildId}: ${err.message}`, "discord");
+  }
 }
 
 function scheduleAutoDisconnect(guildId: string): void {
@@ -309,6 +344,7 @@ async function advanceQueue(player: Player, guildId: string): Promise<void> {
         try {
           await player.playTrack({ track: { encoded: q.current.encoded } });
           await player.setGlobalVolume(q.volume);
+          await applyResumePosition(player, guildId, q.current, q);
           nowPlayingCallback?.(guildId, q.current, q);
           return;
         } catch (err: any) {
@@ -335,6 +371,7 @@ async function advanceQueue(player: Player, guildId: string): Promise<void> {
         await player.playTrack({ track: { encoded: next.encoded } });
         q.current = next;
         await player.setGlobalVolume(q.volume);
+        await applyResumePosition(player, guildId, next, q);
         nowPlayingCallback?.(guildId, next, q);
         return; // Successfully started next track
       } catch (err: any) {
