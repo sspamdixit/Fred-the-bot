@@ -3,19 +3,14 @@ import { Shoukaku, Connectors } from "shoukaku";
 import type { Player } from "shoukaku";
 import { log } from "./index";
 
-const LAVALINK_NODES = [
-  {
-    name: "main",
-    url: "lavalink.devamop.in:443",
-    auth: "DevamOP",
-    secure: true,
-  },
-  {
-    name: "heavencloud",
-    url: "89.106.84.59:4000",
-    auth: "heavencloud.in",
-    secure: false,
-  },
+interface LavalinkNodeConfig {
+  name: string;
+  url: string;
+  auth: string;
+  secure: boolean;
+}
+
+const DEFAULT_LAVALINK_NODES: LavalinkNodeConfig[] = [
   {
     name: "ajieblogs",
     url: "lava-v4.ajieblogs.eu.org:443",
@@ -23,6 +18,51 @@ const LAVALINK_NODES = [
     secure: true,
   },
 ];
+
+function parseBoolean(value: string | undefined): boolean {
+  return /^(1|true|yes)$/i.test(value ?? "");
+}
+
+function normalizeLavalinkNode(raw: any, fallbackName: string): LavalinkNodeConfig | null {
+  const name = String(raw?.name || fallbackName).trim();
+  const url = String(raw?.url || raw?.host || "").trim();
+  const auth = String(raw?.auth || raw?.password || "").trim();
+  const secure = typeof raw?.secure === "boolean" ? raw.secure : parseBoolean(String(raw?.secure ?? ""));
+
+  if (!name || !url || !auth) return null;
+  return { name, url, auth, secure };
+}
+
+function getLavalinkNodes(): LavalinkNodeConfig[] {
+  const rawNodes = process.env.LAVALINK_NODES?.trim();
+
+  if (rawNodes) {
+    try {
+      const parsed = JSON.parse(rawNodes);
+      const nodeList = Array.isArray(parsed) ? parsed : [parsed];
+      const nodes = nodeList
+        .map((node, index) => normalizeLavalinkNode(node, `node-${index + 1}`))
+        .filter((node): node is LavalinkNodeConfig => Boolean(node));
+
+      if (nodes.length > 0) return nodes;
+      log("[Music] LAVALINK_NODES was set but contained no valid nodes.", "discord");
+    } catch (err: any) {
+      log(`[Music] Could not parse LAVALINK_NODES JSON: ${err.message}`, "discord");
+    }
+  }
+
+  const singleNode = normalizeLavalinkNode(
+    {
+      name: process.env.LAVALINK_NAME || "custom",
+      url: process.env.LAVALINK_URL,
+      auth: process.env.LAVALINK_AUTH || process.env.LAVALINK_PASSWORD,
+      secure: process.env.LAVALINK_SECURE,
+    },
+    "custom",
+  );
+
+  return singleNode ? [singleNode] : DEFAULT_LAVALINK_NODES;
+}
 
 export interface QueueTrack {
   encoded: string;
@@ -71,7 +111,17 @@ export function setTextNotifyCallback(cb: TextNotifyFn): void {
 }
 
 export function initMusic(client: Client): void {
-  shoukaku = new Shoukaku(new Connectors.DiscordJS(client), LAVALINK_NODES, {
+  const nodes = getLavalinkNodes();
+
+  if (!nodes.length) {
+    shoukaku = null;
+    log("[Music] No Lavalink nodes configured. Music commands are disabled.", "discord");
+    return;
+  }
+
+  log(`[Music] Initialising Lavalink with nodes: ${nodes.map((node) => node.name).join(", ")}`, "discord");
+
+  shoukaku = new Shoukaku(new Connectors.DiscordJS(client), nodes, {
     moveOnDisconnect: false,
     resumeByLibrary: false,
     reconnectTries: 5,
