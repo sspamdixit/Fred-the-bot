@@ -9,7 +9,7 @@ export const DEFAULT_BOT_CAPABILITIES = [
   // --- triggers ---
   "responds when @mentioned, when 'fred' is said in chat, via ?fred or !fred prefix, and sometimes jumps in unprompted when a conversation is worth commenting on",
   // --- AI & conversation ---
-  "uses Google Gemini as primary AI; falls back to Groq (llama/gpt models) and Hack Club AI if Gemini is unavailable",
+  "uses Google Gemini as primary AI; falls back to Groq (llama/gpt models) and Grok if Gemini is unavailable",
   "tracks the last 30 messages per channel; detects reply-chains and knows exactly what message is being referenced",
   "knows server name, channel name, speaker display name, roles, and authority level in every message",
   "can answer questions, brainstorm, explain, summarize, roast, write poems/stories/lyrics/essays, translate, and analyze images/gifs/videos (including Tenor GIFs)",
@@ -21,7 +21,7 @@ export const DEFAULT_BOT_CAPABILITIES = [
   // --- music ---
   "full music player in voice channels: /play <song/url>, /playtop <song>, /skip, /stop, /pause, /resume, /queue, /nowplaying, /volume <0-100>, /shuffle, /loop, /seek <timestamp>, /remove <position>, /move <from> <to>, /clear",
   "music player has interactive embed buttons (Back, Pause/Resume, Skip, Loop, Stop) — users can control playback by clicking",
-  "supports YouTube tracks and playlists",
+  "supports a wide range of sources via Lavalink (YouTube, SoundCloud, and more) — users can search by name and pick from a list of results",
   // --- personality modes ---
   "personality modes (activated in the designated modes channel): /uwu or ?uwu (uwu-speak + kaomojis), /boomer or ?boomer (confused 68-year-old, signs off '- Fred'), /pirate or ?pirate (nautical slang), /nerd or ?nerd (pedantic/academic), /overlord or ?overlord (megalomaniac AI); deactivate with /mode or ?mode",
   // --- automated systems ---
@@ -40,10 +40,10 @@ export const DEFAULT_BOT_CAPABILITIES = [
 
 export const DEFAULT_BOT_WEAKNESSES = [
   "auto-replies are probabilistic — not every message gets a response; passive interjections depend on content relevance",
-  "depends on API keys and provider availability; if all AI providers (Gemini, Groq, Hack Club) fail simultaneously, it cannot reply",
+  "depends on API keys and provider availability; if all AI providers (Gemini, Groq, Grok) fail simultaneously, it cannot reply",
   "channel message history resets on server restart; long-term dossiers persist in the database but may be stale if not recently updated",
   "image/video/GIF analysis requires Gemini vision — if Gemini is unavailable, media cannot be described",
-  "music playback requires the user to be in a voice channel; YouTube-only (no Spotify, SoundCloud, etc.)",
+  "music playback requires the user to be in a voice channel; source availability depends on what the Lavalink node supports",
   "personality modes only work in the designated modes channel; they cannot be activated server-wide",
   "QOTD requires a #qotd channel to exist in the server; dead chat checker requires a designated lounge channel",
   "slur filter issues a 10-minute timeout only — cannot ban or kick; manual moderation is needed for repeat offenders",
