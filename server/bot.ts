@@ -1522,9 +1522,9 @@ export async function startBot() {
         let taskPrompt: string;
         if (searchResult && (searchResult.answer || searchResult.abstract || searchResult.results.length > 0 || searchResult.topics.length > 0)) {
           const searchContext = formatSearchResultsForAI(searchResult);
-          taskPrompt = `the user asked you to search the web for: "${searchQuery}"\n\nhere are the actual web search results:\n${searchContext}\n\nsummarize what you found in your voice. be accurate. cite where info comes from if there's a source. if results are thin or off-topic, say so and give what you can. all lowercase, no emojis, stay in character.`;
+          taskPrompt = `the user asked you to search the web for: "${searchQuery}"\n\nhere are the actual web search results:\n${searchContext}\n\nsummarize what you found in your voice. be accurate and specific with numbers/data. cite sources when available. stay in character.`;
         } else {
-          taskPrompt = `the user asked you to search the web for: "${searchQuery}" — you tried but got no useful results. tell them that honestly in your voice, and give whatever you actually know about the topic if anything. don't make stuff up.`;
+          taskPrompt = `the user asked: "${searchQuery}". you searched the web but got nothing useful back. answer from your own knowledge if you actually know — be specific and accurate. if you genuinely don't know, say so plainly. do NOT tell them to use a search command.`;
         }
         const reply = await askGemini(taskPrompt, authorDisplayName, message.channelId, authorContext);
         if (reply) {
@@ -1961,30 +1961,34 @@ export async function startBot() {
       if (cleanContent && !hasMedia) {
         const searchQuery = detectSearchIntent(cleanContent);
         if (searchQuery) {
+          let searchHandled = false;
           try {
             await (message.channel as TextChannel).sendTyping();
             log(`[Search] Auto-detected search intent: ${searchQuery.slice(0, 60)}`, "discord");
             const searchResult = await searchWeb(searchQuery);
-            let searchPrompt: string;
-            if (searchResult && (searchResult.answer || searchResult.abstract || searchResult.results.length > 0 || searchResult.topics.length > 0)) {
-              const searchContext = formatSearchResultsForAI(searchResult);
-              searchPrompt = `the user asked: "${cleanContent}"\n\nyou searched the web for: "${searchQuery}"\n\nhere are the actual web search results:\n${searchContext}\n\nrespond to the user's question using the search results. be accurate. cite where info comes from if there's a source. if results are thin or off-topic, say so and give what you can. stay in character.`;
-            } else {
-              searchPrompt = `the user asked: "${cleanContent}"\n\nyou tried searching the web for: "${searchQuery}" but got no useful results. tell them that honestly in your voice, and give whatever you actually know about the topic if anything. don't make stuff up.`;
-            }
-            const reply = await askGemini(searchPrompt, authorDisplayName, message.channelId, authorContext);
-            if (reply) {
-              await message.reply({
-                content: reply,
-                allowedMentions: { parse: [], repliedUser: false },
-              });
-              pushChannelMessage(message.channelId, "fred", reply, true);
-              triggerUserMemoryUpdate(message.author.id);
+            const hasUsefulResults = searchResult && (
+              searchResult.answer || searchResult.abstract ||
+              searchResult.results.length > 0 || searchResult.topics.length > 0
+            );
+            if (hasUsefulResults) {
+              const searchContext = formatSearchResultsForAI(searchResult!);
+              const searchPrompt = `the user asked: "${cleanContent}"\n\nyou searched the web for: "${searchQuery}"\n\nhere are the actual web search results:\n${searchContext}\n\nrespond to the user's question using the search results. be accurate and specific with numbers/data. cite sources when available. stay in character as fred.`;
+              const reply = await askGemini(searchPrompt, authorDisplayName, message.channelId, authorContext);
+              if (reply) {
+                await message.reply({
+                  content: reply,
+                  allowedMentions: { parse: [], repliedUser: false },
+                });
+                pushChannelMessage(message.channelId, "fred", reply, true);
+                triggerUserMemoryUpdate(message.author.id);
+                searchHandled = true;
+              }
             }
           } catch (err: any) {
             log(`[Search] Auto-search failed: ${err.message}`, "discord");
           }
-          return;
+          if (searchHandled) return;
+          // Search returned no useful results — fall through to regular AI response below
         }
       }
 
