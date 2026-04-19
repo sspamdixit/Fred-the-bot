@@ -2836,6 +2836,80 @@ export async function startBot() {
     lastDiscordDisconnectAt = Date.now() - 120_000;
   });
 
+  // Guilds where music was auto-paused because Fred was left alone in the VC
+  const autoPausedGuilds = new Set<string>();
+  // Per-guild timers that fire a disconnect after 2 min of being alone
+  const aloneDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  client.on("voiceStateUpdate", async (oldState, newState) => {
+    const botId = client?.user?.id;
+    if (!botId) return;
+
+    // Ignore the bot's own voice state changes
+    if (oldState.id === botId || newState.id === botId) return;
+
+    const guildId = oldState.guild?.id ?? newState.guild?.id;
+    if (!guildId) return;
+
+    const queue = getQueue(guildId);
+    if (!queue) return;
+
+    const leftChannelId = oldState.channelId;
+    const joinedChannelId = newState.channelId;
+
+    // --- A human joined the VC Fred is in ---
+    if (joinedChannelId === queue.voiceChannelId) {
+      const timer = aloneDisconnectTimers.get(guildId);
+      if (timer) {
+        clearTimeout(timer);
+        aloneDisconnectTimers.delete(guildId);
+        if (autoPausedGuilds.has(guildId)) {
+          autoPausedGuilds.delete(guildId);
+          await resumeMusic(guildId);
+          const ch = client?.channels.cache.get(queue.textChannelId) as TextChannel | null;
+          ch?.send({ content: "someone's back — resuming.", allowedMentions: { parse: [] } }).catch(() => {});
+        }
+      }
+      return;
+    }
+
+    // --- A human left the VC Fred is in ---
+    if (leftChannelId === queue.voiceChannelId) {
+      const guild = oldState.guild;
+      const channel = guild.channels.cache.get(leftChannelId);
+      if (!channel || (channel.type !== ChannelType.GuildVoice && channel.type !== ChannelType.GuildStageVoice)) return;
+
+      const humanCount = channel.members.filter((m) => !m.user.bot).size;
+      if (humanCount > 0) return; // other humans still present
+
+      // Pause if currently playing (and not already paused)
+      if (queue.current && !queue.player.paused) {
+        await pauseMusic(guildId);
+        autoPausedGuilds.add(guildId);
+      }
+
+      // Clear any existing timer before setting a new one
+      const existing = aloneDisconnectTimers.get(guildId);
+      if (existing) clearTimeout(existing);
+
+      const ch = client?.channels.cache.get(queue.textChannelId) as TextChannel | null;
+      ch?.send({ content: "everyone left the vc. pausing — if no one's back in 2 minutes i'm out.", allowedMentions: { parse: [] } }).catch(() => {});
+
+      const timer = setTimeout(async () => {
+        aloneDisconnectTimers.delete(guildId);
+        autoPausedGuilds.delete(guildId);
+        // Capture the text channel before disconnecting
+        const q = getQueue(guildId);
+        const notifCh = q ? (client?.channels.cache.get(q.textChannelId) as TextChannel | null) : null;
+        await disconnectMusic(guildId);
+        notifCh?.send({ content: "no one came back. disconnected.", allowedMentions: { parse: [] } }).catch(() => {});
+        log(`[Music] Auto-disconnected from guild ${guildId} — empty VC for 2 minutes.`, "discord");
+      }, 2 * 60 * 1000);
+      timer.unref?.();
+      aloneDisconnectTimers.set(guildId, timer);
+    }
+  });
+
   try {
     log("Attempting Discord login…", "discord");
     await client.login(rawToken);
