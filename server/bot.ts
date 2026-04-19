@@ -1356,21 +1356,30 @@ export async function startBot() {
     }
 
     if (standaloneCmd === "?help" || standaloneCmd === "!help") {
-      await message.reply({
-        content: [
-          "**commands**",
-          "`?status` — current model, token usage, uptime",
-          "`?help` — this list",
-          "`?ping` — check if the bot is alive",
-          "`?tldr` — summarize recent chat and check the vibe",
-          "`?poem <topic>` — write a poem about something",
-          "`?roast <target>` — roast a person, thing, or idea",
-          "`?explain <topic>` — explain something in depth",
-          "`?translate <language> <text>` — translate text",
-          "`?search <query>` — search the web and get an answer",
-          "`?fred <message>` — talk to the ai (`?bubbl`, `!fred`, `!bubbl` all work too)",
-          `or just ping <@${client?.user?.id}> with your message`,
-          "or attach an image/video to any message to get a description",
+      const isModeChannel = message.channelId === MODE_CHANNEL_ID;
+      const member = message.member;
+      const userInVoice = !!member?.voice?.channel;
+      const chName = channelName.toLowerCase();
+      const isMusicChannel = userInVoice || /\b(bot|bots|command|commands|music|audio|vc|voice)\b/.test(chName);
+
+      const helpLines: string[] = [
+        "**commands**",
+        "`?status` — current model, token usage, uptime",
+        "`?help` — this list",
+        "`?ping` — check if the bot is alive",
+        "`?tldr` — summarize recent chat and check the vibe",
+        "`?poem <topic>` — write a poem about something",
+        "`?roast <target>` — roast a person, thing, or idea",
+        "`?explain <topic>` — explain something in depth",
+        "`?translate <language> <text>` — translate text",
+        "`?search <query>` — search the web and get an answer",
+        "`?fred <message>` — talk to the ai (`?bubbl`, `!fred`, `!bubbl` all work too)",
+        `or just ping <@${client?.user?.id}> with your message`,
+        "or attach an image/video to any message to get a description",
+      ];
+
+      if (isMusicChannel) {
+        helpLines.push(
           "",
           "**music commands**",
           "`?play <song/url>` — play a song or playlist by name or url",
@@ -1388,15 +1397,32 @@ export async function startBot() {
           "`?remove <position>` — remove a track from the queue",
           "`?move <from> <to>` — reorder tracks in the queue",
           "`?clear` — clear the queue without stopping",
+        );
+      }
+
+      if (isModeChannel) {
+        helpLines.push(
           "",
-          "**mode commands** (mode channel only)",
+          "**mode commands**",
           "`?uwu` — uwu speak mode",
           "`?boomer` — boomer mode",
           "`?pirate` — pirate mode",
           "`?nerd` — stereotypical nerd mode",
           "`?overlord` — megalomaniac AI mode",
           "`?mode` / `?normal` — turn off current mode",
-        ].join("\n"),
+        );
+      }
+
+      if (!isMusicChannel && !isModeChannel) {
+        helpLines.push("", "*music commands available in bot/voice channels. mode commands available in the mode channel.*");
+      } else if (!isMusicChannel) {
+        helpLines.push("", "*music commands available in bot/voice channels.*");
+      } else if (!isModeChannel) {
+        helpLines.push("", "*mode commands available in the mode channel.*");
+      }
+
+      await message.reply({
+        content: helpLines.join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
       });
       return;
@@ -2220,28 +2246,30 @@ export async function startBot() {
 
     // --- help ---
     if (commandName === "help") {
-      await interaction.reply({
-        content: [
-          "**commands** (use `/` or `?` prefix)",
-          "`/status` — current model, token usage, uptime",
-          "`/help` — this list",
-          "`/ping` — check if the bot is alive",
-          "`/tldr` — summarize recent chat and check the vibe",
-          "`/poem <topic>` — write a poem about something",
-          "`/roast <target>` — roast a person, thing, or idea",
-          "`/explain <topic>` — explain something in depth",
-          "`/translate <language> <text>` — translate text",
-          "`/fred <message>` — talk to the ai",
-          `or just ping <@${client?.user?.id}> with your message`,
-          "or attach an image/video to any message to get a description",
-          "",
-          "**mode commands** (mode channel only)",
-          "`/uwu` — uwu speak mode",
-          "`/boomer` — boomer mode",
-          "`/pirate` — pirate mode",
-          "`/nerd` — stereotypical nerd mode",
-          "`/overlord` — megalomaniac AI mode",
-          "`/mode` — turn off current mode",
+      const isModeChannel = interaction.channelId === MODE_CHANNEL_ID;
+      const slashMember = interaction.guild?.members.cache.get(interaction.user.id);
+      const userInVoice = !!slashMember?.voice?.channel;
+      const slashChName = channelName.toLowerCase();
+      const isMusicChannel = userInVoice || /\b(bot|bots|command|commands|music|audio|vc|voice)\b/.test(slashChName);
+
+      const slashHelpLines: string[] = [
+        "**commands** (use `/` or `?` prefix)",
+        "`/status` — current model, token usage, uptime",
+        "`/help` — this list",
+        "`/ping` — check if the bot is alive",
+        "`/tldr` — summarize recent chat and check the vibe",
+        "`/poem <topic>` — write a poem about something",
+        "`/roast <target>` — roast a person, thing, or idea",
+        "`/explain <topic>` — explain something in depth",
+        "`/translate <language> <text>` — translate text",
+        "`?search <query>` — search the web and get an answer",
+        "`/fred <message>` — talk to the ai",
+        `or just ping <@${client?.user?.id}> with your message`,
+        "or attach an image/video to any message to get a description",
+      ];
+
+      if (isMusicChannel) {
+        slashHelpLines.push(
           "",
           "**music commands**",
           "`/play <query>` — play a song (or `?play`)",
@@ -2251,7 +2279,32 @@ export async function startBot() {
           "`/queue` — show the queue",
           "`/nowplaying` — show current track",
           "`/volume <0-100>` — set volume",
-        ].join("\n"),
+        );
+      }
+
+      if (isModeChannel) {
+        slashHelpLines.push(
+          "",
+          "**mode commands**",
+          "`/uwu` — uwu speak mode",
+          "`/boomer` — boomer mode",
+          "`/pirate` — pirate mode",
+          "`/nerd` — stereotypical nerd mode",
+          "`/overlord` — megalomaniac AI mode",
+          "`/mode` — turn off current mode",
+        );
+      }
+
+      if (!isMusicChannel && !isModeChannel) {
+        slashHelpLines.push("", "*music commands available in bot/voice channels. mode commands available in the mode channel.*");
+      } else if (!isMusicChannel) {
+        slashHelpLines.push("", "*music commands available in bot/voice channels.*");
+      } else if (!isModeChannel) {
+        slashHelpLines.push("", "*mode commands available in the mode channel.*");
+      }
+
+      await interaction.reply({
+        content: slashHelpLines.join("\n"),
         allowedMentions: { parse: [] },
       });
       return;
