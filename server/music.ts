@@ -18,6 +18,36 @@ const DEFAULT_LAVALINK_NODES: LavalinkNodeConfig[] = [
     secure: false,
   },
   {
+    name: "jirayu",
+    url: "lavalink.jirayu.net:13592",
+    auth: "youshallnotpass",
+    secure: false,
+  },
+  {
+    name: "jirayu-ssl",
+    url: "lavalink.jirayu.net:443",
+    auth: "youshallnotpass",
+    secure: true,
+  },
+  {
+    name: "serenetia-v4",
+    url: "lavalinkv4.serenetia.com:443",
+    auth: "https://dsc.gg/ajidevserver",
+    secure: true,
+  },
+  {
+    name: "serenetia-universal",
+    url: "lavalink.serenetia.com:443",
+    auth: "https://dsc.gg/ajidevserver",
+    secure: true,
+  },
+  {
+    name: "millohost",
+    url: "lava-v4.millohost.my.id:443",
+    auth: "https://discord.gg/mjS5J2K3ep",
+    secure: true,
+  },
+  {
     name: "ajieblogs",
     url: "lava-v4.ajieblogs.eu.org:443",
     auth: "https://dsc.gg/ajidevserver",
