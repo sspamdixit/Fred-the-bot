@@ -24,6 +24,7 @@ import { storage } from "./storage";
 import {
   initMusic,
   setNowPlayingCallback,
+  setTextNotifyCallback,
   resolveTrack,
   resolvePlaylist,
   searchTracks,
@@ -1096,6 +1097,11 @@ export async function startBot() {
         embeds: [buildNowPlayingEmbed(track, queue)],
         components: [buildMusicButtons(false, queue.loop)],
       }).catch(() => {});
+    });
+    setTextNotifyCallback((_guildId, textChannelId, message) => {
+      const channel = readyClient.channels.cache.get(textChannelId) as TextChannel | null;
+      if (!channel) return;
+      channel.send({ content: message, allowedMentions: { parse: [] } }).catch(() => {});
     });
     startBotWatchdog();
 

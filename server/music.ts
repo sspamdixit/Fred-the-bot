@@ -44,23 +44,37 @@ export interface GuildQueue {
   loop: LoopMode;
   voiceChannelId: string;
   textChannelId: string;
+  // Stability flags
+  isAdvancing: boolean;   // true while advanceQueue is running — blocks joinAndPlay from interrupting
+  isStopped: boolean;     // true after stopMusic/disconnect — prevents end-event from re-queuing
 }
 
 let shoukaku: Shoukaku | null = null;
 const queues = new Map<string, GuildQueue>();
-const joiningGuilds = new Set<string>(); // prevent double-join race condition
+const joiningGuilds = new Set<string>();
+
+// Debounce map: prevents duplicate advanceQueue calls within a short window
+const advanceDebounce = new Map<string, number>();
 
 type NowPlayingCallbackFn = (guildId: string, track: QueueTrack, queue: GuildQueue) => void;
+type TextNotifyFn = (guildId: string, textChannelId: string, message: string) => void;
+
 let nowPlayingCallback: NowPlayingCallbackFn | null = null;
+let textNotifyCallback: TextNotifyFn | null = null;
+
 export function setNowPlayingCallback(cb: NowPlayingCallbackFn): void {
   nowPlayingCallback = cb;
+}
+
+export function setTextNotifyCallback(cb: TextNotifyFn): void {
+  textNotifyCallback = cb;
 }
 
 export function initMusic(client: Client): void {
   shoukaku = new Shoukaku(new Connectors.DiscordJS(client), LAVALINK_NODES, {
     moveOnDisconnect: false,
     resumeByLibrary: false,
-    reconnectTries: 3,
+    reconnectTries: 5,
     reconnectInterval: 5,
   });
 
@@ -75,7 +89,75 @@ export function initMusic(client: Client): void {
   );
   shoukaku.on("disconnect", (name, count) => {
     log(`[Music] Lavalink node "${name}" disconnected (${count} players affected).`, "discord");
+    void handleNodeDisconnect(name);
   });
+}
+
+// When a Lavalink node goes down, try to recover active queues on another node
+async function handleNodeDisconnect(nodeName: string): Promise<void> {
+  if (!shoukaku) return;
+
+  for (const [guildId, queue] of queues.entries()) {
+    // Check if this queue's player was on the disconnected node
+    const playerNodeName = (queue.player as any)?.node?.name ?? (queue.player as any)?.options?.name;
+    if (playerNodeName && playerNodeName !== nodeName) continue;
+
+    // Also skip already-stopped queues
+    if (queue.isStopped) continue;
+
+    log(`[Music] Attempting recovery for guild ${guildId} after node "${nodeName}" disconnect.`, "discord");
+
+    const toResume = queue.current;
+    const upcomingTracks = [...queue.tracks];
+    const { voiceChannelId, textChannelId, volume, loop } = queue;
+
+    // Mark as stopped to prevent stale end events from interfering
+    queue.isStopped = true;
+    queues.delete(guildId);
+
+    // Small delay to let Shoukaku fully process the disconnect
+    await new Promise<void>((r) => setTimeout(r, 2000));
+
+    // Check if another node is available
+    const idealNode = shoukaku.getIdealNode();
+    if (!idealNode) {
+      log(`[Music] No available Lavalink nodes for guild ${guildId} — cannot recover.`, "discord");
+      textNotifyCallback?.(guildId, textChannelId, "all lavalink nodes are down, can't keep playing right now. try ?play again in a bit.");
+      continue;
+    }
+
+    try {
+      const newPlayer = await shoukaku.joinVoiceChannel({
+        guildId,
+        channelId: voiceChannelId,
+        shardId: 0,
+        deaf: true,
+      });
+
+      const newQueue: GuildQueue = {
+        player: newPlayer,
+        tracks: toResume ? [toResume, ...upcomingTracks] : upcomingTracks,
+        current: null,
+        volume,
+        loop,
+        voiceChannelId,
+        textChannelId,
+        isAdvancing: false,
+        isStopped: false,
+      };
+
+      attachPlayerEvents(newPlayer, guildId);
+      queues.set(guildId, newQueue);
+
+      log(`[Music] Recovery: rejoined voice channel for guild ${guildId}.`, "discord");
+      textNotifyCallback?.(guildId, textChannelId, "node dropped — reconnected and resuming queue.");
+
+      await advanceQueue(newPlayer, guildId);
+    } catch (err: any) {
+      log(`[Music] Recovery failed for guild ${guildId}: ${err.message}`, "discord");
+      textNotifyCallback?.(guildId, textChannelId, "tried to recover but the reconnect failed. use ?play to restart.");
+    }
+  }
 }
 
 export function getQueue(guildId: string): GuildQueue | undefined {
@@ -94,7 +176,6 @@ export function formatDuration(ms: number): string {
 }
 
 export function parseSeekTime(input: string): number | null {
-  // Supports: "90", "1:30", "1:30:00"
   const parts = input.trim().split(":").map(Number);
   if (parts.some(isNaN)) return null;
   if (parts.length === 1) return parts[0] * 1000;
@@ -106,75 +187,117 @@ export function parseSeekTime(input: string): number | null {
 function scheduleAutoDisconnect(guildId: string): void {
   setTimeout(async () => {
     const q = queues.get(guildId);
-    if (q && !q.current && q.tracks.length === 0) {
-      await shoukaku?.leaveVoiceChannel(guildId);
+    if (q && !q.current && q.tracks.length === 0 && !q.isAdvancing) {
+      try {
+        await shoukaku?.leaveVoiceChannel(guildId);
+      } catch { /* ignore */ }
       queues.delete(guildId);
       log(`[Music] Auto-disconnected from guild ${guildId} (queue empty).`, "discord");
     }
   }, 30_000);
 }
 
+// Iterative (non-recursive) queue advancer with isAdvancing guard
 async function advanceQueue(player: Player, guildId: string): Promise<void> {
   const queue = queues.get(guildId);
   if (!queue) return;
 
-  if (queue.loop === "track" && queue.current) {
-    try {
-      await player.playTrack({ track: { encoded: queue.current.encoded } });
-    } catch (err: any) {
-      log(`[Music] Failed to loop track in guild ${guildId}: ${err.message}`, "discord");
-      queue.current = null;
-      scheduleAutoDisconnect(guildId);
-    }
-    return;
-  }
+  // Debounce: ignore if another advance just fired within 200ms
+  const now = Date.now();
+  const last = advanceDebounce.get(guildId) ?? 0;
+  if (now - last < 200) return;
+  advanceDebounce.set(guildId, now);
 
-  if (queue.loop === "queue" && queue.current) {
-    queue.tracks.push(queue.current);
-  }
-
-  queue.current = null;
-
-  if (queue.tracks.length === 0) {
-    scheduleAutoDisconnect(guildId);
-    return;
-  }
-
-  const next = queue.tracks.shift()!;
-  queue.current = next;
+  // If already advancing or intentionally stopped, bail out
+  if (queue.isAdvancing || queue.isStopped) return;
+  queue.isAdvancing = true;
 
   try {
-    await player.playTrack({ track: { encoded: next.encoded } });
-    if (nowPlayingCallback) nowPlayingCallback(guildId, next, queue);
-  } catch (err: any) {
-    log(`[Music] Failed to play next track in guild ${guildId}: ${err.message}`, "discord");
-    queue.current = null;
-    // Try the one after it rather than stopping entirely
-    if (queue.tracks.length > 0) {
-      await advanceQueue(player, guildId);
-    } else {
-      scheduleAutoDisconnect(guildId);
+    // Loop until we either play a track successfully or exhaust the queue
+    while (true) {
+      const q = queues.get(guildId);
+      if (!q || q.isStopped) return;
+
+      // Track looping
+      if (q.loop === "track" && q.current) {
+        try {
+          await player.playTrack({ track: { encoded: q.current.encoded } });
+          await player.setGlobalVolume(q.volume);
+          nowPlayingCallback?.(guildId, q.current, q);
+          return;
+        } catch (err: any) {
+          log(`[Music] Failed to loop track "${q.current.title}" in guild ${guildId}: ${err.message}`, "discord");
+          // Fall through: treat as finished and move to next track
+        }
+      }
+
+      // Queue looping: push current to end of queue
+      if (q.loop === "queue" && q.current) {
+        q.tracks.push(q.current);
+      }
+
+      q.current = null;
+
+      if (q.tracks.length === 0) {
+        scheduleAutoDisconnect(guildId);
+        return;
+      }
+
+      const next = q.tracks.shift()!;
+
+      try {
+        await player.playTrack({ track: { encoded: next.encoded } });
+        q.current = next;
+        await player.setGlobalVolume(q.volume);
+        nowPlayingCallback?.(guildId, next, q);
+        return; // Successfully started next track
+      } catch (err: any) {
+        log(`[Music] Failed to play track "${next.title}" in guild ${guildId}: ${err.message}`, "discord");
+        // Track failed — loop will try the next one
+      }
     }
+  } finally {
+    const q = queues.get(guildId);
+    if (q) q.isAdvancing = false;
   }
 }
 
 function attachPlayerEvents(player: Player, guildId: string): void {
+  // Remove any stale listeners before attaching (safety in case of re-attach)
+  player.removeAllListeners("end");
+  player.removeAllListeners("exception");
+  player.removeAllListeners("stuck");
+
   player.on("end", (event) => {
     const reason = (event as any)?.reason as string | undefined;
-    // 'replaced' fires when playTrack is called while something plays — already handled
-    // 'cleanup' means the node is shutting down
+
+    // "replaced" = new track was loaded while something played (intended, already handled)
+    // "cleanup"  = node is shutting down (handleNodeDisconnect handles this)
+    // "stopped"  = stopTrack() was called (stopMusic/disconnectMusic marks isStopped first)
     if (reason === "replaced" || reason === "cleanup") return;
+
+    const q = queues.get(guildId);
+    if (!q || q.isStopped) return;
+
     void advanceQueue(player, guildId);
   });
 
   player.on("exception", (event) => {
     const msg = (event as any)?.exception?.message ?? "unknown";
     log(`[Music] Track exception in guild ${guildId}: ${msg}`, "discord");
+
+    const q = queues.get(guildId);
+    if (!q || q.isStopped) return;
+
     void advanceQueue(player, guildId);
   });
 
   player.on("stuck", () => {
     log(`[Music] Track stuck in guild ${guildId}, skipping.`, "discord");
+
+    const q = queues.get(guildId);
+    if (!q || q.isStopped) return;
+
     void advanceQueue(player, guildId);
   });
 }
@@ -310,6 +433,50 @@ export async function resolvePlaylist(
   return { tracks: [], playlistName: null };
 }
 
+// Shared helper: create a new queue + player for a guild
+async function createQueue(
+  guildId: string,
+  voiceChannelId: string,
+  textChannelId: string,
+  shardId: number,
+): Promise<GuildQueue> {
+  const player = await shoukaku!.joinVoiceChannel({
+    guildId,
+    channelId: voiceChannelId,
+    shardId,
+    deaf: true,
+  });
+
+  const queue: GuildQueue = {
+    player,
+    tracks: [],
+    current: null,
+    volume: 100,
+    loop: "none",
+    voiceChannelId,
+    textChannelId,
+    isAdvancing: false,
+    isStopped: false,
+  };
+
+  attachPlayerEvents(player, guildId);
+  queues.set(guildId, queue);
+  return queue;
+}
+
+// Wait for an in-progress join to complete and return the resulting queue
+async function waitForJoin(guildId: string): Promise<GuildQueue | null> {
+  return new Promise<GuildQueue | null>((resolve) => {
+    const deadline = Date.now() + 5000;
+    const interval = setInterval(() => {
+      if (!joiningGuilds.has(guildId) || Date.now() > deadline) {
+        clearInterval(interval);
+        resolve(queues.get(guildId) ?? null);
+      }
+    }, 50);
+  });
+}
+
 export async function joinAndPlay(
   guildId: string,
   voiceChannelId: string,
@@ -322,49 +489,21 @@ export async function joinAndPlay(
   let queue = queues.get(guildId);
 
   if (!queue) {
-    // Guard against two simultaneous play commands both trying to join
     if (joiningGuilds.has(guildId)) {
-      // Wait for the other join to finish then push to the queue it creates
-      await new Promise<void>((resolve) => {
-        const interval = setInterval(() => {
-          if (!joiningGuilds.has(guildId)) {
-            clearInterval(interval);
-            resolve();
-          }
-        }, 50);
-      });
-      const q = queues.get(guildId);
+      const q = await waitForJoin(guildId);
       if (q) { q.tracks.push(track); return "queued"; }
     }
 
     joiningGuilds.add(guildId);
     try {
-      const player = await shoukaku.joinVoiceChannel({
-        guildId,
-        channelId: voiceChannelId,
-        shardId,
-        deaf: true,
-      });
-
-      queue = {
-        player,
-        tracks: [],
-        current: null,
-        volume: 100,
-        loop: "none",
-        voiceChannelId,
-        textChannelId,
-      };
-
-      attachPlayerEvents(player, guildId);
-      queues.set(guildId, queue);
+      queue = await createQueue(guildId, voiceChannelId, textChannelId, shardId);
     } finally {
       joiningGuilds.delete(guildId);
     }
   }
 
-  // If something is already playing or paused, add to queue
-  if (queue.current || queue.player.paused) {
+  // If currently advancing or something is playing/paused, add to queue
+  if (queue.current || queue.player.paused || queue.isAdvancing) {
     queue.tracks.push(track);
     return "queued";
   }
@@ -372,6 +511,7 @@ export async function joinAndPlay(
   queue.current = track;
   await queue.player.playTrack({ track: { encoded: track.encoded } });
   await queue.player.setGlobalVolume(queue.volume);
+  nowPlayingCallback?.(guildId, track, queue);
   return "playing";
 }
 
@@ -389,42 +529,19 @@ export async function joinAndPlayMultiple(
 
   if (!queue) {
     if (joiningGuilds.has(guildId)) {
-      await new Promise<void>((resolve) => {
-        const interval = setInterval(() => {
-          if (!joiningGuilds.has(guildId)) { clearInterval(interval); resolve(); }
-        }, 50);
-      });
-      const q = queues.get(guildId);
+      const q = await waitForJoin(guildId);
       if (q) { q.tracks.push(...tracks); return "queued"; }
     }
 
     joiningGuilds.add(guildId);
     try {
-      const player = await shoukaku.joinVoiceChannel({
-        guildId,
-        channelId: voiceChannelId,
-        shardId,
-        deaf: true,
-      });
-
-      queue = {
-        player,
-        tracks: [],
-        current: null,
-        volume: 100,
-        loop: "none",
-        voiceChannelId,
-        textChannelId,
-      };
-
-      attachPlayerEvents(player, guildId);
-      queues.set(guildId, queue);
+      queue = await createQueue(guildId, voiceChannelId, textChannelId, shardId);
     } finally {
       joiningGuilds.delete(guildId);
     }
   }
 
-  if (queue.current || queue.player.paused) {
+  if (queue.current || queue.player.paused || queue.isAdvancing) {
     queue.tracks.push(...tracks);
     return "queued";
   }
@@ -434,6 +551,7 @@ export async function joinAndPlayMultiple(
   queue.current = first;
   await queue.player.playTrack({ track: { encoded: first.encoded } });
   await queue.player.setGlobalVolume(queue.volume);
+  nowPlayingCallback?.(guildId, first, queue);
   return "playing";
 }
 
@@ -450,42 +568,19 @@ export async function addToFront(
 
   if (!queue) {
     if (joiningGuilds.has(guildId)) {
-      await new Promise<void>((resolve) => {
-        const interval = setInterval(() => {
-          if (!joiningGuilds.has(guildId)) { clearInterval(interval); resolve(); }
-        }, 50);
-      });
-      const q = queues.get(guildId);
+      const q = await waitForJoin(guildId);
       if (q) { q.tracks.unshift(track); return "queued"; }
     }
 
     joiningGuilds.add(guildId);
     try {
-      const player = await shoukaku.joinVoiceChannel({
-        guildId,
-        channelId: voiceChannelId,
-        shardId,
-        deaf: true,
-      });
-
-      queue = {
-        player,
-        tracks: [],
-        current: null,
-        volume: 100,
-        loop: "none",
-        voiceChannelId,
-        textChannelId,
-      };
-
-      attachPlayerEvents(player, guildId);
-      queues.set(guildId, queue);
+      queue = await createQueue(guildId, voiceChannelId, textChannelId, shardId);
     } finally {
       joiningGuilds.delete(guildId);
     }
   }
 
-  if (queue.current || queue.player.paused) {
+  if (queue.current || queue.player.paused || queue.isAdvancing) {
     queue.tracks.unshift(track);
     return "queued";
   }
@@ -493,6 +588,7 @@ export async function addToFront(
   queue.current = track;
   await queue.player.playTrack({ track: { encoded: track.encoded } });
   await queue.player.setGlobalVolume(queue.volume);
+  nowPlayingCallback?.(guildId, track, queue);
   return "playing";
 }
 
@@ -500,6 +596,7 @@ export async function skipTrack(guildId: string): Promise<QueueTrack | null> {
   const queue = queues.get(guildId);
   if (!queue || !queue.current) return null;
   const skipped = queue.current;
+  // stopTrack fires "stopped" reason on end event → advanceQueue handles it
   await queue.player.stopTrack();
   return skipped;
 }
@@ -507,25 +604,19 @@ export async function skipTrack(guildId: string): Promise<QueueTrack | null> {
 export async function stopMusic(guildId: string): Promise<boolean> {
   const queue = queues.get(guildId);
   if (!queue) return false;
+  queue.isStopped = true;
   queue.tracks = [];
   queue.current = null;
   queue.loop = "none";
-  await queue.player.stopTrack();
-  await shoukaku?.leaveVoiceChannel(guildId);
+  try { await queue.player.stopTrack(); } catch { /* ignore */ }
+  try { await shoukaku?.leaveVoiceChannel(guildId); } catch { /* ignore */ }
   queues.delete(guildId);
+  advanceDebounce.delete(guildId);
   return true;
 }
 
 export async function disconnectMusic(guildId: string): Promise<boolean> {
-  const queue = queues.get(guildId);
-  if (!queue) return false;
-  queue.tracks = [];
-  queue.current = null;
-  queue.loop = "none";
-  await queue.player.stopTrack();
-  await shoukaku?.leaveVoiceChannel(guildId);
-  queues.delete(guildId);
-  return true;
+  return stopMusic(guildId);
 }
 
 export async function pauseMusic(guildId: string): Promise<boolean> {
