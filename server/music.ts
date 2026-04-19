@@ -50,6 +50,12 @@ let shoukaku: Shoukaku | null = null;
 const queues = new Map<string, GuildQueue>();
 const joiningGuilds = new Set<string>(); // prevent double-join race condition
 
+type NowPlayingCallbackFn = (guildId: string, track: QueueTrack, queue: GuildQueue) => void;
+let nowPlayingCallback: NowPlayingCallbackFn | null = null;
+export function setNowPlayingCallback(cb: NowPlayingCallbackFn): void {
+  nowPlayingCallback = cb;
+}
+
 export function initMusic(client: Client): void {
   shoukaku = new Shoukaku(new Connectors.DiscordJS(client), LAVALINK_NODES, {
     moveOnDisconnect: false,
@@ -139,6 +145,7 @@ async function advanceQueue(player: Player, guildId: string): Promise<void> {
 
   try {
     await player.playTrack({ track: { encoded: next.encoded } });
+    if (nowPlayingCallback) nowPlayingCallback(guildId, next, queue);
   } catch (err: any) {
     log(`[Music] Failed to play next track in guild ${guildId}: ${err.message}`, "discord");
     queue.current = null;

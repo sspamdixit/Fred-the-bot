@@ -10,6 +10,10 @@ import {
   Routes,
   SlashCommandBuilder,
   PermissionFlagsBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } from "discord.js";
 import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
@@ -18,6 +22,7 @@ import { startQotd, stopQotd } from "./qotd";
 import { storage } from "./storage";
 import {
   initMusic,
+  setNowPlayingCallback,
   resolveTrack,
   resolvePlaylist,
   searchTracks,
@@ -39,6 +44,8 @@ import {
   parseSeekTime,
   getQueue,
   formatDuration,
+  type QueueTrack,
+  type GuildQueue,
 } from "./music";
 
 export interface BotStatus {
@@ -165,6 +172,74 @@ const LEETSPEAK_CHARS: Record<string, string> = {
   "5": "s",
   "7": "t",
 };
+
+// ─── Music embed helpers ────────────────────────────────────────────────────
+
+function extractYouTubeId(uri: string): string | null {
+  const m = uri.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
+export function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue): EmbedBuilder {
+  const ytId = extractYouTubeId(track.uri);
+  const dur = track.isStream ? "🔴 LIVE" : formatDuration(track.duration);
+  const pos = track.isStream ? "LIVE" : formatDuration(queue.player.position);
+  const loopEmoji = queue.loop === "track" ? "🔂" : queue.loop === "queue" ? "🔁" : "➡️";
+  const queueLabel = queue.tracks.length === 0
+    ? "nothing up next"
+    : `${queue.tracks.length} track${queue.tracks.length === 1 ? "" : "s"} up next`;
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setAuthor({ name: "♪  Now Playing" })
+    .setTitle(track.title.length > 256 ? track.title.slice(0, 253) + "…" : track.title)
+    .setURL(track.uri)
+    .setDescription(`by **${track.author}**`)
+    .addFields(
+      { name: "Duration", value: track.isStream ? "🔴 LIVE" : `\`${pos} / ${dur}\``, inline: true },
+      { name: "Requested by", value: track.requestedBy, inline: true },
+      { name: "Queue", value: queueLabel, inline: true },
+    )
+    .setFooter({ text: `Volume: ${queue.volume}%  ·  Loop: ${queue.loop}  ${loopEmoji}` });
+
+  if (ytId) {
+    embed.setThumbnail(`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`);
+  }
+
+  return embed;
+}
+
+export function buildMusicButtons(paused: boolean, loopMode: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("music_back")
+      .setEmoji("⏮")
+      .setLabel("Back")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("music_pause")
+      .setEmoji(paused ? "▶️" : "⏸")
+      .setLabel(paused ? "Resume" : "Pause")
+      .setStyle(paused ? ButtonStyle.Success : ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId("music_skip")
+      .setEmoji("⏭")
+      .setLabel("Skip")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("music_loop")
+      .setEmoji(loopMode === "track" ? "🔂" : "🔁")
+      .setLabel(loopMode === "none" ? "Loop" : loopMode === "track" ? "Track" : "Queue")
+      .setStyle(loopMode !== "none" ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("music_stop")
+      .setEmoji("⏹")
+      .setLabel("Stop")
+      .setStyle(ButtonStyle.Danger),
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 
 function containsBannedSlur(content: string): boolean {
   if (BANNED_SLUR_PATTERNS.some((pattern) => pattern.test(content))) {
@@ -1013,6 +1088,14 @@ export async function startBot() {
     startDeadChatChecker(readyClient);
     startStatusShuffle(readyClient);
     initMusic(readyClient);
+    setNowPlayingCallback((guildId, track, queue) => {
+      const channel = readyClient.channels.cache.get(queue.textChannelId) as TextChannel | null;
+      if (!channel) return;
+      channel.send({
+        embeds: [buildNowPlayingEmbed(track, queue)],
+        components: [buildMusicButtons(false, queue.loop)],
+      }).catch(() => {});
+    });
     startBotWatchdog();
 
     try {
@@ -1436,13 +1519,20 @@ export async function startBot() {
             }
             if (tracks.length === 1) {
               const result = await joinAndPlay(guildId, voiceChannel.id, message.channelId, tracks[0], message.guild?.shardId ?? 0);
-              const dur = tracks[0].isStream ? "LIVE" : formatDuration(tracks[0].duration);
-              await message.reply({
-                content: result === "playing"
-                  ? `now playing: **${tracks[0].title}** by ${tracks[0].author} [${dur}]`
-                  : `queued: **${tracks[0].title}** by ${tracks[0].author} [${dur}]`,
-                allowedMentions: { parse: [], repliedUser: false },
-              });
+              if (result === "playing") {
+                const q = getQueue(guildId)!;
+                await message.reply({
+                  embeds: [buildNowPlayingEmbed(tracks[0], q)],
+                  components: [buildMusicButtons(false, q.loop)],
+                  allowedMentions: { parse: [], repliedUser: false },
+                });
+              } else {
+                const dur = tracks[0].isStream ? "LIVE" : formatDuration(tracks[0].duration);
+                await message.reply({
+                  content: `queued: **${tracks[0].title}** by ${tracks[0].author} [${dur}]`,
+                  allowedMentions: { parse: [], repliedUser: false },
+                });
+              }
             } else {
               const result = await joinAndPlayMultiple(guildId, voiceChannel.id, message.channelId, tracks, message.guild?.shardId ?? 0);
               await message.reply({
@@ -1459,13 +1549,20 @@ export async function startBot() {
               return;
             }
             const result = await joinAndPlay(guildId, voiceChannel.id, message.channelId, track, message.guild?.shardId ?? 0);
-            const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
-            await message.reply({
-              content: result === "playing"
-                ? `now playing: **${track.title}** by ${track.author} [${dur}]`
-                : `queued: **${track.title}** by ${track.author} [${dur}]`,
-              allowedMentions: { parse: [], repliedUser: false },
-            });
+            if (result === "playing") {
+              const q = getQueue(guildId)!;
+              await message.reply({
+                embeds: [buildNowPlayingEmbed(track, q)],
+                components: [buildMusicButtons(false, q.loop)],
+                allowedMentions: { parse: [], repliedUser: false },
+              });
+            } else {
+              const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
+              await message.reply({
+                content: `queued: **${track.title}** by ${track.author} [${dur}]`,
+                allowedMentions: { parse: [], repliedUser: false },
+              });
+            }
           }
         } catch (err: any) {
           log(`[Music:play] ${err.message}`, "discord");
@@ -1491,13 +1588,20 @@ export async function startBot() {
             return;
           }
           const result = await addToFront(guildId, voiceChannel.id, message.channelId, track, message.guild?.shardId ?? 0);
-          const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
-          await message.reply({
-            content: result === "playing"
-              ? `now playing: **${track.title}** by ${track.author} [${dur}]`
-              : `added to top of queue: **${track.title}** by ${track.author} [${dur}]`,
-            allowedMentions: { parse: [], repliedUser: false },
-          });
+          if (result === "playing") {
+            const q = getQueue(guildId)!;
+            await message.reply({
+              embeds: [buildNowPlayingEmbed(track, q)],
+              components: [buildMusicButtons(false, q.loop)],
+              allowedMentions: { parse: [], repliedUser: false },
+            });
+          } else {
+            const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
+            await message.reply({
+              content: `added to top of queue: **${track.title}** by ${track.author} [${dur}]`,
+              allowedMentions: { parse: [], repliedUser: false },
+            });
+          }
         } catch (err: any) {
           log(`[Music:playtop] ${err.message}`, "discord");
           await message.reply({ content: `music error: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
@@ -1602,11 +1706,9 @@ export async function startBot() {
           await message.reply({ content: "nothing is playing.", allowedMentions: { parse: [], repliedUser: false } });
           return;
         }
-        const dur = q.current.isStream ? "LIVE" : formatDuration(q.current.duration);
-        const pos = formatDuration(q.player.position);
-        const loopLabel = q.loop !== "none" ? ` | loop: ${q.loop}` : "";
         await message.reply({
-          content: `now playing: **${q.current.title}** by ${q.current.author} [${pos}/${dur}]${loopLabel}`,
+          embeds: [buildNowPlayingEmbed(q.current, q)],
+          components: [buildMusicButtons(q.player.paused, q.loop)],
           allowedMentions: { parse: [], repliedUser: false },
         });
         return;
@@ -1901,6 +2003,91 @@ export async function startBot() {
       return;
     }
 
+    // ─── Music button handler ───────────────────────────────────────────────
+    if (interaction.isButton() && interaction.customId.startsWith("music_")) {
+      const guildId = interaction.guildId;
+      if (!guildId) {
+        await interaction.reply({ content: "music only works in servers.", ephemeral: true });
+        return;
+      }
+      const action = interaction.customId.slice("music_".length);
+      const q = getQueue(guildId);
+
+      if (action === "pause") {
+        if (!q?.current) {
+          await interaction.reply({ content: "nothing is playing.", ephemeral: true });
+          return;
+        }
+        const wasPaused = q.player.paused;
+        if (wasPaused) {
+          await resumeMusic(guildId);
+        } else {
+          await pauseMusic(guildId);
+        }
+        const qAfter = getQueue(guildId)!;
+        await interaction.update({
+          embeds: [buildNowPlayingEmbed(qAfter.current!, qAfter)],
+          components: [buildMusicButtons(!wasPaused, qAfter.loop)],
+        });
+        return;
+      }
+
+      if (action === "skip") {
+        if (!q?.current) {
+          await interaction.reply({ content: "nothing is playing.", ephemeral: true });
+          return;
+        }
+        const skipped = await skipTrack(guildId);
+        await interaction.update({
+          content: `⏭  Skipped **${skipped?.title ?? "track"}**.`,
+          embeds: [],
+          components: [],
+        });
+        return;
+      }
+
+      if (action === "back") {
+        if (!q?.current) {
+          await interaction.reply({ content: "nothing is playing.", ephemeral: true });
+          return;
+        }
+        await seekTrack(guildId, 0);
+        const qAfter = getQueue(guildId)!;
+        await interaction.update({
+          embeds: [buildNowPlayingEmbed(qAfter.current!, qAfter)],
+          components: [buildMusicButtons(qAfter.player.paused, qAfter.loop)],
+        });
+        return;
+      }
+
+      if (action === "loop") {
+        const newMode = cycleLoop(guildId);
+        if (newMode === null) {
+          await interaction.reply({ content: "nothing is playing.", ephemeral: true });
+          return;
+        }
+        const qAfter = getQueue(guildId)!;
+        await interaction.update({
+          embeds: [buildNowPlayingEmbed(qAfter.current!, qAfter)],
+          components: [buildMusicButtons(qAfter.player.paused, newMode)],
+        });
+        return;
+      }
+
+      if (action === "stop") {
+        await stopMusic(guildId);
+        await interaction.update({
+          content: "⏹  Stopped and disconnected.",
+          embeds: [],
+          components: [],
+        });
+        return;
+      }
+
+      return;
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     if (!interaction.isChatInputCommand()) return;
     const { commandName } = interaction;
 
@@ -2035,13 +2222,20 @@ export async function startBot() {
             }
             if (tracks.length === 1) {
               const result = await joinAndPlay(guildId, voiceChannel.id, interaction.channelId, tracks[0], interaction.guild?.shardId ?? 0);
-              const dur = tracks[0].isStream ? "LIVE" : formatDuration(tracks[0].duration);
-              await interaction.editReply({
-                content: result === "playing"
-                  ? `now playing: **${tracks[0].title}** by ${tracks[0].author} [${dur}]`
-                  : `queued: **${tracks[0].title}** by ${tracks[0].author} [${dur}]`,
-                allowedMentions: { parse: [] },
-              });
+              if (result === "playing") {
+                const q = getQueue(guildId)!;
+                await interaction.editReply({
+                  embeds: [buildNowPlayingEmbed(tracks[0], q)],
+                  components: [buildMusicButtons(false, q.loop)],
+                  allowedMentions: { parse: [] },
+                });
+              } else {
+                const dur = tracks[0].isStream ? "LIVE" : formatDuration(tracks[0].duration);
+                await interaction.editReply({
+                  content: `queued: **${tracks[0].title}** by ${tracks[0].author} [${dur}]`,
+                  allowedMentions: { parse: [] },
+                });
+              }
             } else {
               const result = await joinAndPlayMultiple(guildId, voiceChannel.id, interaction.channelId, tracks, interaction.guild?.shardId ?? 0);
               await interaction.editReply({
@@ -2058,13 +2252,20 @@ export async function startBot() {
               return;
             }
             const result = await joinAndPlay(guildId, voiceChannel.id, interaction.channelId, track, interaction.guild?.shardId ?? 0);
-            const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
-            await interaction.editReply({
-              content: result === "playing"
-                ? `now playing: **${track.title}** by ${track.author} [${dur}]`
-                : `queued: **${track.title}** by ${track.author} [${dur}]`,
-              allowedMentions: { parse: [] },
-            });
+            if (result === "playing") {
+              const q = getQueue(guildId)!;
+              await interaction.editReply({
+                embeds: [buildNowPlayingEmbed(track, q)],
+                components: [buildMusicButtons(false, q.loop)],
+                allowedMentions: { parse: [] },
+              });
+            } else {
+              const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
+              await interaction.editReply({
+                content: `queued: **${track.title}** by ${track.author} [${dur}]`,
+                allowedMentions: { parse: [] },
+              });
+            }
           }
         } catch (err: any) {
           log(`[Music/slash:play] ${err.message}`, "discord");
@@ -2089,13 +2290,20 @@ export async function startBot() {
             return;
           }
           const result = await addToFront(guildId, voiceChannel.id, interaction.channelId, track, interaction.guild?.shardId ?? 0);
-          const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
-          await interaction.editReply({
-            content: result === "playing"
-              ? `now playing: **${track.title}** by ${track.author} [${dur}]`
-              : `added to top of queue: **${track.title}** by ${track.author} [${dur}]`,
-            allowedMentions: { parse: [] },
-          });
+          if (result === "playing") {
+            const q = getQueue(guildId)!;
+            await interaction.editReply({
+              embeds: [buildNowPlayingEmbed(track, q)],
+              components: [buildMusicButtons(false, q.loop)],
+              allowedMentions: { parse: [] },
+            });
+          } else {
+            const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
+            await interaction.editReply({
+              content: `added to top of queue: **${track.title}** by ${track.author} [${dur}]`,
+              allowedMentions: { parse: [] },
+            });
+          }
         } catch (err: any) {
           log(`[Music/slash:playtop] ${err.message}`, "discord");
           await interaction.editReply({ content: `music error: ${err.message}`, allowedMentions: { parse: [] } });
@@ -2200,11 +2408,9 @@ export async function startBot() {
           await interaction.reply({ content: "nothing is playing.", allowedMentions: { parse: [] } });
           return;
         }
-        const dur = q.current.isStream ? "LIVE" : formatDuration(q.current.duration);
-        const pos = formatDuration(q.player.position);
-        const loopLabel = q.loop !== "none" ? ` | loop: ${q.loop}` : "";
         await interaction.reply({
-          content: `now playing: **${q.current.title}** by ${q.current.author} [${pos}/${dur}]${loopLabel}`,
+          embeds: [buildNowPlayingEmbed(q.current, q)],
+          components: [buildMusicButtons(q.player.paused, q.loop)],
           allowedMentions: { parse: [] },
         });
         return;
