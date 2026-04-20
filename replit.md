@@ -18,7 +18,7 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - Shared schema/types live in `shared/`.
 - Static production assets are served from `dist/public` after build.
 - API routes are mounted under `/api` and protected by dashboard authentication where appropriate.
-- Secrets such as Discord bot tokens and API keys are read from environment variables and must not be committed.
+- Secrets such as Discord bot tokens, Spotify client credentials, and API keys are read from environment variables and must not be committed.
 - AI chat responses receive full Discord context per message: server name, channel name, speaker display name, roles sorted by hierarchy (highest → lowest), and a resolved authority level (owner / moderator / developer / member). Authority is determined purely by roles — no hardcoded usernames anywhere in the system instructions.
 - AI chat memory is retained per channel for up to 150 recent user/assistant messages.
 - Shared AI system instructions, capability notes, and weakness notes are defined in `server/ai-settings.ts`.
@@ -39,6 +39,7 @@ This is a full-stack Node.js application with an Express API/server, Vite React 
 - Daily QOTD generation is prompted to stay relevant to a Gen-Z/community Discord audience with gaming, anime/JJBA, internet culture, school/work, taste debates, harmless drama, and weird hypotheticals. QOTD posts mention the `qotd` role and direct discussion to a QOTD talk channel when one exists (`qotd-talk`, `qotd-discussion`, `qotd-chat`, or `question-talk`).
 - Music Lavalink startup no longer includes the DNS-broken `lavalink.devamop.in` public node. Default free/public nodes include HeavenCloud, Jirayu, Serenetia v4/universal, MilloHost, and AjieBlogs. Custom nodes can be provided via `LAVALINK_NODES` JSON or `LAVALINK_URL`/`LAVALINK_AUTH`/`LAVALINK_SECURE`.
 - During Lavalink node failover, music recovery captures the current player position and seeks the resumed track to that same timestamp on the replacement node when the track is seekable.
+- Discord music now-playing embeds use a Spotify-style minimal layout: Spotify green color, track title, artist author line, large album-art hero image from Spotify Web API when `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` are configured, and a 5-second updating progress bar sourced from `queue.player.position`.
 
 # Migration Notes
 

@@ -177,38 +177,196 @@ const LEETSPEAK_CHARS: Record<string, string> = {
 
 // ─── Music embed helpers ────────────────────────────────────────────────────
 
-function extractYouTubeId(uri: string): string | null {
-  const m = uri.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
-  return m ? m[1] : null;
+const SPOTIFY_GREEN = 0x1DB954;
+const SPOTIFY_PROGRESS_SEGMENTS = 12;
+const SPOTIFY_PROGRESS_UPDATE_MS = 5000;
+
+interface SpotifyArtResult {
+  imageUrl: string;
+  spotifyUrl: string | null;
 }
 
-export function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue): EmbedBuilder {
-  const ytId = extractYouTubeId(track.uri);
-  const dur = track.isStream ? "🔴 LIVE" : formatDuration(track.duration);
-  const pos = track.isStream ? "LIVE" : formatDuration(queue.player.position);
-  const loopEmoji = queue.loop === "track" ? "🔂" : queue.loop === "queue" ? "🔁" : "➡️";
-  const queueLabel = queue.tracks.length === 0
-    ? "nothing up next"
-    : `${queue.tracks.length} track${queue.tracks.length === 1 ? "" : "s"} up next`;
+let spotifyAccessToken: string | null = null;
+let spotifyAccessTokenExpiresAt = 0;
+const spotifyArtCache = new Map<string, Promise<SpotifyArtResult | null>>();
+const nowPlayingUpdateTimers = new Map<string, NodeJS.Timeout>();
 
+function truncateDiscordText(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+}
+
+function cleanSpotifySearchText(value: string): string {
+  return value
+    .replace(/\([^)]*(official|video|audio|lyrics?|visualizer|remaster|remastered|live)[^)]*\)/gi, " ")
+    .replace(/\[[^\]]*(official|video|audio|lyrics?|visualizer|remaster|remastered|live)[^\]]*\]/gi, " ")
+    .replace(/\s+(official\s+)?(music\s+)?video$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function getSpotifyAccessToken(): Promise<string | null> {
+  const clientId = process.env.SPOTIFY_CLIENT_ID?.trim();
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) return null;
+
+  const now = Date.now();
+  if (spotifyAccessToken && now < spotifyAccessTokenExpiresAt - 60_000) {
+    return spotifyAccessToken;
+  }
+
+  try {
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+    const response = await fetch("https://accounts.spotify.com/api/token", {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: "grant_type=client_credentials",
+    });
+
+    if (!response.ok) {
+      log(`[Spotify] Token request failed with ${response.status}.`, "discord");
+      return null;
+    }
+
+    const data = await response.json() as { access_token?: string; expires_in?: number };
+    if (!data.access_token) return null;
+
+    spotifyAccessToken = data.access_token;
+    spotifyAccessTokenExpiresAt = Date.now() + Math.max(60, data.expires_in ?? 3600) * 1000;
+    return spotifyAccessToken;
+  } catch (err: any) {
+    log(`[Spotify] Token request failed: ${err.message}`, "discord");
+    return null;
+  }
+}
+
+async function fetchSpotifyAlbumArt(track: QueueTrack): Promise<SpotifyArtResult | null> {
+  const token = await getSpotifyAccessToken();
+  if (!token) return null;
+
+  const title = cleanSpotifySearchText(track.title);
+  const artist = cleanSpotifySearchText(track.author);
+  const query = artist ? `track:${title} artist:${artist}` : title;
+  const url = new URL("https://api.spotify.com/v1/search");
+  url.searchParams.set("type", "track");
+  url.searchParams.set("limit", "5");
+  url.searchParams.set("q", query);
+
+  try {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      log(`[Spotify] Track search failed with ${response.status}.`, "discord");
+      return null;
+    }
+
+    const data = await response.json() as {
+      tracks?: {
+        items?: Array<{
+          external_urls?: { spotify?: string };
+          album?: { images?: Array<{ url: string; width: number | null; height: number | null }> };
+        }>;
+      };
+    };
+
+    const spotifyTrack = data.tracks?.items?.find((item) => item.album?.images?.length);
+    const images = spotifyTrack?.album?.images ?? [];
+    const image = images.find((img) => img.width === 640 && img.height === 640)
+      ?? [...images].sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0];
+
+    if (!image?.url) return null;
+    return {
+      imageUrl: image.url,
+      spotifyUrl: spotifyTrack?.external_urls?.spotify ?? null,
+    };
+  } catch (err: any) {
+    log(`[Spotify] Track search failed: ${err.message}`, "discord");
+    return null;
+  }
+}
+
+function getSpotifyAlbumArt(track: QueueTrack): Promise<SpotifyArtResult | null> {
+  if (!process.env.SPOTIFY_CLIENT_ID?.trim() || !process.env.SPOTIFY_CLIENT_SECRET?.trim()) {
+    return Promise.resolve(null);
+  }
+
+  const key = `${track.title.toLowerCase()}::${track.author.toLowerCase()}`;
+  let cached = spotifyArtCache.get(key);
+  if (!cached) {
+    cached = fetchSpotifyAlbumArt(track);
+    spotifyArtCache.set(key, cached);
+  }
+  return cached;
+}
+
+function formatSpotifyProgressBar(track: QueueTrack, queue: GuildQueue): string {
+  if (track.isStream || track.duration <= 0) {
+    return "[ LIVE ] ━━━━━🔘────── [ LIVE ]";
+  }
+
+  const rawPosition = Number(queue.player.position);
+  const position = Number.isFinite(rawPosition)
+    ? Math.max(0, Math.min(Math.floor(rawPosition), track.duration))
+    : 0;
+  const markerIndex = Math.max(
+    0,
+    Math.min(
+      SPOTIFY_PROGRESS_SEGMENTS - 1,
+      Math.round((position / track.duration) * (SPOTIFY_PROGRESS_SEGMENTS - 1)),
+    ),
+  );
+  const filled = "━".repeat(markerIndex);
+  const remaining = "─".repeat(SPOTIFY_PROGRESS_SEGMENTS - markerIndex - 1);
+
+  return `[ ${formatDuration(position)} ] ${filled}🔘${remaining} [ ${formatDuration(track.duration)} ]`;
+}
+
+export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue): Promise<EmbedBuilder> {
+  const spotifyArt = await getSpotifyAlbumArt(track);
   const embed = new EmbedBuilder()
-    .setColor(0x5865F2)
-    .setAuthor({ name: "♪  Now Playing" })
-    .setTitle(track.title.length > 256 ? track.title.slice(0, 253) + "…" : track.title)
-    .setURL(track.uri)
-    .setDescription(`by **${track.author}**`)
-    .addFields(
-      { name: "Duration", value: track.isStream ? "🔴 LIVE" : `\`${pos} / ${dur}\``, inline: true },
-      { name: "Requested by", value: track.requestedBy, inline: true },
-      { name: "Queue", value: queueLabel, inline: true },
-    )
-    .setFooter({ text: `Volume: ${queue.volume}%  ·  Loop: ${queue.loop}  ${loopEmoji}` });
+    .setColor(SPOTIFY_GREEN)
+    .setAuthor({ name: truncateDiscordText(track.author || "Unknown artist", 256) })
+    .setTitle(truncateDiscordText(track.title, 256))
+    .setURL(spotifyArt?.spotifyUrl ?? track.uri)
+    .setDescription(formatSpotifyProgressBar(track, queue));
 
-  if (ytId) {
-    embed.setThumbnail(`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`);
+  if (spotifyArt?.imageUrl) {
+    embed.setImage(spotifyArt.imageUrl);
   }
 
   return embed;
+}
+
+function scheduleNowPlayingProgressUpdates(message: Message, guildId: string, track: QueueTrack): void {
+  const existing = nowPlayingUpdateTimers.get(message.id);
+  if (existing) clearInterval(existing);
+
+  const timer = setInterval(() => {
+    const queue = getQueue(guildId);
+    if (!queue?.current || queue.current.encoded !== track.encoded) {
+      clearInterval(timer);
+      nowPlayingUpdateTimers.delete(message.id);
+      return;
+    }
+
+    void (async () => {
+      await message.edit({
+        embeds: [await buildNowPlayingEmbed(queue.current!, queue)],
+        components: [buildMusicButtons(queue.player.paused, queue.loop)],
+        allowedMentions: { parse: [] },
+      });
+    })().catch(() => {
+      clearInterval(timer);
+      nowPlayingUpdateTimers.delete(message.id);
+    });
+  }, SPOTIFY_PROGRESS_UPDATE_MS);
+
+  timer.unref?.();
+  nowPlayingUpdateTimers.set(message.id, timer);
 }
 
 export function buildMusicButtons(paused: boolean, loopMode: string): ActionRowBuilder<ButtonBuilder> {
@@ -285,6 +443,10 @@ function clearBotBackgroundTasks(): void {
     clearTimeout(timer);
   }
   backgroundTimers.clear();
+  for (const timer of nowPlayingUpdateTimers.values()) {
+    clearInterval(timer);
+  }
+  nowPlayingUpdateTimers.clear();
   if (loginRetryTimer) {
     clearTimeout(loginRetryTimer);
     loginRetryTimer = null;
@@ -1096,10 +1258,13 @@ export async function startBot() {
     setNowPlayingCallback((guildId, track, queue) => {
       const channel = readyClient.channels.cache.get(queue.textChannelId) as TextChannel | null;
       if (!channel) return;
-      channel.send({
-        embeds: [buildNowPlayingEmbed(track, queue)],
-        components: [buildMusicButtons(false, queue.loop)],
-      }).catch(() => {});
+      void (async () => {
+        const sent = await channel.send({
+          embeds: [await buildNowPlayingEmbed(track, queue)],
+          components: [buildMusicButtons(false, queue.loop)],
+        });
+        scheduleNowPlayingProgressUpdates(sent, guildId, track);
+      })().catch(() => {});
     });
     setTextNotifyCallback((_guildId, textChannelId, message) => {
       const channel = readyClient.channels.cache.get(textChannelId) as TextChannel | null;
@@ -1582,7 +1747,7 @@ export async function startBot() {
     }
 
     // --- music commands ---
-    const musicCmdMatch = rawContent.match(/^\?(play|playtop|skip|stop|pause|resume|queue|np|volume|shuffle|loop|repeat|remove|move|clear|disconnect|leave|seek)\s*([\s\S]*)?$/i);
+    const musicCmdMatch = rawContent.match(/^\?(play|playtop|skip|stop|pause|resume|queue|np|nowplaying|volume|shuffle|loop|repeat|remove|move|clear|disconnect|leave|seek)\s*([\s\S]*)?$/i);
     if (musicCmdMatch) {
       const musicCmd = musicCmdMatch[1].toLowerCase();
       const musicArg = (musicCmdMatch[2] ?? "").trim();
@@ -1618,11 +1783,12 @@ export async function startBot() {
               const result = await joinAndPlay(guildId, voiceChannel.id, message.channelId, tracks[0], message.guild?.shardId ?? 0);
               if (result === "playing") {
                 const q = getQueue(guildId)!;
-                await message.reply({
-                  embeds: [buildNowPlayingEmbed(tracks[0], q)],
+                const sent = await message.reply({
+                  embeds: [await buildNowPlayingEmbed(tracks[0], q)],
                   components: [buildMusicButtons(false, q.loop)],
                   allowedMentions: { parse: [], repliedUser: false },
                 });
+                scheduleNowPlayingProgressUpdates(sent, guildId, tracks[0]);
               } else {
                 const dur = tracks[0].isStream ? "LIVE" : formatDuration(tracks[0].duration);
                 await message.reply({
@@ -1648,11 +1814,12 @@ export async function startBot() {
             const result = await joinAndPlay(guildId, voiceChannel.id, message.channelId, track, message.guild?.shardId ?? 0);
             if (result === "playing") {
               const q = getQueue(guildId)!;
-              await message.reply({
-                embeds: [buildNowPlayingEmbed(track, q)],
+              const sent = await message.reply({
+                embeds: [await buildNowPlayingEmbed(track, q)],
                 components: [buildMusicButtons(false, q.loop)],
                 allowedMentions: { parse: [], repliedUser: false },
               });
+              scheduleNowPlayingProgressUpdates(sent, guildId, track);
             } else {
               const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
               await message.reply({
@@ -1687,11 +1854,12 @@ export async function startBot() {
           const result = await addToFront(guildId, voiceChannel.id, message.channelId, track, message.guild?.shardId ?? 0);
           if (result === "playing") {
             const q = getQueue(guildId)!;
-            await message.reply({
-              embeds: [buildNowPlayingEmbed(track, q)],
+            const sent = await message.reply({
+              embeds: [await buildNowPlayingEmbed(track, q)],
               components: [buildMusicButtons(false, q.loop)],
               allowedMentions: { parse: [], repliedUser: false },
             });
+            scheduleNowPlayingProgressUpdates(sent, guildId, track);
           } else {
             const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
             await message.reply({
@@ -1797,17 +1965,18 @@ export async function startBot() {
         return;
       }
 
-      if (musicCmd === "np") {
+      if (musicCmd === "np" || musicCmd === "nowplaying") {
         const q = getQueue(guildId);
         if (!q?.current) {
           await message.reply({ content: "nothing is playing.", allowedMentions: { parse: [], repliedUser: false } });
           return;
         }
-        await message.reply({
-          embeds: [buildNowPlayingEmbed(q.current, q)],
+        const sent = await message.reply({
+          embeds: [await buildNowPlayingEmbed(q.current, q)],
           components: [buildMusicButtons(q.player.paused, q.loop)],
           allowedMentions: { parse: [], repliedUser: false },
         });
+        scheduleNowPlayingProgressUpdates(sent, guildId, q.current);
         return;
       }
 
@@ -2146,9 +2315,10 @@ export async function startBot() {
         }
         const qAfter = getQueue(guildId)!;
         await interaction.update({
-          embeds: [buildNowPlayingEmbed(qAfter.current!, qAfter)],
+          embeds: [await buildNowPlayingEmbed(qAfter.current!, qAfter)],
           components: [buildMusicButtons(!wasPaused, qAfter.loop)],
         });
+        scheduleNowPlayingProgressUpdates(interaction.message as Message, guildId, qAfter.current!);
         return;
       }
 
@@ -2174,9 +2344,10 @@ export async function startBot() {
         await seekTrack(guildId, 0);
         const qAfter = getQueue(guildId)!;
         await interaction.update({
-          embeds: [buildNowPlayingEmbed(qAfter.current!, qAfter)],
+          embeds: [await buildNowPlayingEmbed(qAfter.current!, qAfter)],
           components: [buildMusicButtons(qAfter.player.paused, qAfter.loop)],
         });
+        scheduleNowPlayingProgressUpdates(interaction.message as Message, guildId, qAfter.current!);
         return;
       }
 
@@ -2188,9 +2359,10 @@ export async function startBot() {
         }
         const qAfter = getQueue(guildId)!;
         await interaction.update({
-          embeds: [buildNowPlayingEmbed(qAfter.current!, qAfter)],
+          embeds: [await buildNowPlayingEmbed(qAfter.current!, qAfter)],
           components: [buildMusicButtons(qAfter.player.paused, newMode)],
         });
+        scheduleNowPlayingProgressUpdates(interaction.message as Message, guildId, qAfter.current!);
         return;
       }
 
@@ -2371,11 +2543,12 @@ export async function startBot() {
               const result = await joinAndPlay(guildId, voiceChannel.id, interaction.channelId, tracks[0], interaction.guild?.shardId ?? 0);
               if (result === "playing") {
                 const q = getQueue(guildId)!;
-                await interaction.editReply({
-                  embeds: [buildNowPlayingEmbed(tracks[0], q)],
+                const sent = await interaction.editReply({
+                  embeds: [await buildNowPlayingEmbed(tracks[0], q)],
                   components: [buildMusicButtons(false, q.loop)],
                   allowedMentions: { parse: [] },
                 });
+                scheduleNowPlayingProgressUpdates(sent, guildId, tracks[0]);
               } else {
                 const dur = tracks[0].isStream ? "LIVE" : formatDuration(tracks[0].duration);
                 await interaction.editReply({
@@ -2401,11 +2574,12 @@ export async function startBot() {
             const result = await joinAndPlay(guildId, voiceChannel.id, interaction.channelId, track, interaction.guild?.shardId ?? 0);
             if (result === "playing") {
               const q = getQueue(guildId)!;
-              await interaction.editReply({
-                embeds: [buildNowPlayingEmbed(track, q)],
+              const sent = await interaction.editReply({
+                embeds: [await buildNowPlayingEmbed(track, q)],
                 components: [buildMusicButtons(false, q.loop)],
                 allowedMentions: { parse: [] },
               });
+              scheduleNowPlayingProgressUpdates(sent, guildId, track);
             } else {
               const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
               await interaction.editReply({
@@ -2439,11 +2613,12 @@ export async function startBot() {
           const result = await addToFront(guildId, voiceChannel.id, interaction.channelId, track, interaction.guild?.shardId ?? 0);
           if (result === "playing") {
             const q = getQueue(guildId)!;
-            await interaction.editReply({
-              embeds: [buildNowPlayingEmbed(track, q)],
+            const sent = await interaction.editReply({
+              embeds: [await buildNowPlayingEmbed(track, q)],
               components: [buildMusicButtons(false, q.loop)],
               allowedMentions: { parse: [] },
             });
+            scheduleNowPlayingProgressUpdates(sent, guildId, track);
           } else {
             const dur = track.isStream ? "LIVE" : formatDuration(track.duration);
             await interaction.editReply({
@@ -2556,10 +2731,12 @@ export async function startBot() {
           return;
         }
         await interaction.reply({
-          embeds: [buildNowPlayingEmbed(q.current, q)],
+          embeds: [await buildNowPlayingEmbed(q.current, q)],
           components: [buildMusicButtons(q.player.paused, q.loop)],
           allowedMentions: { parse: [] },
         });
+        const sent = await interaction.fetchReply();
+        scheduleNowPlayingProgressUpdates(sent, guildId, q.current);
         return;
       }
 
