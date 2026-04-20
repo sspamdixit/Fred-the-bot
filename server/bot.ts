@@ -284,7 +284,7 @@ export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue)
     .setColor(EMBED_COLOR)
     .setTitle(truncateDiscordText(track.title, 256))
     .setURL(track.uri)
-    .setDescription(formatSpotifyProgressBar(track, queue))
+    .setDescription(`\n${formatSpotifyProgressBar(track, queue)}\n`)
     .setFooter({ text: truncateDiscordText(track.author || "Unknown artist", 2048) });
 
   if (imageUrl) {
