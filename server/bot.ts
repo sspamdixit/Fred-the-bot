@@ -177,7 +177,7 @@ const LEETSPEAK_CHARS: Record<string, string> = {
 
 // ─── Music embed helpers ────────────────────────────────────────────────────
 
-const SPOTIFY_GREEN = 0x1DB954;
+const SPOTIFY_RED = 0xE50914;
 const SPOTIFY_PROGRESS_SEGMENTS = 12;
 const SPOTIFY_PROGRESS_UPDATE_MS = 5000;
 
@@ -328,7 +328,7 @@ function formatSpotifyProgressBar(track: QueueTrack, queue: GuildQueue): string 
 export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue): Promise<EmbedBuilder> {
   const spotifyArt = await getSpotifyAlbumArt(track);
   const embed = new EmbedBuilder()
-    .setColor(SPOTIFY_GREEN)
+    .setColor(SPOTIFY_RED)
     .setAuthor({ name: truncateDiscordText(track.author || "Unknown artist", 256) })
     .setTitle(truncateDiscordText(track.title, 256))
     .setURL(spotifyArt?.spotifyUrl ?? track.uri)
