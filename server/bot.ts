@@ -273,10 +273,7 @@ function toSquareImageUrl(url: string): string {
   return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=300&h=300&fit=cover&a=center`;
 }
 
-export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue): Promise<EmbedBuilder> {
-  const art = await getAlbumArt(track);
-  const raw = art?.imageUrl ?? track.artworkUrl ?? null;
-  const imageUrl = raw ? toSquareImageUrl(raw) : null;
+function buildEmbedWithImageUrl(track: QueueTrack, queue: GuildQueue, imageUrl: string | null): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLOR)
     .setTitle(truncateDiscordText(track.title, 256))
@@ -289,6 +286,18 @@ export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue)
   }
 
   return embed;
+}
+
+function buildNowPlayingEmbedFast(track: QueueTrack, queue: GuildQueue): EmbedBuilder {
+  const imageUrl = track.artworkUrl ? toSquareImageUrl(track.artworkUrl) : null;
+  return buildEmbedWithImageUrl(track, queue, imageUrl);
+}
+
+export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue): Promise<EmbedBuilder> {
+  const art = await getAlbumArt(track);
+  const raw = art?.imageUrl ?? track.artworkUrl ?? null;
+  const imageUrl = raw ? toSquareImageUrl(raw) : null;
+  return buildEmbedWithImageUrl(track, queue, imageUrl);
 }
 
 function scheduleNowPlayingProgressUpdates(message: Message, guildId: string, track: QueueTrack): void {
@@ -1209,11 +1218,23 @@ export async function startBot() {
       const channel = readyClient.channels.cache.get(queue.textChannelId) as TextChannel | null;
       if (!channel) return;
       void (async () => {
+        // Send immediately with YouTube thumbnail — no waiting on iTunes
         const sent = await channel.send({
-          embeds: [await buildNowPlayingEmbed(track, queue)],
+          embeds: [buildNowPlayingEmbedFast(track, queue)],
           components: [buildMusicButtons(false)],
         });
         scheduleNowPlayingProgressUpdates(sent, guildId, track);
+
+        // Upgrade to iTunes art in the background if available
+        const art = await getAlbumArt(track);
+        if (!art?.imageUrl) return;
+        const q = getQueue(guildId);
+        if (!q?.current || q.current.encoded !== track.encoded) return;
+        await sent.edit({
+          embeds: [await buildNowPlayingEmbed(track, q)],
+          components: [buildMusicButtons(q.player.paused)],
+          allowedMentions: { parse: [] },
+        }).catch(() => {});
       })().catch(() => {});
     });
     setTextNotifyCallback((_guildId, textChannelId, message) => {
