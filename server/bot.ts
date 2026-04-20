@@ -177,25 +177,22 @@ const LEETSPEAK_CHARS: Record<string, string> = {
 
 // ─── Music embed helpers ────────────────────────────────────────────────────
 
-const SPOTIFY_RED = 0xE50914;
+const EMBED_COLOR = 0xE50914;
 const SPOTIFY_PROGRESS_SEGMENTS = 12;
 const SPOTIFY_PROGRESS_UPDATE_MS = 1000;
 
-interface SpotifyArtResult {
+interface AlbumArtResult {
   imageUrl: string;
-  spotifyUrl: string | null;
 }
 
-let spotifyAccessToken: string | null = null;
-let spotifyAccessTokenExpiresAt = 0;
-const spotifyArtCache = new Map<string, Promise<SpotifyArtResult | null>>();
+const albumArtCache = new Map<string, Promise<AlbumArtResult | null>>();
 const nowPlayingUpdateTimers = new Map<string, NodeJS.Timeout>();
 
 function truncateDiscordText(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
 }
 
-function cleanSpotifySearchText(value: string): string {
+function cleanSearchText(value: string): string {
   return value
     .replace(/\([^)]*(official|video|audio|lyrics?|visualizer|remaster|remastered|live)[^)]*\)/gi, " ")
     .replace(/\[[^\]]*(official|video|audio|lyrics?|visualizer|remaster|remastered|live)[^\]]*\]/gi, " ")
@@ -204,105 +201,49 @@ function cleanSpotifySearchText(value: string): string {
     .trim();
 }
 
-async function getSpotifyAccessToken(): Promise<string | null> {
-  const clientId = process.env.SPOTIFY_CLIENT_ID?.trim();
-  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret) return null;
+async function fetchItunesAlbumArt(track: QueueTrack): Promise<AlbumArtResult | null> {
+  const title = cleanSearchText(track.title);
+  const artist = cleanSearchText(track.author);
+  const term = artist ? `${artist} ${title}` : title;
 
-  const now = Date.now();
-  if (spotifyAccessToken && now < spotifyAccessTokenExpiresAt - 60_000) {
-    return spotifyAccessToken;
-  }
-
-  try {
-    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-    const response = await fetch("https://accounts.spotify.com/api/token", {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: "grant_type=client_credentials",
-    });
-
-    if (!response.ok) {
-      log(`[Spotify] Token request failed with ${response.status}.`, "discord");
-      return null;
-    }
-
-    const data = await response.json() as { access_token?: string; expires_in?: number };
-    if (!data.access_token) return null;
-
-    spotifyAccessToken = data.access_token;
-    spotifyAccessTokenExpiresAt = Date.now() + Math.max(60, data.expires_in ?? 3600) * 1000;
-    return spotifyAccessToken;
-  } catch (err: any) {
-    log(`[Spotify] Token request failed: ${err.message}`, "discord");
-    return null;
-  }
-}
-
-async function fetchSpotifyAlbumArt(track: QueueTrack): Promise<SpotifyArtResult | null> {
-  const token = await getSpotifyAccessToken();
-  if (!token) return null;
-
-  const title = cleanSpotifySearchText(track.title);
-  const artist = cleanSpotifySearchText(track.author);
-  const query = artist ? `track:${title} artist:${artist}` : title;
-  const url = new URL("https://api.spotify.com/v1/search");
-  url.searchParams.set("type", "track");
+  const url = new URL("https://itunes.apple.com/search");
+  url.searchParams.set("media", "music");
+  url.searchParams.set("entity", "song");
   url.searchParams.set("limit", "5");
-  url.searchParams.set("q", query);
+  url.searchParams.set("term", term);
 
   try {
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
+    const response = await fetch(url);
     if (!response.ok) {
-      log(`[Spotify] Track search failed with ${response.status}.`, "discord");
+      log(`[iTunes] Track search failed with ${response.status}.`, "discord");
       return null;
     }
 
     const data = await response.json() as {
-      tracks?: {
-        items?: Array<{
-          external_urls?: { spotify?: string };
-          album?: { images?: Array<{ url: string; width: number | null; height: number | null }> };
-        }>;
-      };
+      results?: Array<{ artworkUrl100?: string }>;
     };
 
-    const spotifyTrack = data.tracks?.items?.find((item) => item.album?.images?.length);
-    const images = spotifyTrack?.album?.images ?? [];
-    const image = images.find((img) => img.width === 640 && img.height === 640)
-      ?? [...images].sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0];
+    const hit = data.results?.find((r) => r.artworkUrl100);
+    if (!hit?.artworkUrl100) return null;
 
-    if (!image?.url) return null;
-    return {
-      imageUrl: image.url,
-      spotifyUrl: spotifyTrack?.external_urls?.spotify ?? null,
-    };
+    const imageUrl = hit.artworkUrl100.replace("100x100bb", "600x600bb");
+    return { imageUrl };
   } catch (err: any) {
-    log(`[Spotify] Track search failed: ${err.message}`, "discord");
+    log(`[iTunes] Track search failed: ${err.message}`, "discord");
     return null;
   }
 }
 
-function getSpotifyAlbumArt(track: QueueTrack): Promise<SpotifyArtResult | null> {
-  if (!process.env.SPOTIFY_CLIENT_ID?.trim() || !process.env.SPOTIFY_CLIENT_SECRET?.trim()) {
-    return Promise.resolve(null);
-  }
-
+function getAlbumArt(track: QueueTrack): Promise<AlbumArtResult | null> {
   const key = `${track.title.toLowerCase()}::${track.author.toLowerCase()}`;
-  const cached = spotifyArtCache.get(key);
+  const cached = albumArtCache.get(key);
   if (cached) return cached;
 
-  const pending = fetchSpotifyAlbumArt(track).then((result) => {
-    if (!result) spotifyArtCache.delete(key);
+  const pending = fetchItunesAlbumArt(track).then((result) => {
+    if (!result) albumArtCache.delete(key);
     return result;
   });
-  spotifyArtCache.set(key, pending);
+  albumArtCache.set(key, pending);
   return pending;
 }
 
@@ -329,13 +270,13 @@ function formatSpotifyProgressBar(track: QueueTrack, queue: GuildQueue): string 
 }
 
 export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue): Promise<EmbedBuilder> {
-  const spotifyArt = await getSpotifyAlbumArt(track);
-  const imageUrl = spotifyArt?.imageUrl ?? track.artworkUrl ?? null;
+  const art = await getAlbumArt(track);
+  const imageUrl = art?.imageUrl ?? track.artworkUrl ?? null;
   const embed = new EmbedBuilder()
-    .setColor(SPOTIFY_RED)
+    .setColor(EMBED_COLOR)
     .setAuthor({ name: truncateDiscordText(track.author || "Unknown artist", 256) })
     .setTitle(truncateDiscordText(track.title, 256))
-    .setURL(spotifyArt?.spotifyUrl ?? track.uri)
+    .setURL(track.uri)
     .setDescription(formatSpotifyProgressBar(track, queue));
 
   if (imageUrl) {
