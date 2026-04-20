@@ -288,7 +288,7 @@ export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue)
     .setFooter({ text: truncateDiscordText(track.author || "Unknown artist", 2048) });
 
   if (imageUrl) {
-    embed.setImage(imageUrl);
+    embed.setThumbnail(imageUrl);
   }
 
   return embed;
