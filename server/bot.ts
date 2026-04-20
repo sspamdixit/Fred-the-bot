@@ -270,10 +270,10 @@ function formatSpotifyProgressBar(track: QueueTrack, queue: GuildQueue): string 
 }
 
 function toSquareImageUrl(url: string): string {
-  if (/i\.ytimg\.com|i9\.ytimg\.com/.test(url)) {
-    return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=600&h=600&fit=cover&a=attention`;
-  }
-  return url;
+  const fit = /i\.ytimg\.com|i9\.ytimg\.com/.test(url)
+    ? "&fit=cover&a=attention"
+    : "&fit=cover";
+  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=300&h=300${fit}`;
 }
 
 export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue): Promise<EmbedBuilder> {
