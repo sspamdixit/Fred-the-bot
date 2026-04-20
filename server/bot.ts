@@ -2304,21 +2304,6 @@ export async function startBot() {
         return;
       }
 
-      if (action === "loop") {
-        const newMode = cycleLoop(guildId);
-        if (newMode === null) {
-          await interaction.reply({ content: "nothing is playing.", ephemeral: true });
-          return;
-        }
-        const qAfter = getQueue(guildId)!;
-        await interaction.update({
-          embeds: [await buildNowPlayingEmbed(qAfter.current!, qAfter)],
-          components: [buildMusicButtons(qAfter.player.paused)],
-        });
-        scheduleNowPlayingProgressUpdates(interaction.message as Message, guildId, qAfter.current!);
-        return;
-      }
-
       if (action === "stop") {
         await stopMusic(guildId);
         await interaction.update({
