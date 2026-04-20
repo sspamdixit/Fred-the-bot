@@ -309,7 +309,7 @@ function scheduleNowPlayingProgressUpdates(message: Message, guildId: string, tr
       try {
         await message.edit({
           embeds: [await buildNowPlayingEmbed(queue.current!, queue)],
-          components: [buildMusicButtons(queue.player.paused, queue.loop)],
+          components: [buildMusicButtons(queue.player.paused)],
           allowedMentions: { parse: [] },
         });
       } catch {
@@ -327,7 +327,7 @@ function scheduleNowPlayingProgressUpdates(message: Message, guildId: string, tr
   scheduleNext();
 }
 
-export function buildMusicButtons(paused: boolean, loopMode: string): ActionRowBuilder<ButtonBuilder> {
+export function buildMusicButtons(paused: boolean): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId("music_back")
@@ -344,11 +344,6 @@ export function buildMusicButtons(paused: boolean, loopMode: string): ActionRowB
       .setEmoji("⏭")
       .setLabel("Skip")
       .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId("music_loop")
-      .setEmoji(loopMode === "track" ? "🔂" : "🔁")
-      .setLabel(loopMode === "none" ? "Loop" : loopMode === "track" ? "Track" : "Queue")
-      .setStyle(loopMode !== "none" ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId("music_stop")
       .setEmoji("⏹")
@@ -1219,7 +1214,7 @@ export async function startBot() {
       void (async () => {
         const sent = await channel.send({
           embeds: [await buildNowPlayingEmbed(track, queue)],
-          components: [buildMusicButtons(false, queue.loop)],
+          components: [buildMusicButtons(false)],
         });
         scheduleNowPlayingProgressUpdates(sent, guildId, track);
       })().catch(() => {});
@@ -1743,7 +1738,7 @@ export async function startBot() {
                 const q = getQueue(guildId)!;
                 const sent = await message.reply({
                   embeds: [await buildNowPlayingEmbed(tracks[0], q)],
-                  components: [buildMusicButtons(false, q.loop)],
+                  components: [buildMusicButtons(false)],
                   allowedMentions: { parse: [], repliedUser: false },
                 });
                 scheduleNowPlayingProgressUpdates(sent, guildId, tracks[0]);
@@ -1774,7 +1769,7 @@ export async function startBot() {
               const q = getQueue(guildId)!;
               const sent = await message.reply({
                 embeds: [await buildNowPlayingEmbed(track, q)],
-                components: [buildMusicButtons(false, q.loop)],
+                components: [buildMusicButtons(false)],
                 allowedMentions: { parse: [], repliedUser: false },
               });
               scheduleNowPlayingProgressUpdates(sent, guildId, track);
@@ -1814,7 +1809,7 @@ export async function startBot() {
             const q = getQueue(guildId)!;
             const sent = await message.reply({
               embeds: [await buildNowPlayingEmbed(track, q)],
-              components: [buildMusicButtons(false, q.loop)],
+              components: [buildMusicButtons(false)],
               allowedMentions: { parse: [], repliedUser: false },
             });
             scheduleNowPlayingProgressUpdates(sent, guildId, track);
@@ -1931,7 +1926,7 @@ export async function startBot() {
         }
         const sent = await message.reply({
           embeds: [await buildNowPlayingEmbed(q.current, q)],
-          components: [buildMusicButtons(q.player.paused, q.loop)],
+          components: [buildMusicButtons(q.player.paused)],
           allowedMentions: { parse: [], repliedUser: false },
         });
         scheduleNowPlayingProgressUpdates(sent, guildId, q.current);
@@ -2274,7 +2269,7 @@ export async function startBot() {
         const qAfter = getQueue(guildId)!;
         await interaction.update({
           embeds: [await buildNowPlayingEmbed(qAfter.current!, qAfter)],
-          components: [buildMusicButtons(!wasPaused, qAfter.loop)],
+          components: [buildMusicButtons(!wasPaused)],
         });
         scheduleNowPlayingProgressUpdates(interaction.message as Message, guildId, qAfter.current!);
         return;
@@ -2303,7 +2298,7 @@ export async function startBot() {
         const qAfter = getQueue(guildId)!;
         await interaction.update({
           embeds: [await buildNowPlayingEmbed(qAfter.current!, qAfter)],
-          components: [buildMusicButtons(qAfter.player.paused, qAfter.loop)],
+          components: [buildMusicButtons(qAfter.player.paused)],
         });
         scheduleNowPlayingProgressUpdates(interaction.message as Message, guildId, qAfter.current!);
         return;
@@ -2318,7 +2313,7 @@ export async function startBot() {
         const qAfter = getQueue(guildId)!;
         await interaction.update({
           embeds: [await buildNowPlayingEmbed(qAfter.current!, qAfter)],
-          components: [buildMusicButtons(qAfter.player.paused, newMode)],
+          components: [buildMusicButtons(qAfter.player.paused)],
         });
         scheduleNowPlayingProgressUpdates(interaction.message as Message, guildId, qAfter.current!);
         return;
@@ -2503,7 +2498,7 @@ export async function startBot() {
                 const q = getQueue(guildId)!;
                 const sent = await interaction.editReply({
                   embeds: [await buildNowPlayingEmbed(tracks[0], q)],
-                  components: [buildMusicButtons(false, q.loop)],
+                  components: [buildMusicButtons(false)],
                   allowedMentions: { parse: [] },
                 });
                 scheduleNowPlayingProgressUpdates(sent, guildId, tracks[0]);
@@ -2534,7 +2529,7 @@ export async function startBot() {
               const q = getQueue(guildId)!;
               const sent = await interaction.editReply({
                 embeds: [await buildNowPlayingEmbed(track, q)],
-                components: [buildMusicButtons(false, q.loop)],
+                components: [buildMusicButtons(false)],
                 allowedMentions: { parse: [] },
               });
               scheduleNowPlayingProgressUpdates(sent, guildId, track);
@@ -2573,7 +2568,7 @@ export async function startBot() {
             const q = getQueue(guildId)!;
             const sent = await interaction.editReply({
               embeds: [await buildNowPlayingEmbed(track, q)],
-              components: [buildMusicButtons(false, q.loop)],
+              components: [buildMusicButtons(false)],
               allowedMentions: { parse: [] },
             });
             scheduleNowPlayingProgressUpdates(sent, guildId, track);
@@ -2690,7 +2685,7 @@ export async function startBot() {
         }
         await interaction.reply({
           embeds: [await buildNowPlayingEmbed(q.current, q)],
-          components: [buildMusicButtons(q.player.paused, q.loop)],
+          components: [buildMusicButtons(q.player.paused)],
           allowedMentions: { parse: [] },
         });
         const sent = await interaction.fetchReply();
