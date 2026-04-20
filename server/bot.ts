@@ -179,7 +179,7 @@ const LEETSPEAK_CHARS: Record<string, string> = {
 
 const SPOTIFY_RED = 0xE50914;
 const SPOTIFY_PROGRESS_SEGMENTS = 12;
-const SPOTIFY_PROGRESS_UPDATE_MS = 5000;
+const SPOTIFY_PROGRESS_UPDATE_MS = 1000;
 
 interface SpotifyArtResult {
   imageUrl: string;
@@ -327,6 +327,7 @@ function formatSpotifyProgressBar(track: QueueTrack, queue: GuildQueue): string 
 
 export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue): Promise<EmbedBuilder> {
   const spotifyArt = await getSpotifyAlbumArt(track);
+  const imageUrl = spotifyArt?.imageUrl ?? track.artworkUrl ?? null;
   const embed = new EmbedBuilder()
     .setColor(SPOTIFY_RED)
     .setAuthor({ name: truncateDiscordText(track.author || "Unknown artist", 256) })
@@ -334,8 +335,8 @@ export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue)
     .setURL(spotifyArt?.spotifyUrl ?? track.uri)
     .setDescription(formatSpotifyProgressBar(track, queue));
 
-  if (spotifyArt?.imageUrl) {
-    embed.setImage(spotifyArt.imageUrl);
+  if (imageUrl) {
+    embed.setImage(imageUrl);
   }
 
   return embed;

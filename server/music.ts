@@ -108,6 +108,7 @@ export interface QueueTrack {
   duration: number;
   isStream: boolean;
   requestedBy: string;
+  artworkUrl: string | null;
 }
 
 export type LoopMode = "none" | "track" | "queue";
@@ -509,6 +510,7 @@ export async function resolveTrack(
     duration: raw.info.length,
     isStream: raw.info.isStream,
     requestedBy,
+    artworkUrl: raw.info.artworkUrl ?? null,
   };
 }
 
@@ -535,6 +537,7 @@ export async function resolvePlaylist(
     duration: raw.info.length,
     isStream: raw.info.isStream,
     requestedBy,
+    artworkUrl: raw.info.artworkUrl ?? null,
   });
 
   if (result.loadType === "playlist") {
