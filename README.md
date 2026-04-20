@@ -34,8 +34,10 @@ built with way too many api keys and a concerning amount of lavalink nodes.
 - if you have a `BRAVE_SEARCH_API_KEY` lying around, fred will use that instead and be slightly more thorough about it
 
 **music (the part that actually breaks):**
-- full lavalink music system: play, playtop, skip, stop, pause, resume, queue, nowplaying, volume, shuffle, loop, seek, remove, move, clear
+- full lavalink music system: play, playtop, skip, stop, pause, resume, queue, nowplaying, volume, shuffle, loop, seek, remove, move, clear, disconnect
 - `/play` and `/playtop` have autocomplete so you don't have to spell correctly
+- now-playing embed shows song title, album art (sourced from iTunes, falls back to YouTube thumbnail), progress bar updating every second, and artist name
+- album art is always square. youtube thumbnails are cropped. you're welcome.
 - multiple lavalink nodes with automatic failover — when one dies (and it will), fred migrates to another one mid-queue without dropping your carefully curated vibe
 - race condition guards so fred doesn't play two songs at once or skip nothing into the void
 
@@ -67,6 +69,27 @@ slash commands have autocomplete. prefix commands are for people who remember ir
 | `?translate <lang> <text>` | works on any language including klingon probably |
 | `?search <query>` | live web search |
 | `?fred <message>` | talk to fred directly. he'll respond. he might not be nice about it. |
+
+music commands:
+
+| command | description |
+|---|---|
+| `/play <query>` | play a song or playlist in your current voice channel. has autocomplete. |
+| `/playtop <query>` | add a song to the front of the queue (plays next). has autocomplete. |
+| `/skip` | skip the current track |
+| `/stop` | stop music and clear the queue |
+| `/disconnect` | disconnect from voice without clearing anything |
+| `/pause` | pause the current track |
+| `/resume` | resume the paused track |
+| `/queue` | show the current music queue |
+| `/nowplaying` | show what's currently playing |
+| `/volume <0–100>` | set playback volume |
+| `/shuffle` | shuffle the queue |
+| `/loop` | cycle loop mode: off → track → queue → off |
+| `/seek <time>` | seek to a position, e.g. `1:30` or `90` |
+| `/remove <position>` | remove a track from the queue by its queue position |
+| `/move <from> <to>` | move a track to a different position in the queue |
+| `/clear` | clear the queue without stopping the current track |
 
 modes (designated channel only — configure `MODE_CHANNEL_ID`):
 
@@ -137,3 +160,4 @@ npm start
 - discord.js v14
 - groq, google generative ai, hackclub ai
 - lavalink via shoukaku (music — breaks occasionally, that's lavalink's fault not ours)
+- itunes search api for album art (free, no key needed)
