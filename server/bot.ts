@@ -269,9 +269,17 @@ function formatSpotifyProgressBar(track: QueueTrack, queue: GuildQueue): string 
   return `[ ${formatDuration(position)} ] ${filled}🔘${remaining} [ ${formatDuration(track.duration)} ]`;
 }
 
+function toSquareImageUrl(url: string): string {
+  if (/i\.ytimg\.com|i9\.ytimg\.com/.test(url)) {
+    return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=600&h=600&fit=cover&a=attention`;
+  }
+  return url;
+}
+
 export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue): Promise<EmbedBuilder> {
   const art = await getAlbumArt(track);
-  const imageUrl = art?.imageUrl ?? track.artworkUrl ?? null;
+  const raw = art?.imageUrl ?? track.artworkUrl ?? null;
+  const imageUrl = raw ? toSquareImageUrl(raw) : null;
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLOR)
     .setAuthor({ name: truncateDiscordText(track.author || "Unknown artist", 256) })
