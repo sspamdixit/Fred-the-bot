@@ -282,10 +282,10 @@ export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue)
   const imageUrl = raw ? toSquareImageUrl(raw) : null;
   const embed = new EmbedBuilder()
     .setColor(EMBED_COLOR)
-    .setAuthor({ name: truncateDiscordText(track.author || "Unknown artist", 256) })
     .setTitle(truncateDiscordText(track.title, 256))
     .setURL(track.uri)
-    .setDescription(formatSpotifyProgressBar(track, queue));
+    .setDescription(formatSpotifyProgressBar(track, queue))
+    .setFooter({ text: truncateDiscordText(track.author || "Unknown artist", 2048) });
 
   if (imageUrl) {
     embed.setImage(imageUrl);
