@@ -295,12 +295,15 @@ function getSpotifyAlbumArt(track: QueueTrack): Promise<SpotifyArtResult | null>
   }
 
   const key = `${track.title.toLowerCase()}::${track.author.toLowerCase()}`;
-  let cached = spotifyArtCache.get(key);
-  if (!cached) {
-    cached = fetchSpotifyAlbumArt(track);
-    spotifyArtCache.set(key, cached);
-  }
-  return cached;
+  const cached = spotifyArtCache.get(key);
+  if (cached) return cached;
+
+  const pending = fetchSpotifyAlbumArt(track).then((result) => {
+    if (!result) spotifyArtCache.delete(key);
+    return result;
+  });
+  spotifyArtCache.set(key, pending);
+  return pending;
 }
 
 function formatSpotifyProgressBar(track: QueueTrack, queue: GuildQueue): string {
@@ -344,30 +347,35 @@ export async function buildNowPlayingEmbed(track: QueueTrack, queue: GuildQueue)
 
 function scheduleNowPlayingProgressUpdates(message: Message, guildId: string, track: QueueTrack): void {
   const existing = nowPlayingUpdateTimers.get(message.id);
-  if (existing) clearInterval(existing);
+  if (existing) clearTimeout(existing);
 
-  const timer = setInterval(() => {
-    const queue = getQueue(guildId);
-    if (!queue?.current || queue.current.encoded !== track.encoded) {
-      clearInterval(timer);
-      nowPlayingUpdateTimers.delete(message.id);
-      return;
-    }
+  const scheduleNext = () => {
+    const t = setTimeout(async () => {
+      const queue = getQueue(guildId);
+      if (!queue?.current || queue.current.encoded !== track.encoded) {
+        nowPlayingUpdateTimers.delete(message.id);
+        return;
+      }
 
-    void (async () => {
-      await message.edit({
-        embeds: [await buildNowPlayingEmbed(queue.current!, queue)],
-        components: [buildMusicButtons(queue.player.paused, queue.loop)],
-        allowedMentions: { parse: [] },
-      });
-    })().catch(() => {
-      clearInterval(timer);
-      nowPlayingUpdateTimers.delete(message.id);
-    });
-  }, SPOTIFY_PROGRESS_UPDATE_MS);
+      try {
+        await message.edit({
+          embeds: [await buildNowPlayingEmbed(queue.current!, queue)],
+          components: [buildMusicButtons(queue.player.paused, queue.loop)],
+          allowedMentions: { parse: [] },
+        });
+      } catch {
+        nowPlayingUpdateTimers.delete(message.id);
+        return;
+      }
 
-  timer.unref?.();
-  nowPlayingUpdateTimers.set(message.id, timer);
+      scheduleNext();
+    }, SPOTIFY_PROGRESS_UPDATE_MS);
+
+    t.unref?.();
+    nowPlayingUpdateTimers.set(message.id, t);
+  };
+
+  scheduleNext();
 }
 
 export function buildMusicButtons(paused: boolean, loopMode: string): ActionRowBuilder<ButtonBuilder> {
