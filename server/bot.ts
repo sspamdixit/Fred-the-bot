@@ -359,6 +359,11 @@ export function buildMusicButtons(paused: boolean): ActionRowBuilder<ButtonBuild
       .setEmoji("⏹")
       .setLabel("Stop")
       .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId("music_like")
+      .setEmoji("❤️")
+      .setLabel("Like")
+      .setStyle(ButtonStyle.Secondary),
   );
 }
 
@@ -2475,6 +2480,41 @@ export async function startBot() {
           embeds: [],
           components: [],
         });
+        return;
+      }
+
+      if (action === "like") {
+        if (!q?.current) {
+          await interaction.reply({ content: "nothing is playing right now.", ephemeral: true });
+          return;
+        }
+        const track = q.current;
+        const dmEmbed = new EmbedBuilder()
+          .setTitle("❤️ Saved to your liked songs")
+          .setDescription(`**${track.title}**\nby ${track.author}`)
+          .setURL(track.uri)
+          .setColor(0xed4245);
+        if (track.artworkUrl) dmEmbed.setThumbnail(track.artworkUrl);
+        const guildName = interaction.guild?.name;
+        if (guildName) dmEmbed.setFooter({ text: `from ${guildName}` });
+
+        try {
+          const dm = await interaction.user.createDM();
+          await dm.send({
+            content: `🔗 ${track.uri}`,
+            embeds: [dmEmbed],
+            allowedMentions: { parse: [] },
+          });
+          await interaction.reply({
+            content: `❤️ saved **${track.title}** to your DMs.`,
+            ephemeral: true,
+          });
+        } catch (err: any) {
+          await interaction.reply({
+            content: "couldn't DM you — check that your DMs are open for this server, then try again.",
+            ephemeral: true,
+          });
+        }
         return;
       }
 
