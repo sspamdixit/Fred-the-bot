@@ -1,5 +1,5 @@
 import { execSync } from "child_process";
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type Client } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, type Client, type TextChannel } from "discord.js";
 import { storage } from "./storage";
 import { log } from "./index";
 
@@ -10,6 +10,7 @@ export const VERSION_DISMISS_BUTTON_ID = "version_dismiss";
 const VERSION_MAJOR_MINOR = "1.1";
 
 const VERSION_OWNER_ID = "869254762015629314";
+const VERSION_CHANNEL_NAME = "moderator-only";
 const META_KEY = "last_announced_commit";
 
 function readCommitCount(): number | null {
@@ -126,23 +127,37 @@ export async function announceVersionOnStartup(client: Client): Promise<void> {
       .setEmoji("✕"),
   );
 
-  let user;
-  try {
-    user = await client.users.fetch(VERSION_OWNER_ID);
-  } catch (err: any) {
-    log(`[Version] Could not fetch owner user ${VERSION_OWNER_ID}: ${err.message} (code=${err.code ?? "?"})`, "discord");
+  // Find a #moderator-only text channel in any guild the bot is in.
+  let target: TextChannel | null = null;
+  for (const guild of client.guilds.cache.values()) {
+    const channel = guild.channels.cache.find(
+      (c) => c.type === ChannelType.GuildText && c.name === VERSION_CHANNEL_NAME,
+    ) as TextChannel | undefined;
+    if (channel) {
+      target = channel;
+      break;
+    }
+  }
+
+  if (!target) {
+    log(`[Version] No #${VERSION_CHANNEL_NAME} channel found in any guild — skipping announcement.`, "discord");
     return;
   }
 
+  // Prepend an owner mention so the message is addressed to (and pings) the owner.
+  // Discord doesn't support per-message visibility for non-interaction posts; channel
+  // permissions on #moderator-only are what restrict who can see this.
+  const mentionedPayload = `<@${VERSION_OWNER_ID}>\n${payload}`;
+
   try {
-    const dm = await user.createDM();
-    await dm.send({ content: payload, components: [dismissRow] });
-    log(`[Version] Sent update DM for ${commit.shortHash} to ${user.tag ?? VERSION_OWNER_ID}.`, "discord");
+    await target.send({
+      content: mentionedPayload,
+      components: [dismissRow],
+      allowedMentions: { users: [VERSION_OWNER_ID] },
+    });
+    log(`[Version] Posted update for ${commit.shortHash} in #${target.name} (${target.guild.name}).`, "discord");
   } catch (err: any) {
-    const code = err.code ?? "?";
-    let hint = "";
-    if (code === 50007) hint = " (user has DMs disabled or doesn't share a server with the bot)";
-    log(`[Version] Failed to DM update notice to ${VERSION_OWNER_ID}: ${err.message} (code=${code})${hint}`, "discord");
+    log(`[Version] Failed to post update in #${target.name}: ${err.message} (code=${err.code ?? "?"})`, "discord");
     return;
   }
 
