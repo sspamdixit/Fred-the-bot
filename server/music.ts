@@ -299,6 +299,19 @@ export function parseSeekTime(input: string): number | null {
   return null;
 }
 
+// Defensively wipe any Lavalink filters before starting playback. Speed/pitch
+// warping during music ("plays too fast" or "too slow") is almost always a
+// stale `timescale` filter that survived a previous track, recovery attempt,
+// or node migration. Clearing filters every play guarantees each track starts
+// at neutral 1.0× speed / pitch / rate.
+async function resetPlayerFilters(player: Player, guildId: string): Promise<void> {
+  try {
+    await player.clearFilters();
+  } catch (err: any) {
+    log(`[Music] Failed to clear filters in guild ${guildId}: ${err.message}`, "discord");
+  }
+}
+
 function getResumePositionMs(queue: GuildQueue, track: QueueTrack | null): number {
   if (!track || track.isStream || track.duration <= 0) return 0;
 
@@ -455,6 +468,7 @@ async function advanceQueue(player: Player, guildId: string): Promise<void> {
       // Track looping
       if (q.loop === "track" && q.current) {
         try {
+          await resetPlayerFilters(player, guildId);
           await player.playTrack({ track: { encoded: q.current.encoded } });
           await player.setGlobalVolume(q.volume);
           await applyResumePosition(player, guildId, q.current, q);
@@ -517,6 +531,7 @@ async function advanceQueue(player: Player, guildId: string): Promise<void> {
       const next = q.tracks.shift()!;
 
       try {
+        await resetPlayerFilters(player, guildId);
         await player.playTrack({ track: { encoded: next.encoded } });
         q.current = next;
         await player.setGlobalVolume(q.volume);
@@ -586,6 +601,7 @@ async function attemptRecovery(
   }
 
   try {
+    await resetPlayerFilters(player, guildId);
     await player.playTrack({ track: { encoded: track.encoded } });
     await player.setGlobalVolume(q.volume);
     if (resumeFromMs > 0 && !track.isStream) {
