@@ -222,15 +222,42 @@ function cleanSearchText(value: string): string {
     .trim();
 }
 
+// Common YouTube channel suffixes that pollute the artist match — strip them
+// before scoring so "Adele - Topic" matches the iTunes artist "Adele".
+const ARTIST_NOISE_RE = /\s*[-–—]?\s*(topic|vevo|official|records|music|channel)\s*$/i;
+
+// Normalize a string for fuzzy matching: lowercase, strip diacritics, drop
+// anything in (), [], "feat. …", and reduce to alphanumeric tokens.
+function normalizeForMatch(value: string): string[] {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\(.*?\)|\[.*?\]/g, " ")
+    .replace(/\b(feat|ft|with|prod(?:\.|uced)? by)\.?\s+[^,&-]+/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 1);
+}
+
+function tokenOverlap(a: string[], b: string[]): number {
+  if (a.length === 0 || b.length === 0) return 0;
+  const setB = new Set(b);
+  let hits = 0;
+  for (const t of a) if (setB.has(t)) hits += 1;
+  return hits / a.length;
+}
+
 async function fetchItunesAlbumArt(track: QueueTrack): Promise<AlbumArtResult | null> {
   const title = cleanSearchText(track.title);
-  const artist = cleanSearchText(track.author);
+  const rawArtist = cleanSearchText(track.author).replace(ARTIST_NOISE_RE, "").trim();
+  const artist = rawArtist;
   const term = artist ? `${artist} ${title}` : title;
 
   const url = new URL("https://itunes.apple.com/search");
   url.searchParams.set("media", "music");
   url.searchParams.set("entity", "song");
-  url.searchParams.set("limit", "5");
+  url.searchParams.set("limit", "10");
   url.searchParams.set("term", term);
 
   try {
@@ -241,13 +268,46 @@ async function fetchItunesAlbumArt(track: QueueTrack): Promise<AlbumArtResult | 
     }
 
     const data = await response.json() as {
-      results?: Array<{ artworkUrl100?: string }>;
+      results?: Array<{
+        artworkUrl100?: string;
+        trackName?: string;
+        artistName?: string;
+        collectionName?: string;
+      }>;
     };
 
-    const hit = data.results?.find((r) => r.artworkUrl100);
-    if (!hit?.artworkUrl100) return null;
+    const candidates = (data.results ?? []).filter((r) => r.artworkUrl100);
+    if (candidates.length === 0) return null;
 
-    const imageUrl = hit.artworkUrl100.replace("100x100bb", "600x600bb");
+    // Score each candidate by how well its trackName + artistName overlap with
+    // the song we're actually playing. Without this, iTunes' first hit can be
+    // a completely different song that just shares a common word like "Stay".
+    const wantTitle = normalizeForMatch(title);
+    const wantArtist = normalizeForMatch(artist);
+
+    let best: { score: number; artworkUrl100: string } | null = null;
+    for (const r of candidates) {
+      const gotTitle = normalizeForMatch(r.trackName ?? "");
+      const gotArtist = normalizeForMatch(r.artistName ?? "");
+
+      const titleScore = tokenOverlap(wantTitle, gotTitle);
+      const artistScore = wantArtist.length === 0 ? 0.5 : tokenOverlap(wantArtist, gotArtist);
+
+      // Weighted: title match is the stronger signal, artist match disambiguates.
+      const score = titleScore * 0.6 + artistScore * 0.4;
+      if (!best || score > best.score) {
+        best = { score, artworkUrl100: r.artworkUrl100! };
+      }
+    }
+
+    // Require a minimum confidence. Below this, fall back to whatever artwork
+    // the source provided (e.g. the YouTube thumbnail) — better to show the
+    // real video frame than a confident-looking but wrong album cover.
+    if (!best || best.score < 0.5) {
+      return null;
+    }
+
+    const imageUrl = best.artworkUrl100.replace("100x100bb", "600x600bb");
     return { imageUrl };
   } catch (err: any) {
     log(`[iTunes] Track search failed: ${err.message}`, "discord");
