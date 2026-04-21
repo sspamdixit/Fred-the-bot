@@ -48,6 +48,8 @@ import {
   parseSeekTime,
   getQueue,
   formatDuration,
+  setAutoplay,
+  isAutoplayEnabled,
   type QueueTrack,
   type GuildQueue,
 } from "./music";
@@ -1208,6 +1210,10 @@ const SLASH_COMMANDS = [
   new SlashCommandBuilder()
     .setName("clear")
     .setDescription("clear the queue without stopping the current track"),
+  new SlashCommandBuilder()
+    .setName("autoplay")
+    .setDescription("toggle autoplay — keep queueing similar tracks when the queue ends")
+    .addBooleanOption((o) => o.setName("enabled").setDescription("explicitly turn autoplay on or off").setRequired(false)),
 
   // ── mod accessible ───────────────────────────────────────────────────────
   new SlashCommandBuilder()
@@ -2117,6 +2123,30 @@ export async function startBot() {
         return;
       }
 
+      if (musicCmd === "autoplay") {
+        const arg = musicArg.trim().toLowerCase();
+        let desired: boolean;
+        if (arg === "on" || arg === "true" || arg === "yes" || arg === "1") {
+          desired = true;
+        } else if (arg === "off" || arg === "false" || arg === "no" || arg === "0") {
+          desired = false;
+        } else {
+          desired = !isAutoplayEnabled(guildId);
+        }
+        const result = setAutoplay(guildId, desired);
+        if (result === null) {
+          await message.reply({ content: "nothing is playing — start a track first, then toggle autoplay.", allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
+        await message.reply({
+          content: result
+            ? "🎶 autoplay **on** — i'll keep the vibe going with similar tracks when the queue runs out."
+            : "autoplay **off** — i'll stop when the queue ends.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+        return;
+      }
+
       if (musicCmd === "clear") {
         const count = clearQueue(guildId);
         await message.reply({
@@ -2892,6 +2922,23 @@ export async function startBot() {
         const count = clearQueue(guildId);
         await interaction.reply({
           content: count > 0 ? `cleared ${count} track${count === 1 ? "" : "s"} from the queue.` : "queue was already empty.",
+          allowedMentions: { parse: [] },
+        });
+        return;
+      }
+
+      if (commandName === "autoplay") {
+        const explicit = interaction.options.getBoolean("enabled", false);
+        const desired = explicit !== null ? explicit : !isAutoplayEnabled(guildId);
+        const result = setAutoplay(guildId, desired);
+        if (result === null) {
+          await interaction.reply({ content: "nothing is playing — start a track first, then toggle autoplay.", ephemeral: true, allowedMentions: { parse: [] } });
+          return;
+        }
+        await interaction.reply({
+          content: result
+            ? "🎶 autoplay **on** — i'll keep the vibe going with similar tracks when the queue runs out."
+            : "autoplay **off** — i'll stop when the queue ends.",
           allowedMentions: { parse: [] },
         });
         return;

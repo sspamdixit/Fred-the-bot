@@ -122,6 +122,11 @@ export interface GuildQueue {
   voiceChannelId: string;
   textChannelId: string;
   resumePositionMs?: number;
+  // Autoplay state
+  autoplay: boolean;
+  recentSeeds: QueueTrack[];          // last few user-queued tracks (for seeding similar songs)
+  recentlyPlayedUris: string[];       // URIs already played to avoid immediate repeats
+  isFetchingAutoplay: boolean;        // guard against concurrent autoplay fetches
   // Stability flags
   isAdvancing: boolean;   // true while advanceQueue is running — blocks joinAndPlay from interrupting
   isStopped: boolean;     // true after stopMusic/disconnect — prevents end-event from re-queuing
@@ -232,6 +237,10 @@ async function handleNodeDisconnect(nodeName: string): Promise<void> {
         voiceChannelId,
         textChannelId,
         resumePositionMs,
+        autoplay: queue.autoplay,
+        recentSeeds: [...queue.recentSeeds],
+        recentlyPlayedUris: [...queue.recentlyPlayedUris],
+        isFetchingAutoplay: false,
         isAdvancing: false,
         isStopped: false,
       };
@@ -319,6 +328,87 @@ function scheduleAutoDisconnect(guildId: string): void {
   }, 30_000);
 }
 
+export function setAutoplay(guildId: string, enabled: boolean): boolean | null {
+  const q = queues.get(guildId);
+  if (!q) return null;
+  q.autoplay = enabled;
+  return enabled;
+}
+
+export function isAutoplayEnabled(guildId: string): boolean {
+  return queues.get(guildId)?.autoplay ?? false;
+}
+
+function extractYouTubeVideoId(uri: string): string | null {
+  try {
+    const url = new URL(uri);
+    if (url.hostname.includes("youtu.be")) {
+      return url.pathname.slice(1) || null;
+    }
+    if (url.hostname.includes("youtube.com")) {
+      return url.searchParams.get("v");
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+async function fetchAutoplayTracks(
+  seed: QueueTrack,
+  count: number,
+  exclude: Set<string>,
+): Promise<QueueTrack[]> {
+  if (!shoukaku) return [];
+  const node = shoukaku.getIdealNode();
+  if (!node) return [];
+
+  const candidates: QueueTrack[] = [];
+  const seen = new Set<string>(exclude);
+
+  const collect = (raw: any): void => {
+    if (!raw?.encoded || !raw.info) return;
+    if (raw.info.isStream) return;
+    const uri = raw.info.uri;
+    if (!uri || seen.has(uri)) return;
+    seen.add(uri);
+    candidates.push({
+      encoded: raw.encoded,
+      title: raw.info.title,
+      author: raw.info.author,
+      uri,
+      duration: raw.info.length,
+      isStream: !!raw.info.isStream,
+      requestedBy: "autoplay",
+      artworkUrl: raw.info.artworkUrl ?? null,
+    });
+  };
+
+  // Strategy 1: YouTube radio mix from the seed video
+  const videoId = extractYouTubeVideoId(seed.uri);
+  if (videoId) {
+    try {
+      const mixUrl = `https://www.youtube.com/watch?v=${videoId}&list=RD${videoId}`;
+      const result = await node.rest.resolve(mixUrl);
+      if (result?.loadType === "playlist") {
+        const tracks = ((result.data as any).tracks ?? []) as any[];
+        // Skip the first one — it's the seed track itself
+        for (const t of tracks.slice(1)) collect(t);
+      }
+    } catch { /* ignore — fall back to search */ }
+  }
+
+  // Strategy 2: artist search as a backup or top-up
+  if (candidates.length < count && seed.author) {
+    try {
+      const result = await node.rest.resolve(`ytsearch:${seed.author} mix`);
+      if (result?.loadType === "search") {
+        for (const t of (result.data as any[])) collect(t);
+      }
+    } catch { /* ignore */ }
+  }
+
+  return candidates.slice(0, count);
+}
+
 // Iterative (non-recursive) queue advancer with isAdvancing guard
 async function advanceQueue(player: Player, guildId: string): Promise<void> {
   const queue = queues.get(guildId);
@@ -359,7 +449,39 @@ async function advanceQueue(player: Player, guildId: string): Promise<void> {
         q.tracks.push(q.current);
       }
 
+      // Capture the just-finished track for autoplay seeding & repeat avoidance
+      if (q.current) {
+        q.recentSeeds.push(q.current);
+        if (q.recentSeeds.length > 5) q.recentSeeds.shift();
+        q.recentlyPlayedUris.push(q.current.uri);
+        if (q.recentlyPlayedUris.length > 50) q.recentlyPlayedUris.shift();
+      }
+
       q.current = null;
+
+      // Autoplay: when the queue runs dry, fetch similar tracks based on the last seed.
+      // Only when not looping the whole queue (queue-loop is exclusive of autoplay).
+      if (q.tracks.length === 0 && q.autoplay && q.loop !== "queue" && !q.isFetchingAutoplay) {
+        const seed = q.recentSeeds[q.recentSeeds.length - 1];
+        if (seed) {
+          q.isFetchingAutoplay = true;
+          try {
+            const exclude = new Set(q.recentlyPlayedUris);
+            const fetched = await fetchAutoplayTracks(seed, 5, exclude);
+            if (fetched.length) {
+              q.tracks.push(...fetched);
+              log(`[Music:autoplay] Queued ${fetched.length} tracks based on "${seed.title}" in guild ${guildId}.`, "discord");
+              textNotifyCallback?.(guildId, q.textChannelId, `🎶 autoplay queued **${fetched.length}** similar tracks.`);
+            } else {
+              log(`[Music:autoplay] No similar tracks found for "${seed.title}" in guild ${guildId}.`, "discord");
+            }
+          } catch (err: any) {
+            log(`[Music:autoplay] Fetch failed in guild ${guildId}: ${err.message}`, "discord");
+          } finally {
+            q.isFetchingAutoplay = false;
+          }
+        }
+      }
 
       if (q.tracks.length === 0) {
         scheduleAutoDisconnect(guildId);
@@ -581,6 +703,10 @@ async function createQueue(
     loop: "none",
     voiceChannelId,
     textChannelId,
+    autoplay: false,
+    recentSeeds: [],
+    recentlyPlayedUris: [],
+    isFetchingAutoplay: false,
     isAdvancing: false,
     isStopped: false,
   };
