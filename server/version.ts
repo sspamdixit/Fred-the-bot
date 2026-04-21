@@ -3,10 +3,35 @@ import type { Client } from "discord.js";
 import { storage } from "./storage";
 import { log } from "./index";
 
-export const APP_VERSION = "1.1.0";
+// Major.minor is bumped manually for meaningful releases.
+// Patch number is the total git commit count — auto-increments on every commit.
+const VERSION_MAJOR_MINOR = "1.1";
 
 const VERSION_OWNER_ID = "869254762015629314";
 const META_KEY = "last_announced_commit";
+
+function readCommitCount(): number | null {
+  try {
+    const raw = execSync("git rev-list --count HEAD", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+let cachedAppVersion: string | null = null;
+function computeAppVersion(): string {
+  if (cachedAppVersion) return cachedAppVersion;
+  const count = readCommitCount();
+  cachedAppVersion = count != null ? `${VERSION_MAJOR_MINOR}.${count}` : VERSION_MAJOR_MINOR;
+  return cachedAppVersion;
+}
+
+export const APP_VERSION = computeAppVersion();
 
 interface CommitInfo {
   hash: string;
