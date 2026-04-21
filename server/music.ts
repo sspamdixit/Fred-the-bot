@@ -471,12 +471,16 @@ async function advanceQueue(player: Player, guildId: string): Promise<void> {
         q.tracks.push(q.current);
       }
 
-      // Capture the just-finished track for autoplay seeding & repeat avoidance
+      // Capture the just-finished track for autoplay seeding & repeat avoidance.
+      // Only autoplay-fetched tracks are added to the exclusion list — user-queued
+      // tracks stay eligible so autoplay can resurface them as discovery picks.
       if (q.current) {
         q.recentSeeds.push(q.current);
         if (q.recentSeeds.length > 5) q.recentSeeds.shift();
-        q.recentlyPlayedUris.push(q.current.uri);
-        if (q.recentlyPlayedUris.length > 50) q.recentlyPlayedUris.shift();
+        if (q.current.requestedBy === "autoplay") {
+          q.recentlyPlayedUris.push(q.current.uri);
+          if (q.recentlyPlayedUris.length > 50) q.recentlyPlayedUris.shift();
+        }
       }
 
       q.current = null;
