@@ -14,6 +14,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  type VoiceBasedChannel,
 } from "discord.js";
 import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
@@ -357,6 +358,97 @@ export function buildMusicButtons(paused: boolean): ActionRowBuilder<ButtonBuild
       .setLabel("Stop")
       .setStyle(ButtonStyle.Danger),
   );
+}
+
+// ─── Vote-skip system ───────────────────────────────────────────────────────
+const skipVotes = new Map<string, Set<string>>();
+
+function clearSkipVotes(guildId: string): void {
+  skipVotes.delete(guildId);
+}
+
+type SkipResultKind =
+  | "skipped"
+  | "voted"
+  | "already-voted"
+  | "not-in-channel"
+  | "nothing-playing";
+
+interface SkipResult {
+  kind: SkipResultKind;
+  skippedTitle?: string;
+  votes?: number;
+  needed?: number;
+  listeners?: number;
+}
+
+async function requestSkip(client: Client, guildId: string, userId: string): Promise<SkipResult> {
+  const q = getQueue(guildId);
+  if (!q?.current) return { kind: "nothing-playing" };
+
+  const guild = client.guilds.cache.get(guildId);
+  const voiceChannel = guild?.channels.cache.get(q.voiceChannelId);
+
+  // If we can't read the voice channel for some reason, fall back to instant skip.
+  if (!voiceChannel || !("members" in voiceChannel)) {
+    const skipped = await skipTrack(guildId);
+    clearSkipVotes(guildId);
+    return { kind: "skipped", skippedTitle: skipped?.title };
+  }
+
+  const vcMembers = (voiceChannel as VoiceBasedChannel).members;
+  const member = guild!.members.cache.get(userId) ?? null;
+
+  if (!member?.voice?.channelId || member.voice.channelId !== q.voiceChannelId) {
+    return { kind: "not-in-channel" };
+  }
+
+  const listeners = vcMembers.filter((m) => !m.user.bot).size;
+
+  // Solo or duo listening → instant skip, no vote required.
+  if (listeners <= 2) {
+    const skipped = await skipTrack(guildId);
+    clearSkipVotes(guildId);
+    return { kind: "skipped", skippedTitle: skipped?.title, listeners };
+  }
+
+  const needed = Math.ceil(listeners / 2);
+  let votes = skipVotes.get(guildId);
+  if (!votes) {
+    votes = new Set<string>();
+    skipVotes.set(guildId, votes);
+  }
+
+  if (votes.has(userId)) {
+    return { kind: "already-voted", votes: votes.size, needed, listeners };
+  }
+
+  votes.add(userId);
+
+  if (votes.size >= needed) {
+    const skipped = await skipTrack(guildId);
+    clearSkipVotes(guildId);
+    return { kind: "skipped", skippedTitle: skipped?.title, votes: votes.size, needed, listeners };
+  }
+
+  return { kind: "voted", votes: votes.size, needed, listeners };
+}
+
+function formatSkipReply(r: SkipResult): string {
+  switch (r.kind) {
+    case "nothing-playing":
+      return "nothing is playing.";
+    case "not-in-channel":
+      return "join the voice channel i'm in if you wanna vote to skip.";
+    case "already-voted":
+      return `you already voted to skip. **${r.votes}/${r.needed}** votes so far.`;
+    case "voted":
+      return `🗳  vote registered — **${r.votes}/${r.needed}** votes to skip.`;
+    case "skipped":
+      return r.votes != null && r.needed != null && (r.listeners ?? 0) > 2
+        ? `⏭  Skipped **${r.skippedTitle ?? "track"}** (${r.votes}/${r.needed} votes).`
+        : `⏭  Skipped **${r.skippedTitle ?? "track"}**.`;
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1216,6 +1308,8 @@ export async function startBot() {
     startStatusShuffle(readyClient);
     initMusic(readyClient);
     setNowPlayingCallback((guildId, track, queue) => {
+      // New track is now playing — reset any pending skip votes from the previous one.
+      clearSkipVotes(guildId);
       const channel = readyClient.channels.cache.get(queue.textChannelId) as TextChannel | null;
       if (!channel) return;
       void (async () => {
@@ -1851,9 +1945,9 @@ export async function startBot() {
 
       if (musicCmd === "skip") {
         try {
-          const skipped = await skipTrack(guildId);
+          const result = await requestSkip(client!, guildId, message.author.id);
           await message.reply({
-            content: skipped ? `skipped **${skipped.title}**.` : "nothing is playing.",
+            content: formatSkipReply(result),
             allowedMentions: { parse: [], repliedUser: false },
           });
         } catch (err: any) {
@@ -2313,12 +2407,19 @@ export async function startBot() {
           await interaction.reply({ content: "nothing is playing.", ephemeral: true });
           return;
         }
-        const skipped = await skipTrack(guildId);
-        await interaction.update({
-          content: `⏭  Skipped **${skipped?.title ?? "track"}**.`,
-          embeds: [],
-          components: [],
-        });
+        const result = await requestSkip(client!, guildId, interaction.user.id);
+        if (result.kind === "skipped") {
+          await interaction.update({
+            content: formatSkipReply(result),
+            embeds: [],
+            components: [],
+          });
+        } else if (result.kind === "voted" || result.kind === "already-voted") {
+          // Keep the now-playing embed visible; reply ephemerally with vote status.
+          await interaction.reply({ content: formatSkipReply(result), ephemeral: true });
+        } else {
+          await interaction.reply({ content: formatSkipReply(result), ephemeral: true });
+        }
         return;
       }
 
@@ -2608,9 +2709,9 @@ export async function startBot() {
 
       if (commandName === "skip") {
         try {
-          const skipped = await skipTrack(guildId);
+          const result = await requestSkip(client!, guildId, interaction.user.id);
           await interaction.reply({
-            content: skipped ? `skipped **${skipped.title}**.` : "nothing is playing.",
+            content: formatSkipReply(result),
             allowedMentions: { parse: [] },
           });
         } catch (err: any) {
