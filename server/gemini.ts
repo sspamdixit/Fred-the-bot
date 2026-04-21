@@ -96,7 +96,7 @@ const processedMemoryCandidates = new Map<string, string>();
 const passiveWatchQueue = new Map<string, NodeJS.Timeout>();
 const recentChannelContext = new Map<string, ChannelMessage[]>();
 const lastPassiveReplyAt = new Map<string, number>();
-const PASSIVE_REPLY_COOLDOWN_MS = 45_000;
+const PASSIVE_REPLY_COOLDOWN_MS = 120_000;
 
 export interface AIStats {
   lastUsedProvider: string | null;
@@ -293,13 +293,13 @@ function categorizePassiveMessage(content: string, recentCtx: string): {
   const isOpinion =
     /\b(i think|i feel|i believe|imo|imho|ngl|tbh|lowkey|highkey|deadass|no cap)\b/.test(normalized);
 
-  if (isHeated) return { type: "heated", intensity: 0.92 };
-  if (isDebate) return { type: "debate", intensity: 0.85 };
-  if (isVent) return { type: "vent", intensity: 0.78 };
-  if (isNews) return { type: "news", intensity: 0.72 };
-  if (isStorytelling) return { type: "storytelling", intensity: 0.65 };
-  if (isOpinion) return { type: "opinion", intensity: 0.55 };
-  return { type: "chatty", intensity: 0.40 };
+  if (isHeated) return { type: "heated", intensity: 0.55 };
+  if (isDebate) return { type: "debate", intensity: 0.45 };
+  if (isVent) return { type: "vent", intensity: 0.35 };
+  if (isNews) return { type: "news", intensity: 0.30 };
+  if (isStorytelling) return { type: "storytelling", intensity: 0.20 };
+  if (isOpinion) return { type: "opinion", intensity: 0.15 };
+  return { type: "chatty", intensity: 0.06 };
 }
 
 function getHistory(channelId: string): HistoryEntry[] {
