@@ -130,7 +130,16 @@ export interface GuildQueue {
   // Stability flags
   isAdvancing: boolean;   // true while advanceQueue is running — blocks joinAndPlay from interrupting
   isStopped: boolean;     // true after stopMusic/disconnect — prevents end-event from re-queuing
+  // Recovery state — used to retry the current track after a lag/stuck event before skipping.
+  recoveryAttempts: number;            // number of consecutive recovery attempts on the *current* track
+  recoveryWindowStartedAt: number;     // timestamp when the current recovery streak started
+  isRecovering: boolean;               // true while a recovery attempt is in flight
+  lastTrackStartedAt: number;          // timestamp the current track actually started playing
 }
+
+// Recovery tuning — try this many times within the window before giving up and skipping.
+const MAX_RECOVERY_ATTEMPTS = 3;
+const RECOVERY_WINDOW_MS = 90_000;
 
 let shoukaku: Shoukaku | null = null;
 const queues = new Map<string, GuildQueue>();
@@ -243,6 +252,10 @@ async function handleNodeDisconnect(nodeName: string): Promise<void> {
         isFetchingAutoplay: false,
         isAdvancing: false,
         isStopped: false,
+        recoveryAttempts: 0,
+        recoveryWindowStartedAt: 0,
+        isRecovering: false,
+        lastTrackStartedAt: 0,
       };
 
       attachPlayerEvents(newPlayer, guildId);
@@ -517,11 +530,100 @@ async function advanceQueue(player: Player, guildId: string): Promise<void> {
   }
 }
 
+// Try to recover the currently-playing track after a stuck/exception event by
+// replaying it from its last known position. Only after a few failed attempts
+// within a short window do we give up and advance the queue.
+async function attemptRecovery(
+  player: Player,
+  guildId: string,
+  cause: "stuck" | "exception",
+  causeMessage: string,
+): Promise<void> {
+  const q = queues.get(guildId);
+  if (!q || q.isStopped || q.isRecovering || q.isAdvancing) return;
+  if (!q.current) {
+    void advanceQueue(player, guildId);
+    return;
+  }
+
+  const now = Date.now();
+  // Reset the recovery streak if the window has elapsed since the streak began.
+  if (q.recoveryAttempts > 0 && now - q.recoveryWindowStartedAt > RECOVERY_WINDOW_MS) {
+    q.recoveryAttempts = 0;
+  }
+  if (q.recoveryAttempts === 0) {
+    q.recoveryWindowStartedAt = now;
+  }
+
+  if (q.recoveryAttempts >= MAX_RECOVERY_ATTEMPTS) {
+    log(`[Music] Recovery exhausted for "${q.current.title}" in guild ${guildId} (${cause}: ${causeMessage}). Skipping.`, "discord");
+    textNotifyCallback?.(guildId, q.textChannelId, `couldn't recover **${q.current.title}** after a few tries — skipping.`);
+    q.recoveryAttempts = 0;
+    void advanceQueue(player, guildId);
+    return;
+  }
+
+  q.recoveryAttempts += 1;
+  q.isRecovering = true;
+
+  const track = q.current;
+  // Compute the position to resume from: prefer the player's current reported
+  // position if it looks valid, otherwise re-use whatever resume point we had.
+  const resumeFromMs = getResumePositionMs(q, track);
+
+  log(
+    `[Music] Recovery attempt ${q.recoveryAttempts}/${MAX_RECOVERY_ATTEMPTS} for "${track.title}" in guild ${guildId} ` +
+    `(${cause}: ${causeMessage}) — replaying from ${formatDuration(resumeFromMs)}.`,
+    "discord",
+  );
+
+  if (q.recoveryAttempts === 1) {
+    textNotifyCallback?.(guildId, q.textChannelId, `playback hiccup on **${track.title}** — trying to recover…`);
+  }
+
+  try {
+    await player.playTrack({ track: { encoded: track.encoded } });
+    await player.setGlobalVolume(q.volume);
+    if (resumeFromMs > 0 && !track.isStream) {
+      try {
+        await player.seekTo(resumeFromMs);
+      } catch (err: any) {
+        log(`[Music] Recovery seek failed for "${track.title}" in guild ${guildId}: ${err.message}`, "discord");
+      }
+    }
+  } catch (err: any) {
+    log(`[Music] Recovery replay failed for "${track.title}" in guild ${guildId}: ${err.message}`, "discord");
+    // Replay itself failed — fall through to advancing the queue.
+    const cur = queues.get(guildId);
+    if (cur) cur.isRecovering = false;
+    void advanceQueue(player, guildId);
+    return;
+  }
+
+  // Release the recovery lock shortly after — long enough that the player has
+  // a chance to actually start, but short enough that the next stuck/exception
+  // can trigger another attempt if needed.
+  setTimeout(() => {
+    const cur = queues.get(guildId);
+    if (cur) cur.isRecovering = false;
+  }, 3_000);
+}
+
 function attachPlayerEvents(player: Player, guildId: string): void {
   // Remove any stale listeners before attaching (safety in case of re-attach)
+  player.removeAllListeners("start");
   player.removeAllListeners("end");
   player.removeAllListeners("exception");
   player.removeAllListeners("stuck");
+
+  player.on("start", () => {
+    const q = queues.get(guildId);
+    if (!q) return;
+    q.lastTrackStartedAt = Date.now();
+    // If the player has been streaming smoothly long enough, treat any earlier
+    // recovery streak as resolved. This is also handled lazily in attemptRecovery
+    // via the time window, but resetting here keeps state tidy.
+  });
 
   player.on("end", (event) => {
     const reason = (event as any)?.reason as string | undefined;
@@ -534,6 +636,17 @@ function attachPlayerEvents(player: Player, guildId: string): void {
     const q = queues.get(guildId);
     if (!q || q.isStopped) return;
 
+    // If we just finished a track cleanly (i.e. it actually ended), clear any
+    // lingering recovery counters before moving on to the next song.
+    if (reason === "finished") {
+      q.recoveryAttempts = 0;
+      q.recoveryWindowStartedAt = 0;
+    }
+
+    // If a recovery replay is in flight, the "end" event is a side-effect of
+    // the replay itself and should not advance the queue.
+    if (q.isRecovering) return;
+
     void advanceQueue(player, guildId);
   });
 
@@ -544,16 +657,17 @@ function attachPlayerEvents(player: Player, guildId: string): void {
     const q = queues.get(guildId);
     if (!q || q.isStopped) return;
 
-    void advanceQueue(player, guildId);
+    void attemptRecovery(player, guildId, "exception", msg);
   });
 
-  player.on("stuck", () => {
-    log(`[Music] Track stuck in guild ${guildId}, skipping.`, "discord");
+  player.on("stuck", (event) => {
+    const thresholdMs = (event as any)?.thresholdMs;
+    log(`[Music] Track stuck in guild ${guildId}${thresholdMs ? ` (threshold ${thresholdMs}ms)` : ""}, attempting recovery.`, "discord");
 
     const q = queues.get(guildId);
     if (!q || q.isStopped) return;
 
-    void advanceQueue(player, guildId);
+    void attemptRecovery(player, guildId, "stuck", thresholdMs ? `threshold ${thresholdMs}ms` : "no threshold");
   });
 }
 
@@ -718,6 +832,10 @@ async function createQueue(
     isFetchingAutoplay: false,
     isAdvancing: false,
     isStopped: false,
+    recoveryAttempts: 0,
+    recoveryWindowStartedAt: 0,
+    isRecovering: false,
+    lastTrackStartedAt: 0,
   };
 
   attachPlayerEvents(player, guildId);
