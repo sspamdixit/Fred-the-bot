@@ -135,11 +135,24 @@ export interface GuildQueue {
   recoveryWindowStartedAt: number;     // timestamp when the current recovery streak started
   isRecovering: boolean;               // true while a recovery attempt is in flight
   lastTrackStartedAt: number;          // timestamp the current track actually started playing
+  // Node-health watchdog state — used to auto-migrate to a healthier node when
+  // the current one is degraded (high penalties / dropped frames) for too long.
+  nodeUnhealthySince: number;          // timestamp the current node first looked unhealthy, or 0
+  lastAutoMigrateAt: number;           // timestamp of the last auto-migration, for cooldown
+  isAutoMigrating: boolean;            // guard so watchdog doesn't fire concurrently
 }
 
 // Recovery tuning — try this many times within the window before giving up and skipping.
 const MAX_RECOVERY_ATTEMPTS = 3;
 const RECOVERY_WINDOW_MS = 90_000;
+
+// Node-health watchdog tuning.
+const NODE_HEALTH_CHECK_INTERVAL_MS = 15_000;        // how often to poll node health
+const NODE_UNHEALTHY_DURATION_MS = 30_000;           // node must be bad for this long before migrating
+const NODE_AUTO_MIGRATE_COOLDOWN_MS = 120_000;       // don't auto-migrate the same guild more often than this
+const NODE_PENALTY_BAD_THRESHOLD = 75;               // Shoukaku penalty score considered "degraded"
+const NODE_PENALTY_IMPROVEMENT_THRESHOLD = 30;       // require alternative to be at least this much better
+const NODE_FRAME_DEFICIT_THRESHOLD = 100;            // dropped+nulled opus frames per stats window
 
 let shoukaku: Shoukaku | null = null;
 const queues = new Map<string, GuildQueue>();
@@ -193,6 +206,128 @@ export function initMusic(client: Client): void {
     log(`[Music] Lavalink node "${name}" disconnected (${count} players affected).`, "discord");
     void handleNodeDisconnect(name);
   });
+
+  startNodeHealthWatchdog();
+}
+
+// ── Node-health watchdog ────────────────────────────────────────────────────
+// Periodically inspects the Lavalink node serving each active queue. If the
+// node looks degraded (high penalty score, dropped/nulled opus frames) for a
+// sustained window AND a meaningfully better node is available, the bot will
+// auto-migrate the player to the healthier node — preserving the now-playing
+// song and queue. This catches the "node is connected but laggy" case that
+// neither the node-disconnect handler nor the per-track stuck/exception
+// recovery would notice.
+
+let nodeHealthWatchdogTimer: ReturnType<typeof setInterval> | null = null;
+
+function startNodeHealthWatchdog(): void {
+  if (nodeHealthWatchdogTimer) clearInterval(nodeHealthWatchdogTimer);
+  nodeHealthWatchdogTimer = setInterval(() => {
+    void runNodeHealthCheck();
+  }, NODE_HEALTH_CHECK_INTERVAL_MS);
+  nodeHealthWatchdogTimer.unref?.();
+}
+
+function getPlayerNode(player: Player): any | null {
+  return (player as any)?.node ?? null;
+}
+
+function isNodeUnhealthy(node: any): boolean {
+  if (!node) return false;
+  const penalties = Number(node.penalties ?? 0);
+  if (Number.isFinite(penalties) && penalties >= NODE_PENALTY_BAD_THRESHOLD) return true;
+
+  const frames = node?.stats?.frameStats;
+  if (frames) {
+    const deficit = Number(frames.deficit ?? 0) + Number(frames.nulled ?? 0);
+    if (deficit >= NODE_FRAME_DEFICIT_THRESHOLD) return true;
+  }
+  return false;
+}
+
+async function runNodeHealthCheck(): Promise<void> {
+  if (!shoukaku || queues.size === 0) return;
+  const now = Date.now();
+
+  for (const [guildId, queue] of queues.entries()) {
+    if (queue.isStopped || queue.isAutoMigrating || queue.isRecovering || queue.isAdvancing) continue;
+    if (!queue.current) continue; // nothing playing — nothing to protect
+
+    const currentNode = getPlayerNode(queue.player);
+    if (!currentNode) continue;
+
+    const unhealthy = isNodeUnhealthy(currentNode);
+
+    if (!unhealthy) {
+      // Node looks fine — clear any pending unhealthy streak.
+      if (queue.nodeUnhealthySince !== 0) queue.nodeUnhealthySince = 0;
+      continue;
+    }
+
+    if (queue.nodeUnhealthySince === 0) {
+      queue.nodeUnhealthySince = now;
+      continue;
+    }
+
+    if (now - queue.nodeUnhealthySince < NODE_UNHEALTHY_DURATION_MS) continue;
+    if (now - queue.lastAutoMigrateAt < NODE_AUTO_MIGRATE_COOLDOWN_MS) continue;
+
+    // Find a meaningfully better alternative — avoid migrating if the rest of
+    // the pool is just as bad (or worse), which would only cause flapping.
+    const candidate = shoukaku.getIdealNode();
+    if (!candidate || candidate.name === currentNode.name) {
+      // No better option right now; reset the streak so we re-evaluate fresh.
+      queue.nodeUnhealthySince = now;
+      continue;
+    }
+
+    const currentPenalties = Number(currentNode.penalties ?? 0);
+    const candidatePenalties = Number((candidate as any).penalties ?? 0);
+    if (
+      Number.isFinite(currentPenalties) &&
+      Number.isFinite(candidatePenalties) &&
+      currentPenalties - candidatePenalties < NODE_PENALTY_IMPROVEMENT_THRESHOLD
+    ) {
+      queue.nodeUnhealthySince = now;
+      continue;
+    }
+
+    // Trigger the auto-migration. Mark cooldown immediately so a slow migration
+    // can't cause a second one to queue up behind it.
+    queue.isAutoMigrating = true;
+    queue.lastAutoMigrateAt = now;
+    queue.nodeUnhealthySince = 0;
+
+    const fromName = currentNode.name ?? "unknown";
+    const toName = candidate.name ?? "unknown";
+    log(
+      `[Music] Auto-migrating guild ${guildId}: node "${fromName}" degraded (penalties ${currentPenalties.toFixed(0)}) ` +
+      `→ trying "${toName}" (penalties ${candidatePenalties.toFixed(0)}).`,
+      "discord",
+    );
+    textNotifyCallback?.(
+      guildId,
+      queue.textChannelId,
+      `playback's getting laggy — switching to a fresher audio node real quick.`,
+    );
+
+    try {
+      const result = await reconnectMusic(guildId);
+      if (result.ok) {
+        log(`[Music] Auto-migration succeeded for guild ${guildId} (now on "${result.nodeName ?? "unknown"}").`, "discord");
+      } else {
+        log(`[Music] Auto-migration failed for guild ${guildId}: ${result.message}`, "discord");
+      }
+    } catch (err: any) {
+      log(`[Music] Auto-migration threw for guild ${guildId}: ${err.message}`, "discord");
+    } finally {
+      // The new queue object is what's in the map after reconnectMusic; clear
+      // the flag on whichever queue is now associated with this guild.
+      const post = queues.get(guildId);
+      if (post) post.isAutoMigrating = false;
+    }
+  }
 }
 
 // When a Lavalink node goes down, try to recover active queues on another node
@@ -256,6 +391,9 @@ async function handleNodeDisconnect(nodeName: string): Promise<void> {
         recoveryWindowStartedAt: 0,
         isRecovering: false,
         lastTrackStartedAt: 0,
+        nodeUnhealthySince: 0,
+        lastAutoMigrateAt: Date.now(),
+        isAutoMigrating: false,
       };
 
       attachPlayerEvents(newPlayer, guildId);
@@ -856,6 +994,9 @@ async function createQueue(
     recoveryWindowStartedAt: 0,
     isRecovering: false,
     lastTrackStartedAt: 0,
+    nodeUnhealthySince: 0,
+    lastAutoMigrateAt: Date.now(),
+    isAutoMigrating: false,
   };
 
   attachPlayerEvents(player, guildId);
