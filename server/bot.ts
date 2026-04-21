@@ -2476,9 +2476,22 @@ export async function startBot() {
           return;
         }
         const track = q.current;
+        const isSpotify = /open\.spotify\.com|spotify:/i.test(track.uri);
+        const spotifyLink = isSpotify
+          ? track.uri
+          : `https://open.spotify.com/search/${encodeURIComponent(`${track.title} ${track.author}`)}`;
+        const sourceLabel = isSpotify ? "🎧 Spotify" : "🔗 Source";
+
         const dmEmbed = new EmbedBuilder()
           .setTitle("❤️ Saved to your liked songs")
-          .setDescription(`**${track.title}**\nby ${track.author}`)
+          .setDescription(
+            [
+              `**${track.title}**`,
+              `by ${track.author}`,
+              "",
+              `[${sourceLabel}](${track.uri})` + (isSpotify ? "" : ` · [🎧 Spotify](${spotifyLink})`),
+            ].join("\n"),
+          )
           .setURL(track.uri)
           .setColor(0xed4245);
         if (track.artworkUrl) dmEmbed.setThumbnail(track.artworkUrl);
@@ -2488,7 +2501,9 @@ export async function startBot() {
         try {
           const dm = await interaction.user.createDM();
           await dm.send({
-            content: `🔗 ${track.uri}`,
+            content: isSpotify
+              ? `🎧 ${spotifyLink}`
+              : `🔗 ${track.uri}\n🎧 ${spotifyLink}`,
             embeds: [dmEmbed],
             allowedMentions: { parse: [] },
           });
