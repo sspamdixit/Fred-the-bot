@@ -2618,7 +2618,7 @@ export async function startBot() {
     }
 
     // --- music slash commands ---
-    const MUSIC_SLASH_CMDS = ["play", "playtop", "skip", "stop", "disconnect", "pause", "resume", "queue", "nowplaying", "volume", "shuffle", "loop", "seek", "remove", "move", "clear"];
+    const MUSIC_SLASH_CMDS = ["play", "playtop", "skip", "stop", "disconnect", "pause", "resume", "queue", "nowplaying", "volume", "shuffle", "loop", "seek", "remove", "move", "clear", "autoplay"];
     if (MUSIC_SLASH_CMDS.includes(commandName)) {
       const guildId = interaction.guildId;
       if (!guildId) {
@@ -2931,10 +2931,6 @@ export async function startBot() {
         const explicit = interaction.options.getBoolean("enabled", false);
         const desired = explicit !== null ? explicit : !isAutoplayEnabled(guildId);
         const result = setAutoplay(guildId, desired);
-        if (result === null) {
-          await interaction.reply({ content: "nothing is playing — start a track first, then toggle autoplay.", ephemeral: true, allowedMentions: { parse: [] } });
-          return;
-        }
         await interaction.reply({
           content: result
             ? "🎶 autoplay **on** — i'll keep the vibe going with similar tracks when the queue runs out."

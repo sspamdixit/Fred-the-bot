@@ -328,15 +328,24 @@ function scheduleAutoDisconnect(guildId: string): void {
   }, 30_000);
 }
 
-export function setAutoplay(guildId: string, enabled: boolean): boolean | null {
+// Per-guild autoplay preference, persists even when no queue/player exists
+const guildAutoplayPrefs = new Map<string, boolean>();
+
+export function setAutoplay(guildId: string, enabled: boolean): boolean {
+  guildAutoplayPrefs.set(guildId, enabled);
   const q = queues.get(guildId);
-  if (!q) return null;
-  q.autoplay = enabled;
+  if (q) q.autoplay = enabled;
   return enabled;
 }
 
 export function isAutoplayEnabled(guildId: string): boolean {
-  return queues.get(guildId)?.autoplay ?? false;
+  const q = queues.get(guildId);
+  if (q) return q.autoplay;
+  return guildAutoplayPrefs.get(guildId) ?? false;
+}
+
+export function getAutoplayPref(guildId: string): boolean {
+  return guildAutoplayPrefs.get(guildId) ?? false;
 }
 
 function extractYouTubeVideoId(uri: string): string | null {
@@ -703,7 +712,7 @@ async function createQueue(
     loop: "none",
     voiceChannelId,
     textChannelId,
-    autoplay: false,
+    autoplay: guildAutoplayPrefs.get(guildId) ?? false,
     recentSeeds: [],
     recentlyPlayedUris: [],
     isFetchingAutoplay: false,
