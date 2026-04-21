@@ -1,7 +1,9 @@
 import { execSync } from "child_process";
-import type { Client } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type Client } from "discord.js";
 import { storage } from "./storage";
 import { log } from "./index";
+
+export const VERSION_DISMISS_BUTTON_ID = "version_dismiss";
 
 // Major.minor is bumped manually for meaningful releases.
 // Patch number is the total git commit count — auto-increments on every commit.
@@ -116,9 +118,17 @@ export async function announceVersionOnStartup(client: Client): Promise<void> {
   let payload = lines.join("\n");
   if (payload.length > 1900) payload = payload.slice(0, 1897) + "...";
 
+  const dismissRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(VERSION_DISMISS_BUTTON_ID)
+      .setLabel("Dismiss")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("✕"),
+  );
+
   try {
     const user = await client.users.fetch(VERSION_OWNER_ID);
-    await user.send({ content: payload });
+    await user.send({ content: payload, components: [dismissRow] });
     log(`[Version] Sent update DM for ${commit.shortHash} to ${VERSION_OWNER_ID}.`, "discord");
   } catch (err: any) {
     log(`[Version] Failed to DM update notice: ${err.message}`, "discord");

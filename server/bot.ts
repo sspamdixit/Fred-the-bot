@@ -21,7 +21,7 @@ import { askGemini, askGeminiWithImage, clearUserMemorySession, clearAllHistory,
 import { searchWeb, formatSearchResultsForAI, detectSearchIntent } from "./search";
 import { startQotd, stopQotd } from "./qotd";
 import { storage } from "./storage";
-import { announceVersionOnStartup, getVersionString } from "./version";
+import { announceVersionOnStartup, getVersionString, VERSION_DISMISS_BUTTON_ID } from "./version";
 import {
   initMusic,
   setNowPlayingCallback,
@@ -2263,6 +2263,17 @@ export async function startBot() {
         } catch {
           await interaction.respond([]);
         }
+      }
+      return;
+    }
+
+    if (interaction.isButton() && interaction.customId === VERSION_DISMISS_BUTTON_ID) {
+      try {
+        await interaction.message.delete();
+      } catch {
+        try {
+          await interaction.update({ content: "_(dismissed)_", components: [] });
+        } catch { /* ignore */ }
       }
       return;
     }
