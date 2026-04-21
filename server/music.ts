@@ -998,6 +998,100 @@ export async function disconnectMusic(guildId: string): Promise<boolean> {
   return stopMusic(guildId);
 }
 
+export type ReconnectResult =
+  | { ok: true; resumedAt: number; trackTitle: string | null; nodeName: string | null }
+  | { ok: false; reason: "no-queue" | "no-node" | "rejoin-failed"; message: string };
+
+// Force the bot to leave its current Lavalink node and rejoin voice on a fresh
+// node, preserving the now-playing song (resumed from its last position) and
+// the rest of the queue. Useful when playback feels rough but no error fired.
+export async function reconnectMusic(guildId: string): Promise<ReconnectResult> {
+  if (!shoukaku) {
+    return { ok: false, reason: "no-node", message: "music engine not initialised." };
+  }
+
+  const queue = queues.get(guildId);
+  if (!queue) {
+    return { ok: false, reason: "no-queue", message: "i'm not playing anything in this server." };
+  }
+
+  const toResume = queue.current;
+  const upcomingTracks = [...queue.tracks];
+  const { voiceChannelId, textChannelId, volume, loop } = queue;
+  const resumePositionMs = getResumePositionMs(queue, toResume);
+  const previousNodeName: string | null =
+    (queue.player as any)?.node?.name ?? (queue.player as any)?.options?.name ?? null;
+
+  // Mark the existing queue stopped so its lingering events don't interfere,
+  // then tear it down on Lavalink's side.
+  queue.isStopped = true;
+  try { await queue.player.stopTrack(); } catch { /* ignore */ }
+  try { await shoukaku.leaveVoiceChannel(guildId); } catch { /* ignore */ }
+  queues.delete(guildId);
+  advanceDebounce.delete(guildId);
+
+  // Tiny breather so Shoukaku finishes processing the disconnect before we rejoin.
+  await new Promise<void>((r) => setTimeout(r, 750));
+
+  const idealNode = shoukaku.getIdealNode();
+  if (!idealNode) {
+    return { ok: false, reason: "no-node", message: "no lavalink nodes are available right now." };
+  }
+
+  try {
+    const newPlayer = await shoukaku.joinVoiceChannel({
+      guildId,
+      channelId: voiceChannelId,
+      shardId: 0,
+      deaf: true,
+    });
+
+    const newQueue: GuildQueue = {
+      player: newPlayer,
+      tracks: toResume ? [toResume, ...upcomingTracks] : upcomingTracks,
+      current: null,
+      volume,
+      loop,
+      voiceChannelId,
+      textChannelId,
+      resumePositionMs,
+      autoplay: queue.autoplay,
+      recentSeeds: [...queue.recentSeeds],
+      recentlyPlayedUris: [...queue.recentlyPlayedUris],
+      isFetchingAutoplay: false,
+      isAdvancing: false,
+      isStopped: false,
+      recoveryAttempts: 0,
+      recoveryWindowStartedAt: 0,
+      isRecovering: false,
+      lastTrackStartedAt: 0,
+    };
+
+    attachPlayerEvents(newPlayer, guildId);
+    queues.set(guildId, newQueue);
+
+    const newNodeName: string | null =
+      (newPlayer as any)?.node?.name ?? (newPlayer as any)?.options?.name ?? idealNode.name ?? null;
+    log(
+      `[Music] Manual reconnect for guild ${guildId}: ${previousNodeName ?? "unknown"} -> ${newNodeName ?? "unknown"}` +
+      `${toResume ? ` (resuming "${toResume.title}" at ${formatDuration(resumePositionMs)})` : ""}.`,
+      "discord",
+    );
+
+    await advanceQueue(newPlayer, guildId);
+
+    return {
+      ok: true,
+      resumedAt: resumePositionMs,
+      trackTitle: toResume?.title ?? null,
+      nodeName: newNodeName,
+    };
+  } catch (err: any) {
+    log(`[Music] Manual reconnect failed for guild ${guildId}: ${err.message}`, "discord");
+    return { ok: false, reason: "rejoin-failed", message: err.message };
+  }
+}
+
 export async function pauseMusic(guildId: string): Promise<boolean> {
   const queue = queues.get(guildId);
   if (!queue || !queue.current) return false;

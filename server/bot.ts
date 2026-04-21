@@ -35,6 +35,7 @@ import {
   skipTrack,
   stopMusic,
   disconnectMusic,
+  reconnectMusic,
   pauseMusic,
   resumeMusic,
   setMusicVolume,
@@ -1172,6 +1173,9 @@ const SLASH_COMMANDS = [
     .setName("stop")
     .setDescription("stop music and disconnect"),
   new SlashCommandBuilder()
+    .setName("reconnect")
+    .setDescription("force the bot to switch to a fresh lavalink node, keeping the current song and queue"),
+  new SlashCommandBuilder()
     .setName("disconnect")
     .setDescription("disconnect fred from the voice channel"),
   new SlashCommandBuilder()
@@ -1991,6 +1995,30 @@ export async function startBot() {
         return;
       }
 
+      if (musicCmd === "reconnect" || musicCmd === "rc") {
+        try {
+          const result = await reconnectMusic(guildId);
+          if (result.ok) {
+            const where = result.trackTitle
+              ? `resumed **${result.trackTitle}**${result.resumedAt > 0 ? ` at ${formatDuration(result.resumedAt)}` : ""}`
+              : "queue is empty, but reconnected";
+            const node = result.nodeName ? ` (now on \`${result.nodeName}\`)` : "";
+            await message.reply({
+              content: `reconnected to a fresh node${node} — ${where}.`,
+              allowedMentions: { parse: [], repliedUser: false },
+            });
+          } else {
+            await message.reply({
+              content: `reconnect failed: ${result.message}`,
+              allowedMentions: { parse: [], repliedUser: false },
+            });
+          }
+        } catch (err: any) {
+          await message.reply({ content: `reconnect failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
+        }
+        return;
+      }
+
       if (musicCmd === "pause") {
         try {
           const paused = await pauseMusic(guildId);
@@ -2658,7 +2686,7 @@ export async function startBot() {
     }
 
     // --- music slash commands ---
-    const MUSIC_SLASH_CMDS = ["play", "playtop", "skip", "stop", "disconnect", "pause", "resume", "queue", "nowplaying", "volume", "shuffle", "loop", "seek", "remove", "move", "clear", "autoplay"];
+    const MUSIC_SLASH_CMDS = ["play", "playtop", "skip", "stop", "reconnect", "disconnect", "pause", "resume", "queue", "nowplaying", "volume", "shuffle", "loop", "seek", "remove", "move", "clear", "autoplay"];
     if (MUSIC_SLASH_CMDS.includes(commandName)) {
       const guildId = interaction.guildId;
       if (!guildId) {
@@ -2812,6 +2840,31 @@ export async function startBot() {
           });
         } catch (err: any) {
           await interaction.reply({ content: `disconnect failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
+        }
+        return;
+      }
+
+      if (commandName === "reconnect") {
+        await interaction.deferReply();
+        try {
+          const result = await reconnectMusic(guildId);
+          if (result.ok) {
+            const where = result.trackTitle
+              ? `resumed **${result.trackTitle}**${result.resumedAt > 0 ? ` at ${formatDuration(result.resumedAt)}` : ""}`
+              : "queue is empty, but reconnected";
+            const node = result.nodeName ? ` (now on \`${result.nodeName}\`)` : "";
+            await interaction.editReply({
+              content: `reconnected to a fresh node${node} — ${where}.`,
+              allowedMentions: { parse: [] },
+            });
+          } else {
+            await interaction.editReply({
+              content: `reconnect failed: ${result.message}`,
+              allowedMentions: { parse: [] },
+            });
+          }
+        } catch (err: any) {
+          await interaction.editReply({ content: `reconnect failed: ${err.message}`, allowedMentions: { parse: [] } });
         }
         return;
       }
