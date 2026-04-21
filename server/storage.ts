@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { users, userMemory } from "@shared/schema";
+import { users, userMemory, botMeta } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { type User, type InsertUser, type UserMemory } from "@shared/schema";
 import { randomUUID } from "crypto";
@@ -11,6 +11,8 @@ export interface IStorage {
   getUserMemory(userId: string): Promise<UserMemory | undefined>;
   upsertUserMemory(userId: string, possibilities: string, sureties: string): Promise<UserMemory>;
   deleteUserMemory(userId: string): Promise<boolean>;
+  getBotMeta(key: string): Promise<string | null>;
+  setBotMeta(key: string, value: string): Promise<void>;
 }
 
 export async function ensureUserMemoryTable(): Promise<void> {
@@ -67,6 +69,32 @@ export class DrizzleStorage implements IStorage {
       .returning();
     return result.length > 0;
   }
+
+  async getBotMeta(key: string): Promise<string | null> {
+    await ensureBotMetaTable();
+    const result = await db.select().from(botMeta).where(eq(botMeta.key, key)).limit(1);
+    return result[0]?.value ?? null;
+  }
+
+  async setBotMeta(key: string, value: string): Promise<void> {
+    await ensureBotMetaTable();
+    await db
+      .insert(botMeta)
+      .values({ key, value })
+      .onConflictDoUpdate({ target: botMeta.key, set: { value } });
+  }
+}
+
+let botMetaTableReady = false;
+async function ensureBotMetaTable(): Promise<void> {
+  if (botMetaTableReady) return;
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS bot_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+  botMetaTableReady = true;
 }
 
 export const storage = new DrizzleStorage();

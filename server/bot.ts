@@ -21,6 +21,7 @@ import { askGemini, askGeminiWithImage, clearUserMemorySession, clearAllHistory,
 import { searchWeb, formatSearchResultsForAI, detectSearchIntent } from "./search";
 import { startQotd, stopQotd } from "./qotd";
 import { storage } from "./storage";
+import { announceVersionOnStartup, getVersionString } from "./version";
 import {
   initMusic,
   setNowPlayingCallback,
@@ -1243,6 +1244,7 @@ export async function startBot() {
       channel.send({ content: message, allowedMentions: { parse: [] } }).catch(() => {});
     });
     startBotWatchdog();
+    void announceVersionOnStartup(readyClient);
 
     try {
       // Clear any leftover global commands to avoid duplicates with guild commands
@@ -1524,6 +1526,8 @@ export async function startBot() {
           `last model: ${s.lastUsedModel ?? "none yet"}`,
           `total requests: ${s.totalRequests}`,
           `total tokens: ${totalTokens.toLocaleString()} (gemini: ${s.totalTokens.gemini.toLocaleString()} | groq: ${s.totalTokens.groq.toLocaleString()} | grok: ${s.totalTokens.hackclub.toLocaleString()})`,
+          "",
+          `version: ${getVersionString()}`,
         ].join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
       });
@@ -2397,6 +2401,8 @@ export async function startBot() {
           `last model: ${s.lastUsedModel ?? "none yet"}`,
           `total requests: ${s.totalRequests}`,
           `total tokens: ${totalTokens.toLocaleString()} (gemini: ${s.totalTokens.gemini.toLocaleString()} | groq: ${s.totalTokens.groq.toLocaleString()} | grok: ${s.totalTokens.hackclub.toLocaleString()})`,
+          "",
+          `version: ${getVersionString()}`,
         ].join("\n"),
         allowedMentions: { parse: [] },
       });

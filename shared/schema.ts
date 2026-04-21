@@ -42,3 +42,10 @@ export const insertUserMemorySchema = createInsertSchema(userMemory);
 export type InsertUserMemory = z.infer<typeof insertUserMemorySchema>;
 export type UserMemory = typeof userMemory.$inferSelect;
 
+export const botMeta = pgTable("bot_meta", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});
+
+export type BotMetaRow = typeof botMeta.$inferSelect;
+
