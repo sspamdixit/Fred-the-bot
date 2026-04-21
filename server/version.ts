@@ -126,12 +126,23 @@ export async function announceVersionOnStartup(client: Client): Promise<void> {
       .setEmoji("✕"),
   );
 
+  let user;
   try {
-    const user = await client.users.fetch(VERSION_OWNER_ID);
-    await user.send({ content: payload, components: [dismissRow] });
-    log(`[Version] Sent update DM for ${commit.shortHash} to ${VERSION_OWNER_ID}.`, "discord");
+    user = await client.users.fetch(VERSION_OWNER_ID);
   } catch (err: any) {
-    log(`[Version] Failed to DM update notice: ${err.message}`, "discord");
+    log(`[Version] Could not fetch owner user ${VERSION_OWNER_ID}: ${err.message} (code=${err.code ?? "?"})`, "discord");
+    return;
+  }
+
+  try {
+    const dm = await user.createDM();
+    await dm.send({ content: payload, components: [dismissRow] });
+    log(`[Version] Sent update DM for ${commit.shortHash} to ${user.tag ?? VERSION_OWNER_ID}.`, "discord");
+  } catch (err: any) {
+    const code = err.code ?? "?";
+    let hint = "";
+    if (code === 50007) hint = " (user has DMs disabled or doesn't share a server with the bot)";
+    log(`[Version] Failed to DM update notice to ${VERSION_OWNER_ID}: ${err.message} (code=${code})${hint}`, "discord");
     return;
   }
 
