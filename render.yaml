@@ -3,8 +3,8 @@ services:
     name: bubbl-manager
     runtime: node
     plan: free
-    buildCommand: npm install --include=dev && npm run build
-    startCommand: node --max-old-space-size=460 dist/index.cjs
+    buildCommand: npm install --include=dev && npm run build && npm prune --omit=dev
+    startCommand: node --max-old-space-size=400 --gc-interval=100 dist/index.cjs
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -12,6 +12,11 @@ services:
         value: production
       - key: NODE_VERSION
         value: 20
+      # Throttle the now-playing progress bar editor on the free tier (0.1 CPU,
+      # strict outbound rate limits). Bump this down if playback feels snappier
+      # on a paid plan, or set PROGRESS_UPDATES=off to disable it entirely.
+      - key: PROGRESS_UPDATE_MS
+        value: "10000"
       - key: TOKEN
         sync: false
       - key: GEMINI_API_KEY

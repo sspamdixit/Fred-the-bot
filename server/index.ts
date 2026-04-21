@@ -120,7 +120,9 @@ function startKeepAlive() {
   const keepAliveTimer = setInterval(async () => {
     try {
       const res = await fetch(pingUrl, { signal: AbortSignal.timeout(15_000) });
-      log(`Keep-alive ping → ${res.status}`, "keep-alive");
+      // Only log non-2xx responses — successful pings every 10 min would just
+      // burn through the limited log storage on free hosting tiers.
+      if (!res.ok) log(`Keep-alive ping returned ${res.status}`, "keep-alive");
     } catch (err: any) {
       log(`Keep-alive ping failed: ${err.message}`, "keep-alive");
     }

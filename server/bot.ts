@@ -183,12 +183,29 @@ const LEETSPEAK_CHARS: Record<string, string> = {
 
 const EMBED_COLOR = 0xE50914;
 const SPOTIFY_PROGRESS_SEGMENTS = 12;
-const SPOTIFY_PROGRESS_UPDATE_MS = 1000;
+
+// Now-playing progress bar editing is the single biggest source of CPU and
+// Discord API traffic for this bot. On constrained hosts (e.g. Render free
+// tier: 0.1 CPU, 512 MB RAM, strict outbound rate limits) we slow it way down
+// or turn it off entirely. Tunable via env vars without redeploying code.
+//   PROGRESS_UPDATES=off   → never edit the now-playing message after posting
+//   PROGRESS_UPDATE_MS=N   → override the interval (ms), minimum 1000
+const PROGRESS_UPDATES_DISABLED = /^(off|false|0|no)$/i.test(process.env.PROGRESS_UPDATES ?? "");
+const IS_RENDER_FREE = process.env.RENDER === "true" || /^free$/i.test(process.env.RENDER_SERVICE_PLAN ?? "");
+const SPOTIFY_PROGRESS_UPDATE_MS = (() => {
+  const raw = parseInt(process.env.PROGRESS_UPDATE_MS ?? "", 10);
+  if (Number.isFinite(raw) && raw >= 1000) return raw;
+  // Default: 7s on most hosts, 10s on Render free where CPU is very tight.
+  return IS_RENDER_FREE ? 10_000 : 7_000;
+})();
 
 interface AlbumArtResult {
   imageUrl: string;
 }
 
+// Bounded LRU-ish cache: insertion order + size cap so memory stays predictable
+// on the 512 MB Render free tier.
+const ALBUM_ART_CACHE_LIMIT = 200;
 const albumArtCache = new Map<string, Promise<AlbumArtResult | null>>();
 const nowPlayingUpdateTimers = new Map<string, NodeJS.Timeout>();
 
@@ -241,13 +258,25 @@ async function fetchItunesAlbumArt(track: QueueTrack): Promise<AlbumArtResult | 
 function getAlbumArt(track: QueueTrack): Promise<AlbumArtResult | null> {
   const key = `${track.title.toLowerCase()}::${track.author.toLowerCase()}`;
   const cached = albumArtCache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    // Touch for LRU: re-insert to mark as most-recently-used.
+    albumArtCache.delete(key);
+    albumArtCache.set(key, cached);
+    return cached;
+  }
 
   const pending = fetchItunesAlbumArt(track).then((result) => {
     if (!result) albumArtCache.delete(key);
     return result;
   });
   albumArtCache.set(key, pending);
+
+  // Evict the oldest entry once we exceed the cap.
+  if (albumArtCache.size > ALBUM_ART_CACHE_LIMIT) {
+    const oldestKey = albumArtCache.keys().next().value;
+    if (oldestKey !== undefined) albumArtCache.delete(oldestKey);
+  }
+
   return pending;
 }
 
@@ -308,10 +337,27 @@ function scheduleNowPlayingProgressUpdates(message: Message, guildId: string, tr
   const existing = nowPlayingUpdateTimers.get(message.id);
   if (existing) clearTimeout(existing);
 
+  // Skip the live progress bar entirely on resource-constrained hosts where the
+  // operator has opted out — saves a Discord edit per message every interval.
+  if (PROGRESS_UPDATES_DISABLED) return;
+
+  // Skip live updates for streams (no meaningful progress) and for very short
+  // tracks where the next-track update will fire almost immediately anyway.
+  if (track.isStream) return;
+  if (track.duration > 0 && track.duration < SPOTIFY_PROGRESS_UPDATE_MS * 2) return;
+
   const scheduleNext = () => {
     const t = setTimeout(async () => {
       const queue = getQueue(guildId);
       if (!queue?.current || queue.current.encoded !== track.encoded) {
+        nowPlayingUpdateTimers.delete(message.id);
+        return;
+      }
+
+      // Stop editing once we're within one interval of the end — the embed for
+      // the next track will replace this one momentarily anyway.
+      const remainingMs = queue.current.duration - Number(queue.player.position || 0);
+      if (Number.isFinite(remainingMs) && queue.current.duration > 0 && remainingMs < SPOTIFY_PROGRESS_UPDATE_MS) {
         nowPlayingUpdateTimers.delete(message.id);
         return;
       }
