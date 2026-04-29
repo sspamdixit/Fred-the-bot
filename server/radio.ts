@@ -1,6 +1,7 @@
 import path from "path";
 import fs from "fs/promises";
 import { existsSync } from "fs";
+import { createRequire } from "module";
 import {
   createAudioPlayer,
   createAudioResource,
@@ -9,6 +10,7 @@ import {
   NoSubscriberBehavior,
   VoiceConnectionStatus,
   entersState,
+  generateDependencyReport,
   type AudioPlayer,
   type VoiceConnection,
 } from "@discordjs/voice";
@@ -26,6 +28,41 @@ import {
   radioLeaveVoiceChannel,
   type RadioYTTrack,
 } from "./music";
+
+// Make sure prism-media (used internally by @discordjs/voice) can find an
+// ffmpeg binary even on hosts that don't ship one in PATH (e.g. Render's
+// Node runtime). prism-media auto-discovers `ffmpeg-static`, but pointing
+// FFMPEG_PATH at it explicitly is a free belt-and-braces fallback that also
+// surfaces a clear log line at startup if the binary is missing.
+function bootstrapFfmpegPath(): void {
+  if (process.env.FFMPEG_PATH) return;
+  try {
+    const req = createRequire(import.meta.url);
+    const ffmpegPath = req("ffmpeg-static") as string | null;
+    if (typeof ffmpegPath === "string" && ffmpegPath.length > 0) {
+      process.env.FFMPEG_PATH = ffmpegPath;
+    }
+  } catch {
+    // ffmpeg-static not installed — prism-media will fall back to PATH.
+  }
+}
+bootstrapFfmpegPath();
+
+let depReportLogged = false;
+function logVoiceDependencyReportOnce(): void {
+  if (depReportLogged) return;
+  depReportLogged = true;
+  try {
+    const report = generateDependencyReport();
+    const ffLine = report.split("\n").find((l) => l.toLowerCase().includes("version"));
+    log(`[Radio] @discordjs/voice deps — ${ffLine?.trim() ?? "ffmpeg: unknown"} · FFMPEG_PATH=${process.env.FFMPEG_PATH ?? "(unset)"}`, "radio");
+    if (/ffmpeg[\s\S]*not found/i.test(report)) {
+      log("[Radio] WARNING: no ffmpeg binary detected. Local mp3/wav playback will fail silently. Install `ffmpeg-static` or set FFMPEG_PATH.", "radio");
+    }
+  } catch (err: any) {
+    log(`[Radio] could not generate voice dependency report: ${err.message}`, "radio");
+  }
+}
 
 const MUSIC_DIR = path.resolve("music_library");
 const ASSETS_DIR = path.resolve("radio_assets");
@@ -428,6 +465,7 @@ export async function startRadio(
   voiceChannelId: string,
   textChannel: TextChannel,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  logVoiceDependencyReportOnce();
   if (stations.has(guild.id)) {
     return { ok: false, reason: `${STATION_NAME} is already on the air in this server. use \`/radiostop\` first.` };
   }
