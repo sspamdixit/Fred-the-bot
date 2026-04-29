@@ -19,6 +19,7 @@ import {
 import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
 import { askGemini, askGeminiWithImage, clearUserMemorySession, clearAllHistory, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, pushChannelMessage, type ImageData } from "./gemini";
+import { queueMemoryIngestion, runHypocrisyEngine, searchServerLore, buildUserDossier } from "./semantic-memory";
 import { searchWeb, formatSearchResultsForAI, detectSearchIntent } from "./search";
 import { startQotd, stopQotd } from "./qotd";
 import { storage } from "./storage";
@@ -1559,6 +1560,36 @@ export async function startBot() {
       pushChannelMessage(message.channelId, authorDisplayName, message.content.trim(), false);
     }
 
+    // Semantic memory ingestion: every message Fred sees gets embedded + stored.
+    if (message.guildId && message.content.trim()) {
+      queueMemoryIngestion(message.author.id, message.guildId, message.content);
+    }
+
+    // Hypocrisy Engine: passive semantic analysis with per-user 2-min cooldown.
+    if (message.guildId && message.content.trim().length >= 20) {
+      void (async () => {
+        try {
+          const roast = await runHypocrisyEngine({
+            userId: message.author.id,
+            guildId: message.guildId!,
+            authorName: authorDisplayName,
+            content: message.content,
+          });
+          if (!roast) return;
+          await (message.channel as TextChannel).sendTyping().catch(() => {});
+          await message.reply({
+            content: roast,
+            allowedMentions: { parse: [], repliedUser: false },
+          });
+          pushChannelMessage(message.channelId, "fred", roast, true);
+          // Block other passive replies from piling on right after a hypocrisy hit.
+          // (we use the gemini module's own cooldown by emitting through pushChannelMessage)
+        } catch (err: any) {
+          log(`[Hypocrisy] handler failed: ${err.message}`, "discord");
+        }
+      })();
+    }
+
     // Detect Discord reply-chain context
     let replyTo: string | undefined;
     let isReplyToBot = false;
@@ -1661,6 +1692,64 @@ export async function startBot() {
         content: `${mode.label} activated serverwide. use \`?mode\` or \`?normal\` to turn it off.`,
         allowedMentions: { parse: [], repliedUser: false },
       });
+      return;
+    }
+
+    // ?lore <query>  — semantic search over the whole server
+    const loreMatch = rawContent.match(/^\?lore\b\s*(.*)$/i);
+    if (loreMatch) {
+      if (!message.guildId) {
+        await message.reply({
+          content: "?lore only works inside a server. dms have no lore, just regret.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+        return;
+      }
+      const query = loreMatch[1].trim();
+      try {
+        await (message.channel as TextChannel).sendTyping();
+        const summary = await searchServerLore(message.guildId, query);
+        await message.reply({
+          content: summary ?? "lore engine is offline. try again later.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+      } catch (err: any) {
+        log(`[Lore] failed: ${err.message}`, "discord");
+        await message.reply({
+          content: "lore lookup broke. blame the embeddings.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+      }
+      return;
+    }
+
+    // ?dossier <@user>  — semantic psych profile from diverse memories
+    const dossierProfileMatch = rawContent.match(/^\?dossier\b/i);
+    if (dossierProfileMatch) {
+      if (!message.guildId) {
+        await message.reply({
+          content: "?dossier only works inside a server.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+        return;
+      }
+      const target = message.mentions.users.first() ?? message.author;
+      const targetMember = message.guild?.members.cache.get(target.id);
+      const targetName = targetMember?.displayName ?? target.username;
+      try {
+        await (message.channel as TextChannel).sendTyping();
+        const profile = await buildUserDossier(target.id, message.guildId, targetName);
+        await message.reply({
+          content: profile ?? "dossier engine is offline. try again later.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+      } catch (err: any) {
+        log(`[Dossier:profile] failed: ${err.message}`, "discord");
+        await message.reply({
+          content: "dossier build broke. somehow.",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+      }
       return;
     }
 

@@ -5,6 +5,7 @@ import { createServer } from "http";
 import { startBot, getBotStatus } from "./bot";
 import { initSocket } from "./socket";
 import { ensureUserMemoryTable } from "./storage";
+import { ensureSemanticMemoryTable } from "./semantic-memory";
 
 const app = express();
 const httpServer = createServer(app);
@@ -136,6 +137,12 @@ function startKeepAlive() {
     log("user_memory table ready.", "memory");
   } catch (err: any) {
     log(`user_memory table check failed; continuing without blocking bot startup: ${err.message}`, "memory");
+  }
+
+  try {
+    await ensureSemanticMemoryTable();
+  } catch (err: any) {
+    log(`semantic memory init failed; continuing without it: ${err.message}`, "memory");
   }
 
   await registerRoutes(httpServer, app);
