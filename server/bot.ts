@@ -3327,12 +3327,8 @@ export async function startBot() {
           await interaction.editReply({ content: result.reason, allowedMentions: { parse: [] } });
           return;
         }
-        const assetSummary = Object.entries(lib.assets)
-          .map(([k, n]) => `${k}: ${n}`)
-          .join(" · ");
-        const sources = `${lib.music} local tracks · YouTube ${lib.youtube ? "✅" : "❌"}`;
         await interaction.editReply({
-          content: `📻 **fred fm** is now broadcasting in <#${voiceChannel.id}>. ${sources} · ${assetSummary}`,
+          content: `📻 **Fred FM** ON AIR 🔴`,
           allowedMentions: { parse: [] },
         });
       } catch (err: any) {
