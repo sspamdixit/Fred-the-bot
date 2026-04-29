@@ -1,0 +1,37 @@
+Build upon the existing Discord bot ("Fred"), a Node.js/TypeScript app using discord.js, Drizzle ORM, and PostgreSQL. The goal is to implement a high-intelligence Semantic Memory system using pgvector and Gemini.
+
+### 1. Database & Schema (Resource-Optimized)
+- Connect to the existing Replit PostgreSQL resource.
+- Enable the `pgvector` extension.
+- Create a `user_memories` table:
+    - `id` (serial primary key)
+    - `userId` (text, indexed)
+    - `guildId` (text, indexed)
+    - `content` (text)
+    - `embedding` (vector size 768)
+    - `createdAt` (timestamp, default now)
+- **Constraint:** Ensure all vector math happens in the database using the `<=>` (cosine distance) operator to keep the bot's RAM usage below 512MB.
+
+### 2. Embedding & Ingestion Logic
+- Integrate `@google/generative-ai` to use the `text-embedding-004` model.
+- **Stateless Pipeline:** For every message Fred sees:
+    - Generate an embedding of the content.
+    - Immediately `INSERT` into the `user_memories` table.
+    - **Do not** store these embeddings in local arrays or global variables. Once it's in the DB, clear it from memory.
+
+### 3. The "Hypocrisy Engine" (Passive Semantic Analysis)
+- On every `messageCreate` event (with a 2-minute cooldown per user to save API calls):
+    - Perform a similarity search: Find the top 1 most semantically similar memory for that `userId` in that `guildId`.
+    - If the `cosine_distance` is less than 0.15 (meaning high similarity):
+        - Send the `Current Message` and the `Stored Memory` to Gemini 2.0 Flash.
+        - **System Prompt:** "You are Fred, a genius AI with a perfect, condescending memory. Analyze these two statements. If they are conceptually contradictory, hypocritical, or show the user has changed their mind in a pathetic way, write a short, sharp, arrogant roast. If they are consistent, return exactly 'NULL'."
+- If Gemini returns a roast, Fred must reply to the message with that text.
+
+### 4. Semantic Commands
+- **?lore [query]:** Fred searches the entire server's history (all users) for the most semantically relevant messages to the query and summarizes the "server lore" on that topic in his usual snarky tone.
+- **?dossier [@user]:** Fred retrieves the 5 most "defining" memories of a user (using a diverse vector search) and writes a psychological profile that is intentionally mean.
+
+### 5. Render.com Stability Measures
+- **Memory Management:** Wrap the embedding process in a `try/catch`. If the 512MB RAM limit is approached, skip the memory ingestion for that message.
+- **Debouncing:** Use a small internal queue for processing embeddings to ensure the bot doesn't attempt to handle a "burst" of messages simultaneously, which would spike CPU/RAM.
+- **Statelessness:** Ensure no large objects (like conversation histories) are kept in RAM; everything must be fetched from Postgres on-demand.
