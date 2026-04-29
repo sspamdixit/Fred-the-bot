@@ -1432,18 +1432,92 @@ export async function radioResolveTrack(query: string): Promise<RadioTrack | nul
   return null;
 }
 
+// HTTP-source-manager probing
+//
+// Public Lavalink nodes don't all enable the HTTP audio source. We need to
+// know which ones do BEFORE we pin the radio's player to a node, because
+// the player can only play URLs its own node knows how to fetch. Cached
+// per-process to avoid re-probing on every /radio.
+const httpSupportCache = new Map<string, "yes" | "no">();
+
+async function probeNodeHttpSupport(node: any, testUrl: string): Promise<boolean> {
+  const cached = httpSupportCache.get(node.name);
+  if (cached) return cached === "yes";
+  try {
+    const result = await node.rest.resolve(testUrl);
+    const ok = !!(result && (result.loadType === "track" || result.loadType === "search" || result.loadType === "playlist"));
+    httpSupportCache.set(node.name, ok ? "yes" : "no");
+    if (ok) {
+      log(`[Music:radio] node '${node.name}' supports HTTP source loading`, "discord");
+    } else {
+      log(`[Music:radio] node '${node.name}' rejected HTTP probe (loadType=${result?.loadType ?? "null"})`, "discord");
+    }
+    return ok;
+  } catch (err: any) {
+    httpSupportCache.set(node.name, "no");
+    log(`[Music:radio] node '${node.name}' HTTP probe error: ${err.message}`, "discord");
+    return false;
+  }
+}
+
+export function clearRadioHttpSupportCache(): void {
+  httpSupportCache.clear();
+}
+
+// Returns a connected Lavalink node that has the HTTP source manager, or
+// null if none do. Probes happen in parallel and are cached.
+export async function radioFindHttpCapableNode(testUrl: string): Promise<any | null> {
+  if (!shoukaku) return null;
+  const connected = [...shoukaku.nodes.values()].filter((n: any) => n.state === 1);
+  if (connected.length === 0) return null;
+
+  // Prefer the ideal node if it already passes — keeps voice routing optimal.
+  const ideal = shoukaku.getIdealNode();
+  if (ideal && connected.includes(ideal)) {
+    if (await probeNodeHttpSupport(ideal, testUrl)) return ideal;
+  }
+
+  // Otherwise probe everything in parallel and pick the first to succeed
+  // (sorted by penalties so we still prefer healthier nodes).
+  const sorted = connected
+    .filter((n: any) => n !== ideal)
+    .sort((a: any, b: any) => (a.penalties ?? 0) - (b.penalties ?? 0));
+
+  const probes = sorted.map(async (n: any) => ((await probeNodeHttpSupport(n, testUrl)) ? n : null));
+  const results = await Promise.all(probes);
+  for (const n of results) {
+    if (n) return n;
+  }
+  return null;
+}
+
 // Joins the voice channel via Lavalink and returns a managed Player. The
 // caller owns the player for its whole session and must call
 // radioLeaveVoiceChannel(guildId) to clean up. Default Shoukaku listeners
 // are stripped so the music watchdogs ignore radio-owned players.
+//
+// `pinnedNode` (optional) forces Shoukaku to bind the new player to that
+// specific node instead of `getIdealNode()`. Used by the radio so the
+// player lands on a node we've already verified supports HTTP source
+// loading — otherwise local-file playback would fail at play time even if
+// resolution succeeded on a different node.
 export async function radioJoinVoice(
   guildId: string,
   channelId: string,
   shardId = 0,
+  pinnedNode: any | null = null,
 ): Promise<{ ok: true; player: Player } | { ok: false; reason: string }> {
   if (!shoukaku) return { ok: false, reason: "lavalink not initialised" };
   if (queues.has(guildId)) {
     return { ok: false, reason: "music queue already active in this guild" };
+  }
+
+  // Briefly override the global node resolver so joinVoiceChannel binds
+  // the new player to our pinned node. JS is single-threaded; we restore
+  // it in the same synchronous-after-await block.
+  const originalResolver = shoukaku.options.nodeResolver;
+  if (pinnedNode) {
+    shoukaku.options.nodeResolver = () => pinnedNode as any;
   }
 
   let player: Player;
@@ -1456,6 +1530,8 @@ export async function radioJoinVoice(
     });
   } catch (err: any) {
     return { ok: false, reason: `lavalink join failed: ${err.message}` };
+  } finally {
+    if (pinnedNode) shoukaku.options.nodeResolver = originalResolver;
   }
 
   try {
@@ -1470,6 +1546,37 @@ export async function radioJoinVoice(
   try { await player.setGlobalVolume(100); } catch { /* ignore */ }
 
   return { ok: true, player };
+}
+
+// Resolve a track on a SPECIFIC node (used so the resolve happens on the
+// same node that will play it, guaranteeing source-manager compatibility).
+export async function radioResolveTrackOnNode(node: any, query: string): Promise<RadioTrack | null> {
+  if (!node) return null;
+  const isHttp = /^https?:\/\//i.test(query);
+  const identifier = isHttp ? query : `ytsearch:${query}`;
+  try {
+    const result = await node.rest.resolve(identifier);
+    if (!result) return null;
+    if (result.loadType === "empty" || result.loadType === "error") return null;
+
+    let raw: any | null = null;
+    if (result.loadType === "track") raw = result.data;
+    else if (result.loadType === "search") raw = (result.data as any[])?.[0] ?? null;
+    else if (result.loadType === "playlist") raw = ((result.data as any).tracks ?? [])[0] ?? null;
+    if (!raw?.encoded || !raw.info) return null;
+
+    return {
+      encoded: raw.encoded,
+      title: String(raw.info.title ?? "Unknown title"),
+      author: String(raw.info.author ?? "Unknown artist"),
+      uri: String(raw.info.uri ?? query),
+      duration: Number(raw.info.length) || 0,
+      artworkUrl: raw.info.artworkUrl ?? null,
+    };
+  } catch (err: any) {
+    log(`[Music:radio] resolve via ${node?.name ?? "?"} failed: ${err.message}`, "discord");
+    return null;
+  }
 }
 
 // Plays one Lavalink-encoded track and resolves when it ends (or fails). The

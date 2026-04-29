@@ -12,7 +12,8 @@ import { log } from "./index";
 import {
   isLavalinkAvailable,
   radioResolveYouTube,
-  radioResolveTrack,
+  radioResolveTrackOnNode,
+  radioFindHttpCapableNode,
   radioJoinVoice,
   radioPlayTrackBlocking,
   radioLeaveVoiceChannel,
@@ -104,6 +105,7 @@ interface RadioStation {
   textChannel: TextChannel;
   shardId: number;
   player: Player;
+  pinnedNode: any;                      // Lavalink node hosting the player; HTTP-capable
   recentMusic: string[];               // local file paths
   recentYTUris: string[];              // youtube URIs already played
   recentAssets: string[];
@@ -155,20 +157,40 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// Picks an arbitrary asset URL to probe Lavalink nodes with at radio start.
+// Tries the asset folders first, then falls back to a music_library file,
+// then null if nothing's available.
+async function pickProbeUrl(): Promise<string | null> {
+  for (const k of ASSET_KINDS) {
+    const files = await listAudio(path.join(ASSETS_DIR, k));
+    if (files.length > 0) return fileToPublicUrl(files[0]);
+  }
+  const music = await listAudio(MUSIC_DIR);
+  if (music.length > 0) return fileToPublicUrl(music[0]);
+  return null;
+}
+
 // Lavalink track resolution + caching
 // Local files don't change between rounds, so we cache resolved tracks by
 // path to avoid re-hitting Lavalink (~1-3s per resolve) every transition.
+// Resolution happens on the SAME node that owns the radio's player so the
+// returned encoded track is guaranteed to be playable by that node.
 class TrackResolver {
   private cache = new Map<string, RadioTrack>();
+  constructor(private readonly node: any) {}
 
   async resolveFile(filePath: string): Promise<RadioTrack | null> {
     const hit = this.cache.get(filePath);
     if (hit) return hit;
     const url = fileToPublicUrl(filePath);
     if (!url) return null;
-    const resolved = await radioResolveTrack(url);
+    const resolved = await radioResolveTrackOnNode(this.node, url);
     if (resolved) this.cache.set(filePath, resolved);
     return resolved;
+  }
+
+  invalidate(filePath: string): void {
+    this.cache.delete(filePath);
   }
 }
 
@@ -253,15 +275,59 @@ async function sendNowPlaying(
   }
 }
 
-async function playAsset(station: RadioStation, resolver: TrackResolver, kind: AssetKind, clip: string): Promise<void> {
-  const resolved = await resolver.resolveFile(clip);
-  if (!resolved) {
-    log(`[Radio] · ${kind}: failed to resolve ${path.basename(clip)} via Lavalink`, "radio");
+// Plays a radio asset (advert/intro/outro/etc) with retry. Assets are short
+// — silently dropping one defeats the point of the radio. We retry up to
+// twice with a fresh resolve in case the cached encoded blob expired or the
+// node hiccuped, and on the second failure we try a different clip from the
+// same kind so the slot is never empty.
+async function playAsset(
+  station: RadioStation,
+  resolver: TrackResolver,
+  kind: AssetKind,
+  clip: string,
+  pool: string[],
+): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const resolved = await resolver.resolveFile(clip);
+    if (!resolved) {
+      log(`[Radio] · ${kind}: resolve failed for ${path.basename(clip)} (attempt ${attempt + 1})`, "radio");
+      resolver.invalidate(clip);
+      continue;
+    }
+    const result = await radioPlayTrackBlocking(
+      station.player,
+      resolved.encoded,
+      resolved.duration,
+      90_000,
+    );
+    if (result.ok) return;
+    log(`[Radio] · ${kind}: playback failed for ${path.basename(clip)} (${result.reason}, attempt ${attempt + 1})`, "radio");
+    // Encoded blob might be stale — drop the cache so we re-resolve.
+    resolver.invalidate(clip);
+    if (!station.active) return;
+  }
+
+  // Fallback: try a different clip from the same kind.
+  const alternates = pool.filter((p) => p !== clip);
+  if (alternates.length === 0) {
+    log(`[Radio] · ${kind}: no alternates to fall back to — slot dropped`, "radio");
     return;
   }
-  const result = await radioPlayTrackBlocking(station.player, resolved.encoded, resolved.duration, 90_000);
-  if (!result.ok) {
-    log(`[Radio] · ${kind}: playback aborted (${result.reason})`, "radio");
+  const alt = alternates[Math.floor(Math.random() * alternates.length)];
+  log(`[Radio] · ${kind}: falling back to ${path.basename(alt)}`, "radio");
+  const altResolved = await resolver.resolveFile(alt);
+  if (!altResolved) {
+    log(`[Radio] · ${kind}: fallback resolve also failed — slot dropped`, "radio");
+    return;
+  }
+  const altResult = await radioPlayTrackBlocking(
+    station.player,
+    altResolved.encoded,
+    altResolved.duration,
+    90_000,
+  );
+  if (!altResult.ok) {
+    log(`[Radio] · ${kind}: fallback playback failed (${altResult.reason}) — slot dropped`, "radio");
   }
 }
 
@@ -293,7 +359,7 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
     "radio",
   );
 
-  const resolver = new TrackResolver();
+  const resolver = new TrackResolver(station.pinnedNode);
 
   while (station.active) {
     // Re-evaluate sources every loop so a Lavalink node coming online (or
@@ -356,7 +422,7 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
     const clip = pickRandom(pool, new Set(station.recentAssets))!;
     pushRecent(station.recentAssets, clip, RECENT_ASSETS_LIMIT);
     log(`[Radio] · ${kind}: ${path.basename(clip)}`, "radio");
-    await playAsset(station, resolver, kind, clip);
+    await playAsset(station, resolver, kind, clip, pool);
     if (!station.active) return;
 
     // 25% chance trackintro after a trackoutro.
@@ -366,7 +432,7 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
         const intro = pickRandom(intros, new Set(station.recentAssets))!;
         pushRecent(station.recentAssets, intro, RECENT_ASSETS_LIMIT);
         log(`[Radio] · DJ transition (trackintro): ${path.basename(intro)}`, "radio");
-        await playAsset(station, resolver, "trackintro", intro);
+        await playAsset(station, resolver, "trackintro", intro, intros);
         if (!station.active) return;
       }
     }
@@ -406,7 +472,28 @@ export async function startRadio(
   const localFiles = await listAudio(MUSIC_DIR);
   log(`[Radio] starting · base=${baseUrl} · local-files=${localFiles.length}`, "radio");
 
-  const joinResult = await radioJoinVoice(guild.id, voiceChannelId, guild.shardId ?? 0);
+  // Probe Lavalink nodes for HTTP source support using a real radio asset
+  // URL — same one the playback path will hit. We pin the radio player to
+  // whichever node passes so resolution AND playback are guaranteed to
+  // work for every local file and asset clip in the rotation.
+  const probeUrl = await pickProbeUrl();
+  if (!probeUrl) {
+    return {
+      ok: false,
+      reason: "no radio assets found to probe with — drop some files into `radio_assets/` first.",
+    };
+  }
+  const httpNode = await radioFindHttpCapableNode(probeUrl);
+  if (!httpNode) {
+    return {
+      ok: false,
+      reason:
+        "none of the connected lavalink nodes accept HTTP-source URLs, so the radio can't play local files. either provide a node with the HTTP source manager enabled (`LAVALINK_NODES`) or use a self-hosted lavalink with `sources.http: true`.",
+    };
+  }
+  log(`[Radio] pinned to lavalink node '${httpNode.name}' (HTTP source verified)`, "radio");
+
+  const joinResult = await radioJoinVoice(guild.id, voiceChannelId, guild.shardId ?? 0, httpNode);
   if (!joinResult.ok) {
     return { ok: false, reason: `couldn't join voice via lavalink: ${joinResult.reason}` };
   }
@@ -418,6 +505,7 @@ export async function startRadio(
     textChannel,
     shardId: guild.shardId ?? 0,
     player: joinResult.player,
+    pinnedNode: httpNode,
     recentMusic: [],
     recentYTUris: [],
     recentAssets: [],
