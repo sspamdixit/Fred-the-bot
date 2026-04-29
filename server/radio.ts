@@ -115,6 +115,7 @@ interface RadioStation {
   recentYTUris: string[];              // youtube URIs already played
   recentAssets: string[];
   active: boolean;
+  lastVoiceError: string | null;
 }
 
 const stations = new Map<string, RadioStation>();
@@ -168,21 +169,46 @@ async function attachLocalConnection(station: RadioStation): Promise<boolean> {
   // Tear down any existing connection first.
   await detachLocalConnection(station);
 
-  const connection = joinVoiceChannel({
-    channelId: station.voiceChannelId,
-    guildId: station.guildId,
-    adapterCreator: station.guild.voiceAdapterCreator,
-    selfDeaf: true,
-    selfMute: false,
-  });
-
+  let connection: VoiceConnection;
   try {
-    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+    connection = joinVoiceChannel({
+      channelId: station.voiceChannelId,
+      guildId: station.guildId,
+      adapterCreator: station.guild.voiceAdapterCreator,
+      selfDeaf: true,
+      selfMute: false,
+    });
   } catch (err: any) {
-    try { connection.destroy(); } catch { /* ignore */ }
-    log(`[Radio] couldn't (re)connect to voice: ${err.message}`, "radio");
+    station.lastVoiceError = `joinVoiceChannel threw: ${err?.message ?? err}`;
+    log(`[Radio] ${station.lastVoiceError}`, "radio");
     return false;
   }
+
+  // Trace every voice state transition so we can see whether we're stuck in
+  // Signalling (gateway problem), Connecting (UDP problem), or something else.
+  const stateTrail: string[] = [];
+  const onStateChange = (oldState: any, newState: any) => {
+    const line = `${oldState.status}→${newState.status}`;
+    stateTrail.push(line);
+    log(`[Radio] voice state ${line}`, "radio");
+  };
+  connection.on("stateChange", onStateChange);
+
+  try {
+    await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
+  } catch (err: any) {
+    const finalState = (connection.state as any)?.status ?? "unknown";
+    const trail = stateTrail.join(" · ") || "(no state changes)";
+    const reason = `${err?.message ?? err} · final=${finalState} · trail=${trail}`;
+    station.lastVoiceError = reason;
+    try { connection.off("stateChange", onStateChange); } catch { /* ignore */ }
+    try { connection.destroy(); } catch { /* ignore */ }
+    log(`[Radio] couldn't (re)connect to voice: ${reason}`, "radio");
+    return false;
+  }
+
+  // Connection is ready — leave the state listener attached so disconnect
+  // diagnostics keep flowing for the rest of the session.
 
   const player = createAudioPlayer({
     behaviors: { noSubscriber: NoSubscriberBehavior.Play },
@@ -494,13 +520,18 @@ export async function startRadio(
     recentYTUris: [],
     recentAssets: [],
     active: true,
+    lastVoiceError: null,
   };
   stations.set(guild.id, station);
 
   const attached = await attachLocalConnection(station);
   if (!attached) {
     stations.delete(guild.id);
-    return { ok: false, reason: "couldn't connect to voice — try again." };
+    const detail = station.lastVoiceError ?? "unknown reason";
+    return {
+      ok: false,
+      reason: `couldn't connect to voice — try again.\n\`\`\`${detail.slice(0, 1500)}\`\`\``,
+    };
   }
 
   log(`[Radio] ON AIR in ${guild.name} (vc ${voiceChannelId}) · local=${localFiles.length} yt=${ytReady}`, "radio");
