@@ -323,14 +323,16 @@ async function sendNowPlaying(
 }
 
 async function broadcastLoop(station: RadioStation): Promise<void> {
-  const ytAvailable = isLavalinkAvailable();
   const ytRatio = getYouTubeMixRatio();
   log(
-    `[Radio] director config: yt-available=${ytAvailable} yt-ratio=${ytRatio.toFixed(2)} seeds=${getYTSeeds().length}`,
+    `[Radio] director config: yt-available=${isLavalinkAvailable()} yt-ratio=${ytRatio.toFixed(2)} seeds=${getYTSeeds().length}`,
     "radio",
   );
 
   while (station.active) {
+    // Re-evaluate sources every loop so a Lavalink node coming online (or
+    // going offline) mid-broadcast is picked up without restarting the radio.
+    const ytAvailable = isLavalinkAvailable();
     const musicFiles = await listAudio(MUSIC_DIR);
     const assetCache = new Map<AssetKind, string[]>();
     for (const k of ASSET_KINDS) {
