@@ -1,5 +1,6 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { type Server } from "http";
+import path from "path";
 import { createHash, timingSafeEqual } from "crypto";
 import rateLimit from "express-rate-limit";
 import {
@@ -77,6 +78,18 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Public CDN for radio audio so Lavalink nodes can fetch the assets over
+  // HTTP. These directories must remain public — Lavalink doesn't carry auth
+  // headers when resolving track URLs.
+  const audioStaticOpts = {
+    fallthrough: false,
+    maxAge: "1h",
+    etag: true,
+    immutable: false,
+  } as const;
+  app.use("/radio-cdn/assets", express.static(path.resolve("radio_assets"), audioStaticOpts));
+  app.use("/radio-cdn/music", express.static(path.resolve("music_library"), audioStaticOpts));
+
   app.use("/api", apiRateLimiter);
 
   app.post("/api/auth", authRateLimiter, (req, res) => {

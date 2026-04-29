@@ -1353,6 +1353,9 @@ export interface RadioYTTrack {
   artworkUrl: string | null;
 }
 
+export type RadioTrack = RadioYTTrack;
+export type { Player as RadioPlayer } from "shoukaku";
+
 export function isLavalinkAvailable(): boolean {
   if (!shoukaku) return false;
   try {
@@ -1360,6 +1363,139 @@ export function isLavalinkAvailable(): boolean {
   } catch {
     return false;
   }
+}
+
+// Resolves a single Lavalink track from a URL or search query. Used by radio
+// to look up local mp3 assets served via the bot's HTTP CDN, as well as
+// arbitrary YouTube URIs.
+export async function radioResolveTrack(query: string): Promise<RadioTrack | null> {
+  if (!shoukaku) return null;
+  const node = shoukaku.getIdealNode();
+  if (!node) return null;
+
+  const identifier = /^https?:\/\//i.test(query) ? query : `ytsearch:${query}`;
+
+  try {
+    const result = await node.rest.resolve(identifier);
+    if (!result) return null;
+
+    let raw: any | null = null;
+    if (result.loadType === "track") {
+      raw = result.data;
+    } else if (result.loadType === "search") {
+      raw = (result.data as any[])?.[0] ?? null;
+    } else if (result.loadType === "playlist") {
+      raw = ((result.data as any).tracks ?? [])[0] ?? null;
+    }
+    if (!raw?.encoded || !raw.info) return null;
+
+    return {
+      encoded: raw.encoded,
+      title: String(raw.info.title ?? "Unknown title"),
+      author: String(raw.info.author ?? "Unknown artist"),
+      uri: String(raw.info.uri ?? query),
+      duration: Number(raw.info.length) || 0,
+      artworkUrl: raw.info.artworkUrl ?? null,
+    };
+  } catch (err: any) {
+    log(`[Music:radio] resolve failed for "${query}": ${err.message}`, "discord");
+    return null;
+  }
+}
+
+// Joins the voice channel via Lavalink and returns a managed Player. The
+// caller owns the player for its whole session and must call
+// radioLeaveVoiceChannel(guildId) to clean up. Default Shoukaku listeners
+// are stripped so the music watchdogs ignore radio-owned players.
+export async function radioJoinVoice(
+  guildId: string,
+  channelId: string,
+  shardId = 0,
+): Promise<{ ok: true; player: Player } | { ok: false; reason: string }> {
+  if (!shoukaku) return { ok: false, reason: "lavalink not initialised" };
+  if (queues.has(guildId)) {
+    return { ok: false, reason: "music queue already active in this guild" };
+  }
+
+  let player: Player;
+  try {
+    player = await shoukaku.joinVoiceChannel({
+      guildId,
+      channelId,
+      shardId,
+      deaf: true,
+    });
+  } catch (err: any) {
+    return { ok: false, reason: `lavalink join failed: ${err.message}` };
+  }
+
+  try {
+    player.removeAllListeners("start");
+    player.removeAllListeners("end");
+    player.removeAllListeners("exception");
+    player.removeAllListeners("stuck");
+    player.removeAllListeners("closed");
+  } catch { /* ignore */ }
+
+  try { await player.clearFilters(); } catch { /* ignore */ }
+  try { await player.setGlobalVolume(100); } catch { /* ignore */ }
+
+  return { ok: true, player };
+}
+
+// Plays one Lavalink-encoded track and resolves when it ends (or fails). The
+// player passed in must already be joined to a voice channel.
+export async function radioPlayTrackBlocking(
+  player: Player,
+  encoded: string,
+  expectedDurationMs: number,
+  maxWaitMs = 12 * 60_000,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  return new Promise(async (resolve) => {
+    let done = false;
+    const finish = (r: { ok: true } | { ok: false; reason: string }) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      resolve(r);
+    };
+
+    const safety = setTimeout(
+      () => finish({ ok: false, reason: "watchdog timeout" }),
+      Math.max(20_000, expectedDurationMs + 30_000, maxWaitMs),
+    );
+
+    const onEnd = (event: any) => {
+      const reason = event?.reason as string | undefined;
+      if (reason === "replaced" || reason === "cleanup") return;
+      finish({ ok: true });
+    };
+    const onException = (event: any) => {
+      const msg = event?.exception?.message ?? "unknown exception";
+      finish({ ok: false, reason: msg });
+    };
+    const onStuck = () => finish({ ok: false, reason: "track stuck" });
+    const onClosed = () => finish({ ok: false, reason: "voice connection closed" });
+
+    const cleanup = () => {
+      clearTimeout(safety);
+      try { player.off("end", onEnd); } catch { /* ignore */ }
+      try { player.off("exception", onException); } catch { /* ignore */ }
+      try { player.off("stuck", onStuck); } catch { /* ignore */ }
+      try { player.off("closed", onClosed); } catch { /* ignore */ }
+    };
+
+    player.on("end", onEnd);
+    player.on("exception", onException);
+    player.on("stuck", onStuck);
+    player.on("closed", onClosed);
+
+    try {
+      await player.playTrack({ track: { encoded } });
+    } catch (err: any) {
+      finish({ ok: false, reason: `playTrack failed: ${err.message}` });
+    }
+  });
 }
 
 export async function radioResolveYouTube(query: string, max = 8): Promise<RadioYTTrack[]> {
