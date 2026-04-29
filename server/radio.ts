@@ -162,7 +162,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ── @discordjs/voice connection lifecycle ───────────────────────────────────
+// @discordjs/voice connection lifecycle
 
 async function attachLocalConnection(station: RadioStation): Promise<boolean> {
   // Tear down any existing connection first.
@@ -255,7 +255,7 @@ async function playFileBlocking(station: RadioStation, filePath: string): Promis
   });
 }
 
-// ── YouTube-via-Lavalink playback (handoff) ─────────────────────────────────
+// YouTube-via-Lavalink playback (handoff)
 
 async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | null> {
   const seeds = getYTSeeds();
@@ -308,7 +308,7 @@ async function playYouTubeBlocking(station: RadioStation, track: RadioYTTrack): 
   }
 }
 
-// ── Director / scheduling ───────────────────────────────────────────────────
+// Director / scheduling
 
 function pickDirectorKind(): AssetKind | "silence" {
   const r = Math.random();
@@ -458,7 +458,7 @@ async function playLocalMusic(station: RadioStation, musicFiles: string[]): Prom
   await playFileBlocking(station, trackPath);
 }
 
-// ── public lifecycle ────────────────────────────────────────────────────────
+// public lifecycle
 
 export async function startRadio(
   guild: Guild,

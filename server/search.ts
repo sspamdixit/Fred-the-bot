@@ -10,9 +10,7 @@ export interface SearchResult {
   results: { title: string; snippet: string; url: string }[];
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function stripHtml(html: string): string {
   return html
@@ -28,9 +26,7 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-// ---------------------------------------------------------------------------
-// 1. Weather — wttr.in (real-time, no key)
-// ---------------------------------------------------------------------------
+// 1. Weather (wttr.in, real-time, no key)
 
 function detectWeatherLocation(query: string): string | null {
   const lower = query.toLowerCase().trim();
@@ -97,9 +93,7 @@ async function getWeather(location: string): Promise<SearchResult | null> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 2. Crypto prices — CoinGecko (real-time, no key)
-// ---------------------------------------------------------------------------
+// 2. Crypto prices (CoinGecko, real-time, no key)
 
 const COIN_MAP: Record<string, string> = {
   bitcoin: "bitcoin", btc: "bitcoin",
@@ -188,9 +182,7 @@ async function getCryptoPrices(coinIds: string[], currencies: string[]): Promise
   }
 }
 
-// ---------------------------------------------------------------------------
-// 3. Stock / commodity / forex — Yahoo Finance (real-time, no key)
-// ---------------------------------------------------------------------------
+// 3. Stock / commodity / forex (Yahoo Finance, real-time, no key)
 
 interface YahooSymbolDef { symbol: string; label: string }
 
@@ -300,9 +292,7 @@ async function getYahooFinance(defs: YahooSymbolDef[]): Promise<SearchResult | n
   }
 }
 
-// ---------------------------------------------------------------------------
-// 4. General web search — DuckDuckGo HTML lite (real search results, no key)
-// ---------------------------------------------------------------------------
+// 4. General web search (DuckDuckGo HTML lite, real results, no key)
 
 async function scrapeDuckDuckGo(query: string): Promise<SearchResult> {
   const encoded = encodeURIComponent(query);
@@ -378,9 +368,7 @@ async function scrapeDuckDuckGo(query: string): Promise<SearchResult> {
   };
 }
 
-// ---------------------------------------------------------------------------
 // 5. Brave Search (optional upgrade via env key)
-// ---------------------------------------------------------------------------
 
 async function braveSearch(query: string, apiKey: string): Promise<SearchResult> {
   const res = await fetch(
@@ -412,9 +400,7 @@ async function braveSearch(query: string, apiKey: string): Promise<SearchResult>
   };
 }
 
-// ---------------------------------------------------------------------------
 // Public API
-// ---------------------------------------------------------------------------
 
 export async function searchWeb(query: string): Promise<SearchResult | null> {
   // 1. Weather
@@ -492,9 +478,7 @@ export function formatSearchResultsForAI(result: SearchResult): string {
   return lines.join("\n");
 }
 
-// ---------------------------------------------------------------------------
-// Intent detection — returns query string if a live web lookup is needed
-// ---------------------------------------------------------------------------
+// Intent detection: returns a query string if a live web lookup is needed
 
 export function detectSearchIntent(message: string): string | null {
   const lower = message.toLowerCase().trim();

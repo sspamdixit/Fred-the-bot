@@ -181,7 +181,7 @@ const LEETSPEAK_CHARS: Record<string, string> = {
   "7": "t",
 };
 
-// ─── Music embed helpers ────────────────────────────────────────────────────
+// Music embed helpers
 
 const EMBED_COLOR = 0xE50914;
 const SPOTIFY_PROGRESS_SEGMENTS = 12;
@@ -475,7 +475,7 @@ export function buildMusicButtons(paused: boolean): ActionRowBuilder<ButtonBuild
   );
 }
 
-// ─── Vote-skip system ───────────────────────────────────────────────────────
+// Vote-skip system
 const skipVotes = new Map<string, Set<string>>();
 
 function clearSkipVotes(guildId: string): void {
@@ -565,8 +565,6 @@ function formatSkipReply(r: SkipResult): string {
         : `⏭  Skipped **${r.skippedTitle ?? "track"}**.`;
   }
 }
-
-// ────────────────────────────────────────────────────────────────────────────
 
 function containsBannedSlur(content: string): boolean {
   if (BANNED_SLUR_PATTERNS.some((pattern) => pattern.test(content))) {
@@ -2002,7 +2000,7 @@ export async function startBot() {
       return;
     }
 
-    // --- ?search command ---
+    // ?search command
     const searchCmdMatch = rawContent.match(/^\?search\s+([\s\S]+)$/i);
     if (searchCmdMatch) {
       const searchQuery = searchCmdMatch[1].trim();
@@ -2032,7 +2030,7 @@ export async function startBot() {
       return;
     }
 
-    // --- music commands ---
+    // music commands
     const musicCmdMatch = rawContent.match(/^\?(play|playtop|skip|stop|pause|resume|queue|np|nowplaying|volume|shuffle|loop|repeat|remove|move|clear|disconnect|leave|seek)\s*([\s\S]*)?$/i);
     if (musicCmdMatch) {
       const musicCmd = musicCmdMatch[1].toLowerCase();
@@ -2601,7 +2599,7 @@ export async function startBot() {
   });
 
   client.on("interactionCreate", async (interaction) => {
-    // --- autocomplete handler ---
+    // autocomplete handler
     if (interaction.isAutocomplete()) {
       const { commandName } = interaction;
       if ((commandName === "play" || commandName === "playtop") && interaction.options.getFocused(true).name === "query") {
@@ -2626,7 +2624,7 @@ export async function startBot() {
       return;
     }
 
-    // ─── Music button handler ───────────────────────────────────────────────
+    // Music button handler
     if (interaction.isButton() && interaction.customId.startsWith("music_")) {
       const guildId = interaction.guildId;
       if (!guildId) {
@@ -2754,7 +2752,6 @@ export async function startBot() {
 
       return;
     }
-    // ────────────────────────────────────────────────────────────────────────
 
     if (!interaction.isChatInputCommand()) return;
     const { commandName } = interaction;
@@ -2789,7 +2786,7 @@ export async function startBot() {
     const replyEph = (content: string) =>
       interaction.reply({ content, ephemeral: true, allowedMentions: { parse: [] } });
 
-    // --- ping ---
+    // ping
     if (commandName === "ping") {
       const start = Date.now();
       await interaction.reply({ content: "pong.", allowedMentions: { parse: [] } });
@@ -2797,7 +2794,7 @@ export async function startBot() {
       return;
     }
 
-    // --- status ---
+    // status
     if (commandName === "status") {
       const s = getAIStats();
       const uptime = botState.uptimeStart ? Math.floor((Date.now() - botState.uptimeStart) / 1000) : null;
@@ -2823,7 +2820,7 @@ export async function startBot() {
       return;
     }
 
-    // --- help ---
+    // help
     if (commandName === "help") {
       const isModeChannel = interaction.channelId === MODE_CHANNEL_ID;
       const slashMember = interaction.guild?.members.cache.get(interaction.user.id);
@@ -2833,9 +2830,11 @@ export async function startBot() {
 
       const slashHelpLines: string[] = [
         "**commands** (use `/` or `?` prefix)",
-        "`/status` — current model, token usage, uptime",
+        "",
+        "**general**",
         "`/help` — this list",
         "`/ping` — check if the bot is alive",
+        "`/status` — current model, token usage, uptime",
         "`/tldr` — summarize recent chat and check the vibe",
         "`/poem <topic>` — write a poem about something",
         "`/roast <target>` — roast a person, thing, or idea",
@@ -2850,7 +2849,7 @@ export async function startBot() {
       if (isMusicChannel) {
         slashHelpLines.push(
           "",
-          "**music commands**",
+          "**music**",
           "`/play <query>` — play a song (or `?play`)",
           "`/skip` — skip current track",
           "`/stop` — stop and disconnect",
@@ -2858,13 +2857,17 @@ export async function startBot() {
           "`/queue` — show the queue",
           "`/nowplaying` — show current track",
           "`/volume <0-100>` — set volume",
+          "",
+          "**radio**",
+          "`/radio` — start fred fm in your voice channel",
+          "`/radiostop` — stop fred fm",
         );
       }
 
       if (isModeChannel) {
         slashHelpLines.push(
           "",
-          "**mode commands**",
+          "**mode**",
           "`/uwu` — uwu speak mode",
           "`/boomer` — boomer mode",
           "`/pirate` — pirate mode",
@@ -2875,9 +2878,9 @@ export async function startBot() {
       }
 
       if (!isMusicChannel && !isModeChannel) {
-        slashHelpLines.push("", "*music commands available in bot/voice channels. mode commands available in the mode channel.*");
+        slashHelpLines.push("", "*music and radio commands available in bot/voice channels. mode commands available in the mode channel.*");
       } else if (!isMusicChannel) {
-        slashHelpLines.push("", "*music commands available in bot/voice channels.*");
+        slashHelpLines.push("", "*music and radio commands available in bot/voice channels.*");
       } else if (!isModeChannel) {
         slashHelpLines.push("", "*mode commands available in the mode channel.*");
       }
@@ -2889,7 +2892,7 @@ export async function startBot() {
       return;
     }
 
-    // --- music slash commands ---
+    // music slash commands
     const MUSIC_SLASH_CMDS = ["play", "playtop", "skip", "stop", "reconnect", "disconnect", "pause", "resume", "queue", "nowplaying", "volume", "shuffle", "loop", "seek", "remove", "move", "clear", "autoplay"];
     if (MUSIC_SLASH_CMDS.includes(commandName)) {
       const guildId = interaction.guildId;
@@ -3238,7 +3241,7 @@ export async function startBot() {
       }
     }
 
-    // --- mode commands ---
+    // mode commands
     const modeCommandNames = Object.keys(BOT_MODES);
     if (modeCommandNames.includes(commandName) || commandName === "mode") {
       if (interaction.channelId !== MODE_CHANNEL_ID) {
@@ -3271,7 +3274,7 @@ export async function startBot() {
       return;
     }
 
-    // --- radio commands ---
+    // radio commands
     if (commandName === "radio" || commandName === "radiostop") {
       const guildId = interaction.guildId;
       if (!guildId || !interaction.guild) {
@@ -3342,7 +3345,7 @@ export async function startBot() {
       return;
     }
 
-    // --- dossier commands ---
+    // dossier commands
     if (["dossview", "dossdelete", "dosswipe"].includes(commandName)) {
       if (!isOwner) {
         await replyEph("no. dossier commands are owner-only.");
@@ -3379,7 +3382,7 @@ export async function startBot() {
       return;
     }
 
-    // --- AI commands ---
+    // AI commands
     if (["fred", "poem", "roast", "explain", "translate", "tldr"].includes(commandName)) {
       await interaction.deferReply();
       try {
@@ -3519,7 +3522,7 @@ export async function startBot() {
     const leftChannelId = oldState.channelId;
     const joinedChannelId = newState.channelId;
 
-    // --- A human joined the VC Fred is in ---
+    // A human joined the VC Fred is in
     if (joinedChannelId === queue.voiceChannelId) {
       const timer = aloneDisconnectTimers.get(guildId);
       if (timer) {
@@ -3535,7 +3538,7 @@ export async function startBot() {
       return;
     }
 
-    // --- A human left the VC Fred is in ---
+    // A human left the VC Fred is in
     if (leftChannelId === queue.voiceChannelId) {
       const guild = oldState.guild;
       const channel = guild.channels.cache.get(leftChannelId);

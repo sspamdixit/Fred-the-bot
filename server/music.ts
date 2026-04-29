@@ -210,7 +210,7 @@ export function initMusic(client: Client): void {
   startNodeHealthWatchdog();
 }
 
-// ── Node-health watchdog ────────────────────────────────────────────────────
+// Node-health watchdog
 // Periodically inspects the Lavalink node serving each active queue. If the
 // node looks degraded (high penalty score, dropped/nulled opus frames) for a
 // sustained window AND a meaningfully better node is available, the bot will
@@ -1339,12 +1339,10 @@ export async function seekTrack(guildId: string, ms: number): Promise<boolean> {
   return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Radio bridge — exports used by server/radio.ts so Fred FM can borrow
+// Radio bridge: exports used by server/radio.ts so Fred FM can borrow
 // Lavalink to play random YouTube tracks alongside its local music_library.
 // These helpers deliberately bypass the `queues` map so the music watchdogs
 // (node-health, recovery, autoplay) ignore radio-owned players.
-// ─────────────────────────────────────────────────────────────────────────────
 
 export interface RadioYTTrack {
   encoded: string;

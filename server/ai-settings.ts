@@ -6,35 +6,37 @@ export interface BotAiSettings {
 }
 
 export const DEFAULT_BOT_CAPABILITIES = [
-  // --- triggers ---
+  // triggers
   "responds when @mentioned, when 'fred' is said in chat, via ?fred or !fred prefix, and sometimes jumps in unprompted when a conversation is worth commenting on",
-  // --- AI & conversation ---
+  // AI & conversation
   "uses Google Gemini as primary AI; falls back to Groq (llama/gpt models) and Grok if Gemini is unavailable",
   "tracks the last 30 messages per channel; detects reply-chains and knows exactly what message is being referenced",
   "knows server name, channel name, speaker display name, roles, and authority level in every message",
   "can answer questions, brainstorm, explain, summarize, roast, write poems/stories/lyrics/essays, translate, and analyze images/gifs/videos (including Tenor GIFs)",
-  // --- web search ---
+  // web search
   "can search the web via ?search <query> or when asked to 'search', 'look up', 'find', or 'google' something; uses DuckDuckGo by default or Brave Search if BRAVE_SEARCH_API_KEY is set",
-  // --- general prefix/slash commands ---
+  // general prefix/slash commands
   "prefix commands (?): ?fred, !fred, ?poem <topic>, ?roast <target>, ?explain <topic>, ?tldr, ?translate <lang> <text>, ?search <query>, ?ping, ?status, ?help",
   "slash commands (/): /fred, /ping, /status, /help, /tldr, /poem, /roast, /explain, /translate — all behave identically to their prefix equivalents",
-  // --- music ---
+  // music
   "full music player in voice channels: /play <song/url>, /playtop <song>, /skip, /stop, /pause, /resume, /queue, /nowplaying, /volume <0-100>, /shuffle, /loop, /seek <timestamp>, /remove <position>, /move <from> <to>, /clear",
   "music player has interactive embed buttons (Back, Pause/Resume, Skip, Loop, Stop) — users can control playback by clicking",
   "supports a wide range of sources via Lavalink (YouTube, SoundCloud, and more) — users can search by name and pick from a list of results",
-  // --- personality modes ---
+  // radio
+  "fred fm: in-house radio station via /radio (start) and /radiostop (stop); plays a mix of local tracks plus YouTube tunes via Lavalink, with periodic adverts, self-talk, and weird sound stings",
+  // personality modes
   "personality modes (activated in the designated modes channel): /uwu or ?uwu (uwu-speak + kaomojis), /boomer or ?boomer (confused 68-year-old, signs off '- Fred'), /pirate or ?pirate (nautical slang), /nerd or ?nerd (pedantic/academic), /overlord or ?overlord (megalomaniac AI); deactivate with /mode or ?mode",
-  // --- automated systems ---
+  // automated systems
   "Question of the Day (QOTD): auto-posts a daily AI-generated question or interactive poll in #qotd at UTC midnight; can also be triggered manually from the dashboard",
   "dead chat checker: monitors the lounge channel and posts a message to revive conversation if no human activity is detected for 30 minutes",
   "status shuffler: updates bot Discord presence every 30 minutes with AI-generated news-based statuses or humorous fallbacks",
-  // --- moderation ---
+  // moderation
   "slur filter: automatically detects and deletes banned slurs, issues a 10-minute timeout to the offender, and sends them a roast DM",
   "watchdog: monitors the Discord connection and automatically reconnects/restarts the client if it drops",
-  // --- memory ---
+  // memory
   "per-user long-term memory dossier (up to 200 words) stored in PostgreSQL — updated in the background when new personal context appears; used for personalized callbacks and roasts",
   "owner-only dossier admin commands: ?dossview <@user> (view a user's dossier), ?dossdelete <@user> (delete one user's dossier), ?dosswipe (wipe all dossiers)",
-  // --- dashboard ---
+  // dashboard
   "streams live Discord messages to the web dashboard; admins can control bot presence, send messages to channels, toggle AI providers, test AI responses, and manually trigger QOTD",
 ].join("\n");
 
