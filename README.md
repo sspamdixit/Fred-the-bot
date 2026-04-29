@@ -25,6 +25,24 @@ built with way too many api keys and a concerning amount of lavalink nodes.
 - dead-chat detection — fred notices when your lounge goes quiet and posts a single follow-up. if nobody bites, he stays muted until a human speaks again.
 - personality modes (`?uwu`, `?boomer`, `?pirate`, `?nerd`, `?overlord`) that apply server-wide. yes, even to roasts. especially to roasts.
 
+**semantic memory (the hypocrisy engine):**
+- every message fred sees gets embedded with gemini's `text-embedding-004` (768-dim) and dropped straight into postgres via the `pgvector` extension. nothing held in ram. all similarity math runs in the database via the `<=>` cosine-distance operator so the bot stays under 512mb on free hosting.
+- **hypocrisy engine** — for every message, fred (with a 2-min per-user cooldown) finds your most semantically similar past statement. if cosine distance < 0.15 he ships both quotes to gemini 2.0 flash with a "spot the contradiction" prompt and replies with a short, condescending roast if you've changed your tune. otherwise he stays quiet.
+- **stateless ingestion pipeline** — internal serialized queue with 120ms spacing prevents bursts. ram guard at 480mb skips embeddings instead of crashing. embedding failures are caught and logged, never thrown.
+- `?lore <query>` — semantic search across the entire server's history. fred picks the top relevant messages from anyone, then summarizes the "server lore" on that topic in his usual snarky tone, with proper user mentions intact.
+- `?dossier @user` — diverse vector search picks 5 spread-out memories of a user (random anchor + 4 furthest in embedding space, so the picks span their range, not just their loudest topic). fred then writes a deliberately mean psychological profile.
+
+**fred fm (live radio broadcasting):**
+- `/radio` joins your voice channel and starts a non-stop radio station built on `@discordjs/voice`, ffmpeg, and `opusscript` (no lavalink involved — completely separate from the music system).
+- pulls music from `music_library/` (your `.mp3`/`.wav`/`.ogg` files) and shuffles them indefinitely. between tracks, the **director** rolls weighted dice: 40% silence · 30% trackoutro · 15% advert · 10% selftalk · 5% weirdsound. after a trackoutro there's a 25% chance of a trackintro for that "DJ transition" feel.
+- pulls clips from `radio_assets/{advert,selftalk,trackintro,trackoutro,weirdsound}/`. ships with a starter pack.
+- **anti-repeat windows** — last 20 music tracks and last 15 radio clips never repeat (with sane fallbacks if a pool runs dry).
+- **promise-based blocking playback** — every clip awaits `AudioPlayerStatus.Idle` before the next item starts. no overlapping audio, no races.
+- bot stays in the vc through silence intervals. voice disconnect tears the station down cleanly.
+- when a music track starts, fred's discord presence becomes `Listening to <Artist> on Fred FM` (artist parsed from `Artist - Title.mp3` filename convention) and a "📻 now playing" embed posts in the text channel. radio clips don't trigger embeds — the music is the show.
+- `/radiostop` ends the broadcast, leaves the vc, and clears the listening status.
+- coexistence: `/radio` refuses to start if a lavalink music queue is already active in the guild. stop one before starting the other.
+
 **actually knowing things:**
 - `?search <query>` or just ask fred something that requires a working internet connection
 - weather via wttr.in — real data, no key required
@@ -76,6 +94,8 @@ slash commands have autocomplete. prefix commands are for people who remember ir
 | `?translate <lang> <text>` / `/translate` | works on any language including klingon probably |
 | `?search <query>` | live web search |
 | `?fred <message>` / `/fred` | talk to fred directly. he'll respond. he might not be nice about it. |
+| `?lore <query>` | semantic search across the whole server's history. fred summarizes the lore on a topic. |
+| `?dossier @user` | psychological profile of a user, built from a diverse vector sample of their messages. |
 
 music commands (all have prefix `?` equivalents too):
 
@@ -99,6 +119,13 @@ music commands (all have prefix `?` equivalents too):
 | `/move <from> <to>` | move a track to a different position in the queue |
 | `/clear` | clear the queue without stopping the current track |
 | `/autoplay [enabled]` | toggle autoplay, or set it explicitly with `true`/`false` |
+
+fred fm radio commands (separate audio path from `/play`, can't run both at once):
+
+| command | description |
+|---|---|
+| `/radio` | join your voice channel and start the fred fm broadcast (music + ads + DJ chatter) |
+| `/radiostop` | end the broadcast and leave the voice channel |
 
 modes (designated channel only — configure `MODE_CHANNEL_ID`):
 
@@ -139,7 +166,7 @@ image and video analysis is gemini only. if gemini is down, fred pretends he can
 |---|---|---|
 | `TOKEN` | yes | discord bot token. don't lose it. |
 | `GROQ_API_KEY` | yes | groq. the main brain. |
-| `GEMINI_API_KEY` | strongly recommended | without this, fred is blind |
+| `GEMINI_API_KEY` | strongly recommended | without this, fred is blind, can't embed memories, and the hypocrisy engine + `?lore` + `?dossier` won't work |
 | `HACKCLUB_API_KEY` | optional | grok fallback when everything else is on fire |
 | `DATABASE_URL` | yes | postgres. fred needs somewhere to store his grievances. |
 | `ENABLE_BOT` | optional | `true` to auto-start. default off so you don't accidentally unleash fred. |
@@ -177,6 +204,10 @@ npm run db:push
 npm run dev
 ```
 
+`npm run db:push` will create the `pgvector` extension and the `user_memories` table for the semantic memory system. if your postgres is too locked down to install extensions, the bot will refuse to start the memory system but everything else will work.
+
+**fred fm setup:** drop your music files into `music_library/`. name them `Artist - Title.mp3` (or `.wav`/`.ogg`) so the "Listening to <artist> on Fred FM" presence works correctly. radio drops (ads, dj chatter, weird sounds) live in `radio_assets/{advert,selftalk,trackintro,trackoutro,weirdsound}/` — a starter pack ships with the repo. add your own to taste.
+
 production, if you trust yourself:
 
 ```bash
@@ -190,8 +221,9 @@ npm start
 
 - node.js, express, typescript, socket.io
 - react, vite, tailwindcss, shadcn/ui, tanstack query
-- postgres + drizzle orm
+- postgres + drizzle orm + **pgvector** (semantic memory)
 - discord.js v14
-- groq, google generative ai, hackclub ai
-- lavalink via shoukaku (music — breaks occasionally, that's lavalink's fault not ours)
+- groq, google generative ai (chat + `text-embedding-004`), hackclub ai
+- lavalink via shoukaku (`/play` music system — breaks occasionally, that's lavalink's fault not ours)
+- `@discordjs/voice` + ffmpeg + opusscript (fred fm radio system — completely separate audio path from the lavalink one)
 - itunes search api for album art (free, no key needed), with fuzzy match scoring so it picks the right cover
