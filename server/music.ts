@@ -1368,39 +1368,68 @@ export function isLavalinkAvailable(): boolean {
 // Resolves a single Lavalink track from a URL or search query. Used by radio
 // to look up local mp3 assets served via the bot's HTTP CDN, as well as
 // arbitrary YouTube URIs.
+//
+// IMPORTANT: not every public Lavalink node ships with the HTTP source
+// manager enabled. For raw HTTP(S) URLs we therefore try the ideal node
+// first and, if it returns empty/error/exception, walk every other connected
+// node until one accepts the URL. Search queries (`ytsearch:`) only hit the
+// ideal node — they don't need this fallback.
 export async function radioResolveTrack(query: string): Promise<RadioTrack | null> {
   if (!shoukaku) return null;
-  const node = shoukaku.getIdealNode();
-  if (!node) return null;
 
-  const identifier = /^https?:\/\//i.test(query) ? query : `ytsearch:${query}`;
+  const isHttp = /^https?:\/\//i.test(query);
+  const identifier = isHttp ? query : `ytsearch:${query}`;
 
-  try {
-    const result = await node.rest.resolve(identifier);
-    if (!result) return null;
+  const tryNode = async (node: any): Promise<RadioTrack | null> => {
+    try {
+      const result = await node.rest.resolve(identifier);
+      if (!result) return null;
+      if (result.loadType === "empty" || result.loadType === "error") return null;
 
-    let raw: any | null = null;
-    if (result.loadType === "track") {
-      raw = result.data;
-    } else if (result.loadType === "search") {
-      raw = (result.data as any[])?.[0] ?? null;
-    } else if (result.loadType === "playlist") {
-      raw = ((result.data as any).tracks ?? [])[0] ?? null;
+      let raw: any | null = null;
+      if (result.loadType === "track") raw = result.data;
+      else if (result.loadType === "search") raw = (result.data as any[])?.[0] ?? null;
+      else if (result.loadType === "playlist") raw = ((result.data as any).tracks ?? [])[0] ?? null;
+      if (!raw?.encoded || !raw.info) return null;
+
+      return {
+        encoded: raw.encoded,
+        title: String(raw.info.title ?? "Unknown title"),
+        author: String(raw.info.author ?? "Unknown artist"),
+        uri: String(raw.info.uri ?? query),
+        duration: Number(raw.info.length) || 0,
+        artworkUrl: raw.info.artworkUrl ?? null,
+      };
+    } catch (err: any) {
+      log(`[Music:radio] resolve via ${node?.name ?? "?"} failed: ${err.message}`, "discord");
+      return null;
     }
-    if (!raw?.encoded || !raw.info) return null;
+  };
 
-    return {
-      encoded: raw.encoded,
-      title: String(raw.info.title ?? "Unknown title"),
-      author: String(raw.info.author ?? "Unknown artist"),
-      uri: String(raw.info.uri ?? query),
-      duration: Number(raw.info.length) || 0,
-      artworkUrl: raw.info.artworkUrl ?? null,
-    };
-  } catch (err: any) {
-    log(`[Music:radio] resolve failed for "${query}": ${err.message}`, "discord");
-    return null;
+  const ideal = shoukaku.getIdealNode();
+  const tried = new Set<string>();
+
+  if (ideal) {
+    const out = await tryNode(ideal);
+    if (out) return out;
+    tried.add(ideal.name);
   }
+
+  // Search queries: don't bother with fallback — every node has youtube/etc.
+  if (!isHttp) return null;
+
+  for (const node of shoukaku.nodes.values()) {
+    if (tried.has(node.name)) continue;
+    tried.add(node.name);
+    const out = await tryNode(node);
+    if (out) {
+      log(`[Music:radio] HTTP source served by ${node.name} (ideal node didn't accept it)`, "discord");
+      return out;
+    }
+  }
+
+  log(`[Music:radio] no Lavalink node accepted HTTP URL: ${query}`, "discord");
+  return null;
 }
 
 // Joins the voice channel via Lavalink and returns a managed Player. The
