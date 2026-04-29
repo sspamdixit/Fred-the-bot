@@ -33,15 +33,18 @@ built with way too many api keys and a concerning amount of lavalink nodes.
 - `?dossier @user` — diverse vector search picks 5 spread-out memories of a user (random anchor + 4 furthest in embedding space, so the picks span their range, not just their loudest topic). fred then writes a deliberately mean psychological profile.
 
 **fred fm (live radio broadcasting):**
-- `/radio` joins your voice channel and starts a non-stop radio station built on `@discordjs/voice`, ffmpeg, and `opusscript` (no lavalink involved — completely separate from the music system).
-- pulls music from `music_library/` (your `.mp3`/`.wav`/`.ogg` files) and shuffles them indefinitely. between tracks, the **director** rolls weighted dice: 40% silence · 30% trackoutro · 15% advert · 10% selftalk · 5% weirdsound. after a trackoutro there's a 25% chance of a trackintro for that "DJ transition" feel.
-- pulls clips from `radio_assets/{advert,selftalk,trackintro,trackoutro,weirdsound}/`. ships with a starter pack.
-- **anti-repeat windows** — last 20 music tracks and last 15 radio clips never repeat (with sane fallbacks if a pool runs dry).
-- **promise-based blocking playback** — every clip awaits `AudioPlayerStatus.Idle` before the next item starts. no overlapping audio, no races.
-- bot stays in the vc through silence intervals. voice disconnect tears the station down cleanly.
-- when a music track starts, fred's discord presence becomes `Listening to <Artist> on Fred FM` (artist parsed from `Artist - Title.mp3` filename convention) and a "📻 now playing" embed posts in the text channel. radio clips don't trigger embeds — the music is the show.
+- `/radio` joins your voice channel and starts a non-stop radio station. local files & in-between clips play through `@discordjs/voice` + ffmpeg + opusscript. random YouTube tracks play through Lavalink. fred fm hands the voice connection back and forth automatically.
+- **two music sources, mixed by dice roll:**
+  1. `music_library/` — your local `.mp3`/`.wav`/`.ogg` files
+  2. **YouTube via Lavalink** — random tracks pulled from a built-in list of search seeds (lo-fi, indie, synthwave, j-pop, k-pop, afrobeats, jazz, metal, hyperpop, ~28 genres). override the seed list with the `RADIO_YT_SEEDS` env var (comma-separated). default mix is 50/50; override with `RADIO_YT_RATIO=0.0..1.0`.
+  3. graceful fallbacks: if `music_library/` is empty, fred plays YouTube only. if no Lavalink node is reachable, fred plays local only. if both are unavailable, broadcast won't start.
+- **director** between music tracks rolls weighted dice: 40% silence · 30% trackoutro · 15% advert · 10% selftalk · 5% weirdsound. after a trackoutro there's a 25% chance of a trackintro for that "DJ transition" feel. clips live in `radio_assets/{advert,selftalk,trackintro,trackoutro,weirdsound}/` (starter pack included).
+- **anti-repeat windows** — last 20 local tracks, last 30 YouTube URIs, and last 15 radio clips never repeat (with sane fallbacks if a pool runs dry).
+- **promise-based blocking playback** — every clip awaits its `Idle`/end event before the next item starts. no overlapping audio, no races.
+- **voice connection handoff** — when a YouTube track is up, fred releases the `@discordjs/voice` connection, lets Lavalink rejoin and play, then takes the connection back for the next local file or asset. brief ~400ms gap acts like a natural radio segue.
+- when a track starts, fred's discord presence becomes `Listening to <Artist> on Fred FM` and a "📻 now playing" embed posts in the text channel (with album art for YouTube tracks). radio clips don't trigger embeds — the music is the show.
 - `/radiostop` ends the broadcast, leaves the vc, and clears the listening status.
-- coexistence: `/radio` refuses to start if a lavalink music queue is already active in the guild. stop one before starting the other.
+- coexistence: `/radio` refuses to start if a regular `/play` queue is already active in the guild, and the radio's lavalink player is invisible to the music system's watchdogs (no autoplay, no node-migration, no recovery interference). stop one before starting the other.
 
 **actually knowing things:**
 - `?search <query>` or just ask fred something that requires a working internet connection
@@ -176,6 +179,8 @@ image and video analysis is gemini only. if gemini is down, fred pretends he can
 | `BRAVE_SEARCH_API_KEY` | optional | better general search. 2000 free queries/month. |
 | `LAVALINK_NODES` | optional | json array of `{url, auth, secure}` to override the default public nodes |
 | `LAVALINK_URL` / `LAVALINK_AUTH` / `LAVALINK_SECURE` | optional | quick single-node override |
+| `RADIO_YT_SEEDS` | optional | comma-separated list of YouTube search queries fred fm picks from for random tracks. defaults to a curated 28-genre list. |
+| `RADIO_YT_RATIO` | optional | probability (0..1) that any given fred fm music slot picks YouTube over a local file. default `0.5`. set `0` for local only, `1` for YouTube only. |
 | `RENDER_EXTERNAL_URL` | optional | set this on render so the keep-alive ping has a target |
 | `PROGRESS_UPDATE_MS` | optional | progress bar tick interval in ms (default 7000, 10000 on render) |
 | `PROGRESS_UPDATES` | optional | set to `off` to disable the progress bar entirely |

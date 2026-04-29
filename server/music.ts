@@ -1338,3 +1338,163 @@ export async function seekTrack(guildId: string, ms: number): Promise<boolean> {
   await queue.player.seekTo(ms);
   return true;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Radio bridge — exports used by server/radio.ts so Fred FM can borrow
+// Lavalink to play random YouTube tracks alongside its local music_library.
+// These helpers deliberately bypass the `queues` map so the music watchdogs
+// (node-health, recovery, autoplay) ignore radio-owned players.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface RadioYTTrack {
+  encoded: string;
+  title: string;
+  author: string;
+  uri: string;
+  duration: number;
+  artworkUrl: string | null;
+}
+
+export function isLavalinkAvailable(): boolean {
+  if (!shoukaku) return false;
+  try {
+    return Boolean(shoukaku.getIdealNode());
+  } catch {
+    return false;
+  }
+}
+
+export async function radioResolveYouTube(query: string, max = 8): Promise<RadioYTTrack[]> {
+  if (!shoukaku) return [];
+  const node = shoukaku.getIdealNode();
+  if (!node) return [];
+
+  const identifier = /^https?:\/\//i.test(query) ? query : `ytsearch:${query}`;
+
+  try {
+    const result = await node.rest.resolve(identifier);
+    if (!result) return [];
+
+    let raw: any[] = [];
+    if (result.loadType === "search") {
+      raw = (result.data as any[]) ?? [];
+    } else if (result.loadType === "playlist") {
+      raw = ((result.data as any).tracks ?? []) as any[];
+    } else if (result.loadType === "track") {
+      raw = [result.data as any];
+    } else {
+      return [];
+    }
+
+    const out: RadioYTTrack[] = [];
+    for (const t of raw.slice(0, Math.max(1, max))) {
+      if (!t?.encoded || !t.info) continue;
+      if (t.info.isStream) continue;
+      // Skip absurdly long uploads (likely mixes/concerts/full albums) — we want songs.
+      const len = Number(t.info.length) || 0;
+      if (len > 0 && len > 12 * 60_000) continue;
+      out.push({
+        encoded: t.encoded,
+        title: String(t.info.title ?? "Unknown title"),
+        author: String(t.info.author ?? "Unknown artist"),
+        uri: String(t.info.uri ?? ""),
+        duration: len,
+        artworkUrl: t.info.artworkUrl ?? null,
+      });
+    }
+    return out;
+  } catch (err: any) {
+    log(`[Music:radio] YT resolve failed for "${query}": ${err.message}`, "discord");
+    return [];
+  }
+}
+
+// Plays a single Lavalink track in a voice channel and resolves when the
+// track ends (cleanly or otherwise). The caller MUST ensure no @discordjs/voice
+// connection is active in this guild before calling this — otherwise the two
+// libraries will fight over the voice gateway.
+export async function radioPlayYouTubeBlocking(
+  guildId: string,
+  voiceChannelId: string,
+  track: RadioYTTrack,
+  shardId = 0,
+  maxWaitMs = 12 * 60_000,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!shoukaku) return { ok: false, reason: "lavalink not initialised" };
+  if (queues.has(guildId)) {
+    return { ok: false, reason: "music queue already active in this guild" };
+  }
+
+  let player: Player | null = null;
+  try {
+    player = await shoukaku.joinVoiceChannel({
+      guildId,
+      channelId: voiceChannelId,
+      shardId,
+      deaf: true,
+    });
+  } catch (err: any) {
+    return { ok: false, reason: `lavalink join failed: ${err.message}` };
+  }
+
+  // Strip any default listeners the framework attaches; we manage events
+  // ourselves so the music watchdogs never see this player.
+  try {
+    player.removeAllListeners("start");
+    player.removeAllListeners("end");
+    player.removeAllListeners("exception");
+    player.removeAllListeners("stuck");
+    player.removeAllListeners("closed");
+  } catch { /* ignore */ }
+
+  const finished = new Promise<{ ok: true } | { ok: false; reason: string }>((resolve) => {
+    let done = false;
+    const finish = (result: { ok: true } | { ok: false; reason: string }) => {
+      if (done) return;
+      done = true;
+      clearTimeout(safety);
+      resolve(result);
+    };
+    const safety = setTimeout(
+      () => finish({ ok: false, reason: "watchdog timeout" }),
+      Math.max(60_000, (track.duration || 0) + 30_000, maxWaitMs),
+    );
+
+    player!.on("end", (event: any) => {
+      const reason = event?.reason as string | undefined;
+      if (reason === "replaced" || reason === "cleanup") return;
+      finish({ ok: true });
+    });
+    player!.on("exception", (event: any) => {
+      const msg = event?.exception?.message ?? "unknown exception";
+      finish({ ok: false, reason: msg });
+    });
+    player!.on("stuck", () => finish({ ok: false, reason: "track stuck" }));
+    player!.on("closed", () => finish({ ok: false, reason: "voice connection closed" }));
+  });
+
+  try {
+    await player.clearFilters();
+  } catch { /* ignore */ }
+
+  try {
+    await player.playTrack({ track: { encoded: track.encoded } });
+    await player.setGlobalVolume(100);
+  } catch (err: any) {
+    try { await shoukaku.leaveVoiceChannel(guildId); } catch { /* ignore */ }
+    return { ok: false, reason: `lavalink playTrack failed: ${err.message}` };
+  }
+
+  const result = await finished;
+
+  try { await player.stopTrack(); } catch { /* ignore */ }
+  try { await shoukaku.leaveVoiceChannel(guildId); } catch { /* ignore */ }
+
+  return result;
+}
+
+export async function radioLeaveVoiceChannel(guildId: string): Promise<void> {
+  if (!shoukaku) return;
+  if (queues.has(guildId)) return; // never disturb a real music queue
+  try { await shoukaku.leaveVoiceChannel(guildId); } catch { /* ignore */ }
+}

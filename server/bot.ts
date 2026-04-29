@@ -3312,9 +3312,9 @@ export async function startBot() {
       await interaction.deferReply();
       try {
         const lib = await previewLibrary();
-        if (lib.music === 0) {
+        if (lib.music === 0 && !lib.youtube) {
           await interaction.editReply({
-            content: "no music loaded. drop some `.mp3`/`.wav`/`.ogg` files into `music_library/` first, then try `/radio` again.",
+            content: "no music sources available. drop `.mp3`/`.wav`/`.ogg` files into `music_library/`, or wait for a Lavalink node to come online.",
             allowedMentions: { parse: [] },
           });
           return;
@@ -3327,8 +3327,9 @@ export async function startBot() {
         const assetSummary = Object.entries(lib.assets)
           .map(([k, n]) => `${k}: ${n}`)
           .join(" · ");
+        const sources = `${lib.music} local tracks · YouTube ${lib.youtube ? "✅" : "❌"}`;
         await interaction.editReply({
-          content: `📻 **fred fm** is now broadcasting in <#${voiceChannel.id}>. ${lib.music} tracks loaded · ${assetSummary}`,
+          content: `📻 **fred fm** is now broadcasting in <#${voiceChannel.id}>. ${sources} · ${assetSummary}`,
           allowedMentions: { parse: [] },
         });
       } catch (err: any) {
