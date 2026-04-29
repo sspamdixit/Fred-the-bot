@@ -1,0 +1,38 @@
+Build a "Live FM Radio" system for my Discord bot using discord.js and @discordjs/voice. 
+
+### 1. The /radio Command
+- When a user types `/radio`, the bot must join the user's Voice Channel and start "Broadcasting."
+- The broadcast is a continuous loop: [Music Track] -> [Potential Radio Segment] -> [Next Music Track].
+- The bot should pull music from a local folder named `music_library/` and shuffle them indefinitely.
+
+### 2. Folder Architecture
+The bot must read assets from `radio_assets/` sub-folders:
+- `radio_assets/advert/`
+- `radio_assets/selftalk/`
+- `radio_assets/trackintro/`
+- `radio_assets/trackoutro/`
+- `radio_assets/weirdsound/`
+
+### 3. The "Radio Director" Logic
+When a music track ends, the bot must run this weighted logic before starting the next song:
+- **40% Chance:** Silence (Go straight to the next song).
+- **30% Chance:** Play a random `trackoutro`.
+- **15% Chance:** Play a random `advert`.
+- **10% Chance:** Play a random `selftalk`.
+- **5% Chance:** Play a random `weirdsound`.
+- **The Transition Rule:** If a `trackoutro` is played, there is a 25% chance to play a `trackintro` immediately after it, creating a "DJ transition" into the next song.
+
+### 4. Anti-Repeat & Cooldown
+- Maintain a `recentAssets` array for the last 15 radio clips played. 
+- Maintain a `recentMusic` array for the last 20 music tracks played.
+- Never play a file that is in the "recent" arrays. This prevents the station from sounding repetitive.
+
+### 5. Technical Requirements
+- **Continuous Stream:** The bot must stay in the VC even if no music is playing (waiting for the next transition). 
+- **Non-Blocking Playback:** Use a `Promise`-based system to ensure the radio clip finishes completely before the next music track begins.
+- **Audio Quality:** Set `AudioResource` volume to `1.0`. Ensure smooth transitions between the radio assets and music tracks.
+- **Dynamic Interaction:** If a user uses a "Stop" command, the radio broadcast ends and the bot leaves the VC.
+
+### 6. User Interface
+- When a new music track starts, update the bot's "Activity" status to: `Listening to Dexter Dixon on Fred FM`.
+- Send a "Now Playing" embed only when a MUSIC track starts, not for the radio clips.

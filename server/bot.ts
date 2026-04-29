@@ -20,6 +20,7 @@ import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
 import { askGemini, askGeminiWithImage, clearUserMemorySession, clearAllHistory, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, pushChannelMessage, type ImageData } from "./gemini";
 import { queueMemoryIngestion, runHypocrisyEngine, searchServerLore, buildUserDossier } from "./semantic-memory";
+import { startRadio, stopRadio, isRadioActive, previewLibrary } from "./radio";
 import { searchWeb, formatSearchResultsForAI, detectSearchIntent } from "./search";
 import { startQotd, stopQotd } from "./qotd";
 import { storage } from "./storage";
@@ -1355,6 +1356,14 @@ const SLASH_COMMANDS = [
     .setName("mode")
     .setDescription("deactivate the current mode (mode channel only)")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+
+  // ── radio ────────────────────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("radio")
+    .setDescription("start broadcasting fred fm in your voice channel"),
+  new SlashCommandBuilder()
+    .setName("radiostop")
+    .setDescription("end the fred fm broadcast and leave the voice channel"),
 
   // ── owner only ───────────────────────────────────────────────────────────
   new SlashCommandBuilder()
@@ -3258,6 +3267,76 @@ export async function startBot() {
           content: `${mode.label} activated serverwide. use \`/mode\` or \`?mode\` to turn it off.`,
           allowedMentions: { parse: [] },
         });
+      }
+      return;
+    }
+
+    // --- radio commands ---
+    if (commandName === "radio" || commandName === "radiostop") {
+      const guildId = interaction.guildId;
+      if (!guildId || !interaction.guild) {
+        await replyEph("radio only works in servers.");
+        return;
+      }
+
+      if (commandName === "radiostop") {
+        const stopped = stopRadio(guildId);
+        await interaction.reply({
+          content: stopped
+            ? "📻 fred fm is off the air. silence falls. you'll miss it."
+            : "fred fm wasn't on the air. nothing to stop.",
+          allowedMentions: { parse: [] },
+        });
+        return;
+      }
+
+      // /radio
+      const member = interaction.guild.members.cache.get(interaction.user.id);
+      const voiceChannel = member?.voice?.channel;
+      if (!voiceChannel) {
+        await replyEph("join a voice channel first. fred fm doesn't broadcast into the void.");
+        return;
+      }
+
+      const existingQueue = getQueue(guildId);
+      if (existingQueue) {
+        await replyEph("music is already playing in this guild via `/play`. stop it first (`/stop` then `/disconnect`) before starting fred fm.");
+        return;
+      }
+
+      if (isRadioActive(guildId)) {
+        await replyEph("fred fm is already on the air. use `/radiostop` first.");
+        return;
+      }
+
+      await interaction.deferReply();
+      try {
+        const lib = await previewLibrary();
+        if (lib.music === 0) {
+          await interaction.editReply({
+            content: "no music loaded. drop some `.mp3`/`.wav`/`.ogg` files into `music_library/` first, then try `/radio` again.",
+            allowedMentions: { parse: [] },
+          });
+          return;
+        }
+        const result = await startRadio(interaction.guild, voiceChannel.id, interaction.channel as TextChannel);
+        if (!result.ok) {
+          await interaction.editReply({ content: result.reason, allowedMentions: { parse: [] } });
+          return;
+        }
+        const assetSummary = Object.entries(lib.assets)
+          .map(([k, n]) => `${k}: ${n}`)
+          .join(" · ");
+        await interaction.editReply({
+          content: `📻 **fred fm** is now broadcasting in <#${voiceChannel.id}>. ${lib.music} tracks loaded · ${assetSummary}`,
+          allowedMentions: { parse: [] },
+        });
+      } catch (err: any) {
+        log(`[Slash:radio] failed: ${err.message}`, "discord");
+        await interaction.editReply({
+          content: "couldn't start the broadcast. try again.",
+          allowedMentions: { parse: [] },
+        }).catch(() => {});
       }
       return;
     }
