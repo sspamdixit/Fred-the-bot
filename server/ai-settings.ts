@@ -36,7 +36,7 @@ export const DEFAULT_BOT_CAPABILITIES = [
   // slash commands — radio
   "slash commands — radio: /radio (start Fred FM in your voice channel), /radiostop (end broadcast and leave)",
   // radio detail
-  "fred fm is an in-house live radio station; it mixes local audio clips with YouTube tracks via Lavalink, and inserts periodic adverts, fred self-talk DJ clips, track intros, and weird sound stings between songs",
+  "fred fm is an in-house live radio station; it mixes local audio clips with YouTube tracks via Lavalink, and inserts periodic adverts, fred self-talk DJ clips, track intros, and weird sound stings between songs; the station's radio jockey is Lukas — he handles the DJ chatter and introduces tracks",
   // slash commands — owner/admin
   "slash commands — admin (requires Administrator): /dossview <user> (view a user's memory record), /dossdelete <user> (delete a user's record), /dosswipe <user> (wipe record + live session state)",
   "prefix equivalents for admin: ?dossview <@user>, ?dossdelete <@user>, ?dosswipe <@user> — results sent by DM for privacy",
