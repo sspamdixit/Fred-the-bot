@@ -38,21 +38,46 @@ async function callGemini(prompt: string, maxOutputTokens = 80): Promise<string 
 
 // --- Track commentary (text only, posted to Discord channel) ---
 
+export interface TrackCommentaryContext {
+  /** Up to 2 previously played tracks, oldest first. */
+  prevTracks?: Array<{ artist: string; title: string }>;
+  /** True when this track is the first one back after an advert break. */
+  afterAdvert?: boolean;
+}
+
 export async function generateTrackCommentaryText(
   artist: string,
   title: string,
+  ctx: TrackCommentaryContext = {},
 ): Promise<string | null> {
-  const prompt = [
+  const lines: string[] = [
     "You are Fred — a calm, direct Dutch AI who runs a Discord radio station called Fred FM.",
-    "Write a 1-2 sentence comment about the next track, as Fred would post in the radio text channel.",
+    "Write a 1-2 sentence comment about the upcoming track, as Fred would post in the radio text channel.",
     "All lowercase. No emojis. Direct and opinionated. Occasionally slip in a Dutch word naturally (ja, nee, echt, lekker, jammer, nou, prima, precies, sowieso — only when it fits).",
-    "Swear only if something genuinely earns it. Do NOT start with 'i' — start with the artist name, 'next up', 'coming up', or similar.",
+    "Swear only if something genuinely earns it. Do NOT start with 'i' — start with the artist name, 'next up', 'coming up', 'back with', or similar.",
+  ];
+
+  if (ctx.afterAdvert) {
+    lines.push("We're returning from an advert break. Acknowledge coming back on air briefly, naturally — keep it short.");
+  }
+
+  if (ctx.prevTracks && ctx.prevTracks.length > 0) {
+    const prev = ctx.prevTracks
+      .map((t) => `"${t.title}" by ${t.artist}`)
+      .join(", then ");
+    lines.push(
+      `Previously on Fred FM: ${prev}.`,
+      "If there's a genuine connection to the upcoming track (same era, similar vibe, contrasting style, same artist) mention it naturally — only 1 in 3 times. Don't force it if there's no connection.",
+    );
+  }
+
+  lines.push(
     `Artist: ${artist}`,
     `Track: ${title}`,
     "Output the comment text only — no labels, no quotes:",
-  ].join("\n");
+  );
 
-  return callGemini(prompt, 80);
+  return callGemini(lines.join("\n"), 90);
 }
 
 // --- News bulletin (text only, posted to Discord channel at top of hour) ---

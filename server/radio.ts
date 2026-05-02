@@ -15,6 +15,7 @@ import {
   consumeNextRequest,
   generateNewsText,
   generateTrackCommentaryText,
+  type TrackCommentaryContext,
 } from "./radio-producer";
 import {
   isLavalinkAvailable,
@@ -228,6 +229,7 @@ interface RadioStation {
   songsSinceAdvert: number;            // songs played since last advert
   songsSinceSelftalk: number;          // songs played since last selftalk
   pendingIntro: boolean;               // play trackintro before the next song
+  recentCommentaryTracks: Array<{ artist: string; title: string }>; // last 2 played, for commentary context
 }
 
 const stations = new Map<string, RadioStation>();
@@ -565,6 +567,9 @@ async function playLocalMusic(station: RadioStation, resolver: TrackResolver, mu
   if (!result.ok) {
     log(`[Radio] LOCAL playback aborted: ${result.reason}`, "radio");
   }
+  // Track in commentary history so next YT track's commentary can reference it.
+  station.recentCommentaryTracks.push({ artist, title });
+  if (station.recentCommentaryTracks.length > 2) station.recentCommentaryTracks.shift();
 }
 
 async function broadcastLoop(station: RadioStation): Promise<void> {
@@ -576,6 +581,8 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
   );
 
   const resolver = new TrackResolver(station.pinnedNode);
+  // Persists across loop iterations — flags the first song after an advert break.
+  let comingBackFromAdvert = false;
 
   while (station.active) {
     // Re-evaluate sources every loop so a Lavalink node coming online (or
@@ -683,9 +690,16 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
         }
       } else {
         // Post Fred's text commentary about the track (non-blocking, non-audio).
+        // Capture commentary context snapshot before firing so the async closure
+        // sees the right values even if the outer vars mutate during playback.
+        const _commentaryCtx: TrackCommentaryContext = {
+          prevTracks: [...station.recentCommentaryTracks],
+          afterAdvert: comingBackFromAdvert,
+        };
+        comingBackFromAdvert = false;
         void (async () => {
           try {
-            const comment = await generateTrackCommentaryText(track.author, track.title);
+            const comment = await generateTrackCommentaryText(track.author, track.title, _commentaryCtx);
             if (comment && station.active) {
               await station.textChannel.send({
                 content: `📻 ${comment}`,
@@ -695,6 +709,9 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
           } catch { /* non-critical */ }
         })();
         await playYouTubeTrack(station, track);
+        // Push to history AFTER the track plays so the next commentary sees it.
+        station.recentCommentaryTracks.push({ artist: track.author, title: track.title });
+        if (station.recentCommentaryTracks.length > 2) station.recentCommentaryTracks.shift();
       }
     } else {
       await playLocalMusic(station, resolver, musicFiles);
@@ -739,6 +756,7 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
         if (!station.active) return;
         if (breakKind === "advert") {
           station.songsSinceAdvert = 0;
+          comingBackFromAdvert = true;
           // 70% chance Lukas re-introduces the station with a trackintro after ads.
           station.pendingIntro = Math.random() < 0.70;
         }
@@ -830,6 +848,7 @@ export async function startRadio(
     songsSinceAdvert: MIN_SONGS_BETWEEN_ADVERTS,   // start advert-ready
     songsSinceSelftalk: MIN_SONGS_BETWEEN_SELFTALK,
     pendingIntro: false,
+    recentCommentaryTracks: [],
   };
   stations.set(guild.id, station);
 
