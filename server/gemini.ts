@@ -4,6 +4,7 @@ import type { ChatCompletion as GroqChatCompletion } from "groq-sdk/resources/ch
 import { log } from "./index";
 import { buildSharedSystemPrompt } from "./ai-settings";
 import { storage } from "./storage";
+import { getGuildLore } from "./guild-memory";
 
 let genAI: GoogleGenerativeAI | null = null;
 let groqClient: Groq | null = null;
@@ -70,7 +71,10 @@ export interface AuthorContext {
   sortedRoles?: string[];
   isOwner?: boolean;
   guildName?: string;
+  guildId?: string;
   channelName?: string;
+  memberCount?: number;
+  voiceSituation?: string;
   modeInstruction?: string;
   replyTo?: string;
 }
@@ -97,6 +101,28 @@ const passiveWatchQueue = new Map<string, NodeJS.Timeout>();
 const recentChannelContext = new Map<string, ChannelMessage[]>();
 const lastPassiveReplyAt = new Map<string, number>();
 const PASSIVE_REPLY_COOLDOWN_MS = 120_000;
+
+const userLastSeenAt = new Map<string, number>();
+
+export function recordUserActivity(userId: string): void {
+  if (userId) userLastSeenAt.set(userId, Date.now());
+}
+
+function getLastSeenLabel(userId: string | undefined): string | null {
+  if (!userId) return null;
+  const last = userLastSeenAt.get(userId);
+  if (!last) return null;
+  const diffMs = Date.now() - last;
+  if (diffMs < 180_000) return null;
+  if (diffMs < 3_600_000) return `away ${Math.round(diffMs / 60_000)}m`;
+  if (diffMs < 86_400_000) return `away ${Math.round(diffMs / 3_600_000)}h`;
+  return "been a while";
+}
+
+export function getChannelContextText(channelId: string): string {
+  const messages = recentChannelContext.get(channelId) ?? [];
+  return messages.map((m) => `${m.isBot ? "[fred]" : m.authorName}: ${m.content}`).join("\n");
+}
 
 export interface AIStats {
   lastUsedProvider: string | null;
@@ -136,6 +162,17 @@ function getFormattedChannelContext(channelId: string, excludeLast: number = 1):
   return relevant
     .map((m) => `[${m.isBot ? "fred" : m.authorName}]: ${m.content}`)
     .join("\n");
+}
+
+function getRecentlyActiveUsers(channelId: string, excludeName: string): string {
+  const messages = recentChannelContext.get(channelId) ?? [];
+  const seen = new Set<string>();
+  for (const m of messages.slice(-25)) {
+    if (!m.isBot && m.authorName !== excludeName && m.authorName !== "fred") {
+      seen.add(m.authorName);
+    }
+  }
+  return [...seen].slice(0, 5).join(", ");
 }
 
 export function queuePassiveWatch(context: PassiveWatchContext): void {
@@ -234,7 +271,7 @@ async function handlePassiveWatch(context: PassiveWatchContext): Promise<void> {
 
   const reply = await askGemini(prompt, context.authorName, context.channelId, {
     userId: context.authorId,
-    guildName: context.guildId ?? undefined,
+    guildId: context.guildId ?? undefined,
     channelName: undefined,
     modeInstruction: context.modeInstruction,
   });
@@ -593,7 +630,31 @@ function resolveAuthorityLevel(roles: string[], isOwner: boolean): string {
   return "member";
 }
 
-function buildUserPrompt(userMessage: string, authorName: string, context: AuthorContext = {}, channelContext?: string): string {
+interface BuildPromptExtras {
+  guildLore?: string;
+  otherActive?: string;
+  lastSeenLabel?: string | null;
+}
+
+function buildTimeString(): string {
+  const now = new Date();
+  const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const day = days[now.getUTCDay()];
+  let hours = now.getUTCHours();
+  const minutes = now.getUTCMinutes().toString().padStart(2, "0");
+  const ampm = hours >= 12 ? "pm" : "am";
+  if (hours === 0) hours = 12;
+  else if (hours > 12) hours -= 12;
+  return `${day}, ${hours}:${minutes} ${ampm} utc`;
+}
+
+function buildUserPrompt(
+  userMessage: string,
+  authorName: string,
+  context: AuthorContext = {},
+  channelContext?: string,
+  extras: BuildPromptExtras = {},
+): string {
   const roles = context.roles?.filter(Boolean) ?? [];
   const hasOwnerRole = roles.some((role) => role.trim().toLowerCase() === "owner");
   const isOwner = context.isOwner || hasOwnerRole;
@@ -602,13 +663,34 @@ function buildUserPrompt(userMessage: string, authorName: string, context: Autho
   const sortedRoles = context.sortedRoles ?? roles;
   const roleText = sortedRoles.length > 0 ? sortedRoles.join(" > ") : "none";
 
+  const serverStr = context.memberCount
+    ? `${context.guildName ?? "unknown server"} (${context.memberCount} members)`
+    : (context.guildName ?? "unknown server");
+
+  const speakerStr = extras.lastSeenLabel
+    ? `${authorName}  [${extras.lastSeenLabel}]`
+    : authorName;
+
   const parts: string[] = [
-    `server: ${context.guildName ?? "unknown server"}`,
+    `server: ${serverStr}`,
     `channel: #${context.channelName ?? "unknown"}`,
-    `speaker: ${authorName}`,
+    `speaker: ${speakerStr}`,
     `roles (highest → lowest): ${roleText}`,
     `authority level: ${authorityLevel}`,
+    `time: ${buildTimeString()}`,
   ];
+
+  if (context.voiceSituation) {
+    parts.push(`voice: ${context.voiceSituation}`);
+  }
+
+  if (extras.otherActive) {
+    parts.push(`other recently active here: ${extras.otherActive}`);
+  }
+
+  if (extras.guildLore) {
+    parts.push(`server lore: ${extras.guildLore}`);
+  }
 
   if (channelContext) {
     parts.push(`recent chat context:\n${channelContext}`);
@@ -752,10 +834,18 @@ export async function askGeminiWithImage(
   context: AuthorContext = {}
 ): Promise<string | null> {
   const channelCtx = getFormattedChannelContext(channelId);
-  const prompt = buildUserPrompt(userMessage || "what do you think of this?", authorName, context, channelCtx || undefined);
   const history = getHistory(channelId);
   const userId = getMemoryUserId(authorName, context);
-  const memData = await getUserMemoryData(userId);
+  const [memData, guildLore] = await Promise.all([
+    getUserMemoryData(userId),
+    context.guildId ? getGuildLore(context.guildId) : Promise.resolve(""),
+  ]);
+  const extras: BuildPromptExtras = {
+    guildLore: guildLore || undefined,
+    otherActive: getRecentlyActiveUsers(channelId, authorName) || undefined,
+    lastSeenLabel: getLastSeenLabel(context.userId),
+  };
+  const prompt = buildUserPrompt(userMessage || "what do you think of this?", authorName, context, channelCtx || undefined, extras);
   const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), memData);
   const systemPrompt = withModeOverride(baseSystemPrompt, context.modeInstruction);
   const mediaGuide = [
@@ -890,10 +980,18 @@ export async function askGeminiWithImage(
 
 export async function askGemini(userMessage: string, authorName: string, channelId: string, context: AuthorContext = {}): Promise<string | null> {
   const channelCtx = getFormattedChannelContext(channelId);
-  const prompt = buildUserPrompt(userMessage, authorName, context, channelCtx || undefined);
   const history = getHistory(channelId);
   const userId = getMemoryUserId(authorName, context);
-  const memData = await getUserMemoryData(userId);
+  const [memData, guildLore] = await Promise.all([
+    getUserMemoryData(userId),
+    context.guildId ? getGuildLore(context.guildId) : Promise.resolve(""),
+  ]);
+  const extras: BuildPromptExtras = {
+    guildLore: guildLore || undefined,
+    otherActive: getRecentlyActiveUsers(channelId, authorName) || undefined,
+    lastSeenLabel: getLastSeenLabel(context.userId),
+  };
+  const prompt = buildUserPrompt(userMessage, authorName, context, channelCtx || undefined, extras);
   const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), memData);
   const systemPrompt = withModeOverride(baseSystemPrompt, context.modeInstruction);
 

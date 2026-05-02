@@ -47,5 +47,13 @@ export const botMeta = pgTable("bot_meta", {
   value: text("value").notNull(),
 });
 
+export const guildMemory = pgTable("guild_memory", {
+  guildId: text("guild_id").primaryKey(),
+  lore: text("lore").notNull().default(""),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type GuildMemoryRow = typeof guildMemory.$inferSelect;
+
 export type BotMetaRow = typeof botMeta.$inferSelect;
 

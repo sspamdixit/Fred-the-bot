@@ -18,7 +18,8 @@ import {
 } from "discord.js";
 import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
-import { askGemini, askGeminiWithImage, clearUserMemorySession, clearAllHistory, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, pushChannelMessage, type ImageData } from "./gemini";
+import { askGemini, askGeminiWithImage, clearUserMemorySession, clearAllHistory, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, pushChannelMessage, recordUserActivity, getChannelContextText, type ImageData } from "./gemini";
+import { ensureGuildMemoryTable, tickGuildMessageCounter } from "./guild-memory";
 import { queueMemoryIngestion, runHypocrisyEngine, searchServerLore, buildUserDossier } from "./semantic-memory";
 import { startRadio, stopRadio, isRadioActive, previewLibrary, getRadioNowPlaying, pauseRadio, resumeRadio, setRadioVolume, radioSkipCurrentTrack } from "./radio";
 import { searchWeb, formatSearchResultsForAI, detectSearchIntent } from "./search";
@@ -1438,6 +1439,34 @@ const SLASH_COMMANDS = [
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 ].map((cmd) => cmd.toJSON());
 
+function buildVoiceSituation(message: Message): string | null {
+  const guild = message.guild;
+  const guildId = message.guildId;
+  if (!guild || !guildId || !client) return null;
+
+  const botMember = guild.members.me;
+  const fredVoiceChannel = botMember?.voice?.channel;
+  if (!fredVoiceChannel) return null;
+
+  const humanMembers = fredVoiceChannel.members.filter((m) => !m.user.bot);
+  if (humanMembers.size === 0) return null;
+
+  const nameList = [...humanMembers.values()].slice(0, 4).map((m) => m.displayName);
+  const extra = humanMembers.size > 4 ? ` + ${humanMembers.size - 4} more` : "";
+  let voiceStr = `${nameList.join(", ")}${extra} in voice`;
+
+  const radioNP = isRadioActive(guildId) ? getRadioNowPlaying(guildId) : null;
+  const queue = getQueue(guildId);
+  if (radioNP) {
+    voiceStr += ` · fred fm: ${radioNP}`;
+  } else if (queue?.current) {
+    const t = queue.current;
+    voiceStr += ` · playing: ${t.title.slice(0, 55)} by ${t.author.slice(0, 35)}`;
+  }
+
+  return voiceStr;
+}
+
 export async function startBot() {
   const rawToken = (
     process.env.TOKEN ??
@@ -1492,6 +1521,7 @@ export async function startBot() {
     startDeadChatChecker(readyClient);
     startStatusShuffle(readyClient);
     initMusic(readyClient);
+    void ensureGuildMemoryTable().catch(() => {});
     setNowPlayingCallback((guildId, track, queue) => {
       // New track is now playing — reset any pending skip votes from the previous one.
       clearSkipVotes(guildId);
@@ -1629,9 +1659,14 @@ export async function startBot() {
       pushChannelMessage(message.channelId, authorDisplayName, message.content.trim(), false);
     }
 
+    // Track user activity for last-seen awareness
+    recordUserActivity(message.author.id);
+
     // Semantic memory ingestion: every message Fred sees gets embedded + stored.
     if (message.guildId && message.content.trim()) {
       queueMemoryIngestion(message.author.id, message.guildId, message.content);
+      // Tick guild message counter — triggers async lore extraction every N messages
+      tickGuildMessageCounter(message.guildId, getChannelContextText(message.channelId));
     }
 
     // Hypocrisy Engine: passive semantic analysis with per-user 2-min cooldown.
@@ -1676,7 +1711,8 @@ export async function startBot() {
       }
     }
 
-    const authorContext = { userId: message.author.id, roles: roleNames, sortedRoles: sortedRoleNames, isOwner, guildName, channelName, modeInstruction: activeModeInstruction, replyTo };
+    const voiceSituation = buildVoiceSituation(message);
+    const authorContext = { userId: message.author.id, roles: roleNames, sortedRoles: sortedRoleNames, isOwner, guildName, guildId: message.guildId ?? undefined, channelName, memberCount: message.guild?.memberCount ?? undefined, voiceSituation: voiceSituation || undefined, modeInstruction: activeModeInstruction, replyTo };
 
     // Any message starting with a known ? or ! command should never trigger passive watch
     const isAnyCommand = /^[!?](fred|status|help|ping|tldr|poem|roast|explain|translate|search|play|playtop|skip|stop|pause|resume|queue|np|volume|shuffle|loop|repeat|remove|move|clear|disconnect|leave|seek|uwu|boomer|pirate|nerd|overlord|mode|normal|dossview|dossdelete|dosswipe|qotd)\b/i.test(rawContent);
@@ -2873,7 +2909,9 @@ export async function startBot() {
       sortedRoles: roleNames,
       isOwner,
       guildName,
+      guildId: interaction.guildId ?? undefined,
       channelName,
+      memberCount: interaction.guild?.memberCount ?? undefined,
       modeInstruction: activeModeInstruction,
     };
 
