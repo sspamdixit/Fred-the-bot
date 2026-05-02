@@ -262,3 +262,11 @@ export async function getFredStateContext(
     mood: state.mood,
   };
 }
+
+export async function getMoodProfile(
+  guildId: string,
+): Promise<{ mood: FredMoodName; promptModifier: string }> {
+  const state = await loadState(guildId);
+  const profile = MOOD_PROFILES[state.mood] ?? MOOD_PROFILES.baseline;
+  return { mood: state.mood, promptModifier: profile.promptModifier };
+}

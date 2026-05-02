@@ -10,6 +10,7 @@ import {
 import type { Player } from "shoukaku";
 import { log } from "./index";
 import { getMoodSeeds } from "./mood-engine";
+import { getMoodProfile, type FredMoodName } from "./fred-state";
 import {
   addListenerRequest,
   consumeNextRequest,
@@ -159,11 +160,74 @@ const DEFAULT_YT_SEEDS = [
   "italo disco", "city pop japan", "trap beats", "hyperpop",
 ];
 
-function getYTSeeds(): string[] {
+// Time-of-day seed pools. Rotated in based on UTC hour so the station
+// feels curated rather than random — mornings bright, nights darker.
+const TIME_OF_DAY_SEEDS: Record<"morning" | "daytime" | "evening" | "late_night", string[]> = {
+  morning: [
+    "morning coffee music", "upbeat morning playlist", "feel good pop",
+    "energetic morning songs", "sunrise vibes", "positive indie pop",
+    "happy acoustic songs", "morning run playlist", "bright pop 2024",
+    "feel good funk", "upbeat soul hits",
+  ],
+  daytime: [
+    "indie rock 2024", "pop hits 2024", "upbeat electronic",
+    "feel good summer songs", "energetic pop playlist", "bright indie pop",
+    "sunny day playlist", "feel good funk", "dance pop hits",
+    "high energy house music", "classic rock hits",
+  ],
+  evening: [
+    "evening chill playlist", "sunset vibes music", "after work chill",
+    "smooth evening r&b", "evening jazz playlist", "mellow evening songs",
+    "wind down playlist", "sophisticated lounge music", "neo soul evening",
+    "chilled drum and bass", "city pop japan",
+  ],
+  late_night: [
+    "late night drive playlist", "1am music vibes", "night drive electronic",
+    "midnight playlist chill", "late night r&b playlist", "after dark electronic",
+    "late night lo-fi", "dark ambient music", "slow tempo r&b",
+    "melancholy songs late night", "trip hop midnight",
+  ],
+};
+
+// Per-mood seed modifiers. Blended with the time-of-day pool to bias the
+// broadcast toward Fred's current internal state.
+const MOOD_SEED_MODIFIERS: Partial<Record<FredMoodName, string[]>> = {
+  caffeinated:       ["high energy electronic", "upbeat indie 2024", "fast tempo pop", "energetic bangers"],
+  post_banger:       ["best bangers 2024", "certified hits playlist", "essential tracks mix", "top songs right now"],
+  philosophical:     ["post-rock instrumental", "ambient meditative music", "art rock essentials", "experimental electronic"],
+  tired:             ["sleepy ambient", "slow tempo r&b", "mellow acoustic", "late night lo-fi"],
+  warm:              ["soul classics", "warm r&b playlist", "feel good classics", "gezellig music mix"],
+  nostalgic:         ["90s classics", "2000s throwback playlist", "classic rock hits", "nostalgic pop songs"],
+  grumpy:            ["post-punk essentials", "dark indie rock", "aggressive electronic", "brooding playlist"],
+  distracted:        ["focus ambient music", "instrumental background", "lo-fi concentration", "mindless electronic"],
+  unimpressed:       ["obscure indie gems", "underrated artists playlist", "deep cuts music", "niche electronic"],
+  genuinely_invested:["critically acclaimed music", "best albums playlist", "legendary tracks mix", "essential music"],
+  entertained:       ["party hits mix", "fun upbeat songs", "crowd pleasers playlist", "banger playlist 2024"],
+};
+
+function getTimeSlot(): "morning" | "daytime" | "evening" | "late_night" {
+  const h = new Date().getUTCHours();
+  if (h >= 23 || h <= 4) return "late_night";
+  if (h >= 5 && h <= 8) return "morning";
+  if (h >= 9 && h <= 16) return "daytime";
+  return "evening";
+}
+
+// Returns the seed pool, biased by time-of-day and optionally by Fred's mood.
+// Env override (RADIO_YT_SEEDS) always takes priority and bypasses all biasing.
+function getYTSeeds(moodName?: FredMoodName): string[] {
   const raw = process.env.RADIO_YT_SEEDS?.trim();
-  if (!raw) return DEFAULT_YT_SEEDS;
-  const seeds = raw.split(",").map((s) => s.trim()).filter(Boolean);
-  return seeds.length > 0 ? seeds : DEFAULT_YT_SEEDS;
+  if (raw) {
+    const seeds = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    if (seeds.length > 0) return seeds;
+  }
+
+  const timeSeeds = TIME_OF_DAY_SEEDS[getTimeSlot()];
+  const moodSeeds = moodName ? (MOOD_SEED_MODIFIERS[moodName] ?? []) : [];
+
+  // Mood seeds come first so they're over-represented in random picks,
+  // then time-of-day seeds, then the always-available default pool.
+  return [...moodSeeds, ...timeSeeds, ...DEFAULT_YT_SEEDS];
 }
 
 function getYouTubeMixRatio(): number {
@@ -327,6 +391,16 @@ function cleanTitle(raw: string): string {
 async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | null> {
   const playlistTracks = await fetchPlaylistTracks();
 
+  // Fetch Fred's current mood profile to bias seed selection.
+  const fredMood = await (async (): Promise<FredMoodName | undefined> => {
+    try {
+      const profile = await getMoodProfile(station.guildId);
+      return profile.mood;
+    } catch {
+      return undefined;
+    }
+  })();
+
   let seedsToTry: string[];
 
   if (playlistTracks.length > 0) {
@@ -388,17 +462,28 @@ async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | n
       }
     }
 
+    // Inject mood/time-of-day seeds into playlist-backed pools (≈20% chance)
+    // so even curated stations drift toward Fred's current state.
+    if (Math.random() < 0.20) {
+      const moodBoost = getYTSeeds(fredMood).slice(0, 6);
+      seedsToTry = [...moodBoost, ...seedsToTry];
+    }
+
   } else {
     // No Spotify credentials or fetch failed — mood-aware seeds keep the
     // broadcast alive without any Spotify dependency.
-    const moodSeeds = (() => {
+    const channelMoodSeeds = (() => {
       try {
         return getMoodSeeds(station.guildId, station.textChannel.id);
       } catch {
         return null;
       }
     })();
-    seedsToTry = moodSeeds ?? getYTSeeds();
+    // Blend channel mood seeds with Fred's internal mood + time-of-day seeds.
+    const fredSeeds = getYTSeeds(fredMood);
+    seedsToTry = channelMoodSeeds
+      ? [...channelMoodSeeds, ...fredSeeds]
+      : fredSeeds;
   }
 
   // Try up to 5 different seeds before giving up.
@@ -577,8 +662,19 @@ async function playLocalMusic(station: RadioStation, resolver: TrackResolver, mu
 async function broadcastLoop(station: RadioStation): Promise<void> {
   const ytRatio = getYouTubeMixRatio();
   const playlistSize = cachedPlaylistTracks?.length ?? 0;
+
+  // Log the active mood profile so the director log shows Fred's state at start.
+  const startMood = await (async (): Promise<string> => {
+    try {
+      const profile = await getMoodProfile(station.guildId);
+      return `${profile.mood} (${getTimeSlot()})`;
+    } catch {
+      return `unknown (${getTimeSlot()})`;
+    }
+  })();
+
   log(
-    `[Radio] director config: yt-available=${isLavalinkAvailable()} yt-ratio=${ytRatio.toFixed(2)} playlist=${playlistSize > 0 ? `${playlistSize} tracks` : FRED_FM_YT_PLAYLIST ? "yt-playlist (loading...)" : "genre seeds (no playlist configured)"}`,
+    `[Radio] director config: yt-available=${isLavalinkAvailable()} yt-ratio=${ytRatio.toFixed(2)} playlist=${playlistSize > 0 ? `${playlistSize} tracks` : FRED_FM_YT_PLAYLIST ? "yt-playlist (loading...)" : "genre seeds (no playlist configured)"} mood=${startMood}`,
     "radio",
   );
 
