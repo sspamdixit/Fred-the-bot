@@ -1,6 +1,6 @@
 # Project Overview
 
-This is a full-stack Node.js application with an Express API/server, Vite React frontend, Socket.IO support, Drizzle ORM, and PostgreSQL.
+**Fred** is a Discord bot with an AI-driven personality, music system (Lavalink/Shoukaku), Fred FM live radio, and a React web dashboard for real-time monitoring and control. Built with Node.js, TypeScript, Discord.js v14, Express, Socket.IO, Drizzle ORM, and PostgreSQL.
 
 # Replit Configuration
 
