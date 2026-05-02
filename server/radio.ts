@@ -278,36 +278,81 @@ class TrackResolver {
 
 // YouTube-via-Lavalink playback
 
+function cleanArtist(raw: string): string {
+  return raw.replace(/\s*&.*$/, "").replace(/\s*feat\..*$/i, "").replace(/\s*ft\..*$/i, "").trim();
+}
+
+function cleanTitle(raw: string): string {
+  return raw.replace(/\s*\(.*?\)/g, "").replace(/\s*\[.*?\]/g, "").trim();
+}
+
 async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | null> {
   const playlistTracks = await fetchPlaylistTracks();
 
   let seedsToTry: string[];
+
   if (playlistTracks.length > 0) {
-    // 55% chance: play an actual track from the Spotify playlist
-    // 45% chance: play a discovery/autoplay track based on a playlist artist
-    const useDiscovery = Math.random() < 0.45;
-    if (useDiscovery) {
-      // Pick a random playlist artist and build a discovery query around them
-      const base = playlistTracks[Math.floor(Math.random() * playlistTracks.length)];
-      const artistOnly = base.artist.replace(/\s*&.*$/, "").replace(/\s*feat\..*$/i, "").trim();
-      const discoveryForms = [
-        `${artistOnly} radio mix`,
-        `${artistOnly} similar songs`,
-        `best of ${artistOnly}`,
-        `${artistOnly} top hits`,
-        `songs like ${artistOnly}`,
-        `${artistOnly} playlist`,
-        `${artistOnly} greatest hits`,
-      ];
-      seedsToTry = discoveryForms;
-    } else {
-      // Pick a random slice of playlist tracks and use them as search queries
+    const r = Math.random();
+
+    if (r < 0.50) {
+      // 50%: play a specific track from the Spotify playlist.
+      // Shuffle and sample so every track in a large playlist gets rotation.
       const shuffled = [...playlistTracks].sort(() => Math.random() - 0.5);
       seedsToTry = shuffled.slice(0, 20).map((t) => `${t.artist} ${t.title}`);
+
+    } else if (r < 0.80) {
+      // 30%: artist-level discovery — radiate outward from a playlist artist.
+      const base = playlistTracks[Math.floor(Math.random() * playlistTracks.length)];
+      const artist = cleanArtist(base.artist);
+      seedsToTry = [
+        `${artist} radio mix`,
+        `${artist} similar artists mix`,
+        `best of ${artist}`,
+        `${artist} top songs`,
+        `songs like ${artist}`,
+        `${artist} type music`,
+        `music similar to ${artist}`,
+        `fans of ${artist} playlist`,
+        `${artist} deep cuts`,
+        `${artist} b-sides`,
+      ];
+
+    } else if (r < 0.95) {
+      // 15%: track-level discovery — radiate outward from a specific playlist song.
+      const base = playlistTracks[Math.floor(Math.random() * playlistTracks.length)];
+      const artist = cleanArtist(base.artist);
+      const title = cleanTitle(base.title);
+      seedsToTry = [
+        `songs like ${artist} ${title}`,
+        `music like ${title} ${artist}`,
+        `${artist} ${title} similar`,
+        `if you like ${title} by ${artist}`,
+        `${title} ${artist} type songs`,
+        `${artist} discography mix`,
+      ];
+
+    } else {
+      // 5%: cross-playlist discovery — find music at the intersection of two
+      // random playlist artists so the radio develops a coherent blend.
+      const shuffled = [...playlistTracks].sort(() => Math.random() - 0.5);
+      const artistA = cleanArtist(shuffled[0]?.artist ?? "");
+      const artistB = cleanArtist(shuffled[1]?.artist ?? "");
+      if (artistA && artistB && artistA !== artistB) {
+        seedsToTry = [
+          `${artistA} ${artistB} mix`,
+          `fans of ${artistA} and ${artistB}`,
+          `${artistA} meets ${artistB} playlist`,
+          `${artistA} x ${artistB}`,
+        ];
+      } else {
+        // Not enough distinct artists — fall back to direct playlist track
+        seedsToTry = shuffled.slice(0, 20).map((t) => `${t.artist} ${t.title}`);
+      }
     }
+
   } else {
-    // No Spotify creds or fetch failed — use mood-aware seeds if possible,
-    // otherwise fall back to the default genre seed list.
+    // No Spotify credentials or fetch failed — mood-aware seeds keep the
+    // broadcast alive without any Spotify dependency.
     const moodSeeds = (() => {
       try {
         return getMoodSeeds(station.guildId, station.textChannel.id);
@@ -318,8 +363,8 @@ async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | n
     seedsToTry = moodSeeds ?? getYTSeeds();
   }
 
-  // Try up to 4 different seeds before giving up.
-  for (let i = 0; i < 4; i++) {
+  // Try up to 5 different seeds before giving up.
+  for (let i = 0; i < 5; i++) {
     const seed = seedsToTry[Math.floor(Math.random() * seedsToTry.length)];
     const tracks = await radioResolveYouTube(seed, 12);
     if (!tracks.length) continue;
