@@ -138,6 +138,7 @@ async function fetchPlaylistTracks(): Promise<PlaylistTrack[]> {
   if (!token && !FRED_FM_YT_PLAYLIST) {
     log("[Radio] No playlist configured (SPOTIFY_CLIENT_ID/SECRET or FRED_FM_YT_PLAYLIST) — using genre seeds", "radio");
   }
+  playlistSource = "genre_seeds";
   return [];
 }
 
