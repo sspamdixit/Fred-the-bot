@@ -23,7 +23,9 @@ import { ensureGuildMemoryTable, tickGuildMessageCounter } from "./guild-memory"
 import { speakInVoice } from "./tts";
 import { updateUserEmotionalSignal } from "./emotional-state";
 import { queueMemoryIngestion, runHypocrisyEngine, searchServerLore, buildUserDossier } from "./semantic-memory";
-import { startRadio, stopRadio, isRadioActive, previewLibrary, getRadioNowPlaying, pauseRadio, resumeRadio, setRadioVolume, radioSkipCurrentTrack } from "./radio";
+import { startRadio, stopRadio, isRadioActive, previewLibrary, getRadioNowPlaying, pauseRadio, resumeRadio, setRadioVolume, radioSkipCurrentTrack, addRadioRequest } from "./radio";
+import { initFredState } from "./fred-state";
+import { queueEpisodeExtraction, ensureEpisodesTable } from "./episodic-memory";
 import { searchWeb, formatSearchResultsForAI, detectSearchIntent } from "./search";
 import { startQotd, stopQotd } from "./qotd";
 import { storage } from "./storage";
@@ -1430,6 +1432,12 @@ const SLASH_COMMANDS = [
   new SlashCommandBuilder()
     .setName("radiostop")
     .setDescription("end the fred fm broadcast and leave the voice channel"),
+  new SlashCommandBuilder()
+    .setName("radiorequest")
+    .setDescription("request a song for fred fm (queued for the next music slot)")
+    .addStringOption((o) =>
+      o.setName("song").setDescription("artist and/or song title — e.g. 'amy winehouse rehab'").setRequired(true),
+    ),
 
   // ── owner only ───────────────────────────────────────────────────────────
   new SlashCommandBuilder()
@@ -1532,6 +1540,12 @@ export async function startBot() {
     startStatusShuffle(readyClient);
     initMusic(readyClient);
     void ensureGuildMemoryTable().catch(() => {});
+    void ensureEpisodesTable().catch(() => {});
+
+    // Initialise Fred's internal persona state per guild.
+    for (const guild of readyClient.guilds.cache.values()) {
+      void initFredState(guild.id).catch(() => {});
+    }
     setNowPlayingCallback((guildId, track, queue) => {
       // New track is now playing — reset any pending skip votes from the previous one.
       clearSkipVotes(guildId);
@@ -1682,6 +1696,11 @@ export async function startBot() {
       queueMemoryIngestion(message.author.id, message.guildId, message.content);
       // Tick guild message counter — triggers async lore extraction every N messages
       tickGuildMessageCounter(message.guildId, getChannelContextText(message.channelId));
+    }
+
+    // Episodic memory: queue extraction for personal content (non-blocking).
+    if (message.guildId && message.content.trim().length >= 15) {
+      queueEpisodeExtraction(message.author.id, message.guildId, message.content);
     }
 
     // Hypocrisy Engine: passive semantic analysis with per-user 2-min cooldown.
@@ -3557,6 +3576,31 @@ export async function startBot() {
           allowedMentions: { parse: [] },
         }).catch(() => {});
       }
+      return;
+    }
+
+    // radiorequest
+    if (commandName === "radiorequest") {
+      const guildId = interaction.guildId;
+      if (!guildId || !interaction.guild) {
+        await replyEph("radio requests only work in servers.");
+        return;
+      }
+      if (!isRadioActive(guildId)) {
+        await replyEph("fred fm isn't on the air. use `/radio` to start it first.");
+        return;
+      }
+      const query = interaction.options.getString("song", true).trim();
+      const requesterName = (interaction.member as any)?.displayName ?? interaction.user.username;
+      const queued = addRadioRequest(guildId, requesterName, query);
+      if (!queued) {
+        await replyEph("request queue is full (max 5 pending). try again after the next track.");
+        return;
+      }
+      await interaction.reply({
+        content: `📻 request queued: **${query}**. fred will get to it.`,
+        allowedMentions: { parse: [] },
+      });
       return;
     }
 

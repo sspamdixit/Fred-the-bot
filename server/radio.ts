@@ -11,6 +11,16 @@ import type { Player } from "shoukaku";
 import { log } from "./index";
 import { getMoodSeeds } from "./mood-engine";
 import {
+  pregenerateTrackIntro,
+  consumePendingIntro,
+  generateNewsSegmentUrl,
+  generateAdLibUrl,
+  generateStationIdentUrl,
+  addListenerRequest,
+  consumeNextRequest,
+  generateRequestAnnouncementUrl,
+} from "./radio-producer";
+import {
   isLavalinkAvailable,
   radioResolveYouTube,
   radioResolveTrackOnNode,
@@ -190,6 +200,7 @@ interface RadioStation {
   recentYTUris: string[];              // youtube URIs already played
   recentAssets: string[];
   active: boolean;
+  lastNewsHour: number;                 // UTC hour of last news segment (-1 = never)
 }
 
 const stations = new Map<string, RadioStation>();
@@ -235,6 +246,29 @@ function parseTrackInfo(filePath: string): { artist: string; title: string } {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// Plays a generated TTS or other direct HTTP URL through the radio player.
+// Uses the station's pinned (HTTP-capable) Lavalink node so the asset is
+// guaranteed to resolve. Returns true if playback completed, false on error.
+async function playGeneratedUrl(station: RadioStation, url: string): Promise<boolean> {
+  if (!station.active) return false;
+  try {
+    const resolved = await radioResolveTrackOnNode(station.pinnedNode, url);
+    if (!resolved) {
+      log(`[Radio] · generated clip: resolve failed for ${url.slice(0, 60)}…`, "radio");
+      return false;
+    }
+    const result = await radioPlayTrackBlocking(station.player, resolved.encoded, resolved.duration);
+    if (!result.ok) {
+      log(`[Radio] · generated clip: playback aborted (${result.reason})`, "radio");
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    log(`[Radio] · generated clip error: ${err.message}`, "radio");
+    return false;
+  }
 }
 
 // Picks an arbitrary asset URL to probe Lavalink nodes with at radio start.
@@ -547,13 +581,58 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
       return;
     }
 
+    // Top-of-hour news segment — fires once per UTC hour.
+    const currentHour = new Date().getUTCHours();
+    if (station.lastNewsHour !== currentHour) {
+      station.lastNewsHour = currentHour;
+      log(`[Radio] · top-of-hour news segment (hour=${currentHour})`, "radio");
+      try {
+        const newsUrl = await generateNewsSegmentUrl();
+        if (newsUrl && station.active) {
+          await playGeneratedUrl(station, newsUrl);
+        }
+      } catch (err: any) {
+        log(`[Radio] · news segment error: ${err.message}`, "radio");
+      }
+      if (!station.active) return;
+    }
+
+    // Check for listener requests — play next request if available.
+    const request = consumeNextRequest(station.guildId);
+
     // Pick this slot's music source.
     let pickYT: boolean;
     if (musicFiles.length === 0) pickYT = true;
     else if (!ytAvailable) pickYT = false;
     else pickYT = Math.random() < ytRatio;
 
-    if (pickYT) {
+    if (request) {
+      // Listener request: resolve the query via YouTube and play it.
+      log(`[Radio] · listener request from ${request.requesterName}: ${request.query}`, "radio");
+      try {
+        const tracks = await radioResolveYouTube(request.query, 5);
+        const track = tracks[0] ?? null;
+        if (track) {
+          // Announce the request, then play.
+          const announcementUrl = await generateRequestAnnouncementUrl(
+            request.requesterName,
+            track.author,
+            track.title,
+          );
+          if (announcementUrl && station.active) {
+            await playGeneratedUrl(station, announcementUrl);
+          }
+          if (station.active) {
+            void pregenerateTrackIntro(station.guildId, track.author, track.title);
+            await playYouTubeTrack(station, track);
+          }
+        } else {
+          log(`[Radio] · request "${request.query}" resolved nothing — skipping`, "radio");
+        }
+      } catch (err: any) {
+        log(`[Radio] · listener request error: ${err.message}`, "radio");
+      }
+    } else if (pickYT) {
       const track = await pickYouTubeTrack(station);
       if (!track) {
         log(`[Radio] YT pick failed — falling back to local file`, "radio");
@@ -564,6 +643,8 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
           continue;
         }
       } else {
+        // Pre-generate intro in background while this track plays.
+        void pregenerateTrackIntro(station.guildId, track.author, track.title);
         await playYouTubeTrack(station, track);
       }
     } else {
@@ -577,6 +658,33 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
     if (kind === "silence") {
       log(`[Radio] · silence`, "radio");
       continue;
+    }
+
+    // selftalk: prefer generated content — ad-lib 70% of the time, station ident 30%.
+    if (kind === "selftalk") {
+      try {
+        const useIdent = Math.random() < 0.3;
+        const generatedUrl = useIdent
+          ? generateStationIdentUrl()          // synchronous — returns a URL string directly
+          : await generateAdLibUrl("normal");
+        if (generatedUrl && station.active) {
+          log(`[Radio] · selftalk (${useIdent ? "station ident" : "ad-lib"}, generated)`, "radio");
+          await playGeneratedUrl(station, generatedUrl);
+          if (!station.active) return;
+          continue;
+        }
+      } catch { /* fall through to asset */ }
+    }
+
+    // trackintro: prefer the pre-generated intro queued above.
+    if (kind === "trackintro") {
+      const pendingUrl = consumePendingIntro(station.guildId);
+      if (pendingUrl && station.active) {
+        log(`[Radio] · trackintro (generated)`, "radio");
+        await playGeneratedUrl(station, pendingUrl);
+        if (!station.active) return;
+        continue;
+      }
     }
 
     const pool = assetCache.get(kind) ?? [];
@@ -593,14 +701,21 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
 
     // 25% chance trackintro after a trackoutro.
     if (kind === "trackoutro" && Math.random() < 0.25) {
-      const intros = assetCache.get("trackintro") ?? [];
-      if (intros.length > 0) {
-        const intro = pickRandom(intros, new Set(station.recentAssets))!;
-        pushRecent(station.recentAssets, intro, RECENT_ASSETS_LIMIT);
-        log(`[Radio] · DJ transition (trackintro): ${path.basename(intro)}`, "radio");
-        await playAsset(station, resolver, "trackintro", intro, intros);
-        if (!station.active) return;
+      // Try pre-generated intro first, then asset files.
+      const pendingUrl = consumePendingIntro(station.guildId);
+      if (pendingUrl && station.active) {
+        log(`[Radio] · DJ transition (trackintro, generated)`, "radio");
+        await playGeneratedUrl(station, pendingUrl);
+      } else {
+        const intros = assetCache.get("trackintro") ?? [];
+        if (intros.length > 0) {
+          const intro = pickRandom(intros, new Set(station.recentAssets))!;
+          pushRecent(station.recentAssets, intro, RECENT_ASSETS_LIMIT);
+          log(`[Radio] · DJ transition (trackintro): ${path.basename(intro)}`, "radio");
+          await playAsset(station, resolver, "trackintro", intro, intros);
+        }
       }
+      if (!station.active) return;
     }
   }
 }
@@ -677,6 +792,7 @@ export async function startRadio(
     recentYTUris: [],
     recentAssets: [],
     active: true,
+    lastNewsHour: -1,
   };
   stations.set(guild.id, station);
 
@@ -739,6 +855,11 @@ export function radioSkipCurrentTrack(guildId: string): boolean {
   if (!station) return false;
   station.player.stopTrack();
   return true;
+}
+
+// Re-export listener request API for bot.ts to use.
+export function addRadioRequest(guildId: string, requesterName: string, query: string): boolean {
+  return addListenerRequest(guildId, requesterName, query);
 }
 
 export async function previewLibrary(): Promise<{

@@ -66,12 +66,14 @@ Every AI call (`askGemini`, `askGeminiWithImage`, passive watch, slash commands)
 - **Semantic memory**: every message embedded via `text-embedding-004`, stored as pgvector in `user_memories` table. Powers hypocrisy engine, `?lore`, `?dossier`.
 - **Guild lore**: per-guild prose summary in `guild_memory` table. Built automatically, injected into every prompt.
 - **Last-seen tracking**: in-RAM `userLastSeenAt` Map in `gemini.ts`, updated by `recordUserActivity()` on every human message. Used to compute last-seen labels in prompts.
+- **Episodic memory** (`server/episodic-memory.ts`): timestamped personal moments extracted from conversations. Stored in `user_episodes` PostgreSQL table (max 20 per user per guild). Extracted in the background after messages using `gemini-2.0-flash-lite`. Injected as "things fred remembers about this person" — allows Fred to reference past events naturally (e.g. "you mentioned last Tuesday you failed your test"). Zero RAM footprint, pure DB reads per message.
 
 ## Database Schema (`shared/schema.ts`)
 - `user_memory` — userId (PK), dossier text, sureties text
 - `user_memories` — pgvector semantic memory (userId, guildId, content, embedding, createdAt)
 - `guild_memory` — guildId (PK), lore text, updatedAt
-- `bot_meta` — key-value store for bot metadata
+- `user_episodes` — id serial PK, userId, guildId, episode text (≤120 chars), eventLabel (human date), createdAt. Max 20 per user per guild. Created via `CREATE TABLE IF NOT EXISTS` in `server/episodic-memory.ts`.
+- `bot_meta` — key-value store for bot metadata (also stores Fred's per-guild mood state as `fred_state_<guildId>` JSON)
 - Schema sync: `npm run db:push` (Drizzle)
 - Both `user_memory` and `guild_memory` use `CREATE TABLE IF NOT EXISTS` for safe startup on fresh databases
 
@@ -81,8 +83,16 @@ Every AI call (`askGemini`, `askGeminiWithImage`, passive watch, slash commands)
 - Playlist fetched on radio start, cached 1 hour
 - Director between tracks: weighted dice roll over advert/selftalk/trackintro/trackoutro/weirdsound clip types
 - Anti-repeat windows for recent tracks, YouTube URIs, and clips
-- DJ Lukas handles audio chatter; Fred handles text-side context
 - `/stop`, `/skip`, `/pause`, `/resume`, `/volume` all route to radio player when Fred FM is active
+
+## Radio Auto-Production (`server/radio-producer.ts`)
+- Gemini generates DJ scripts; StreamElements Brian TTS converts them to direct HTTP URLs; Lavalink plays them
+- No disk writes — all generated audio is streamed by URL. Render-safe.
+- **Track intros**: `pregenerateTrackIntro()` fires in the background as a track starts playing; `consumePendingIntro()` picks it up at the next trackintro slot — zero latency penalty
+- **Selftalk slot**: 70% generated ad-lib (`generateAdLibUrl`), 30% station ident (`generateStationIdentUrl`). Falls back to asset files on failure
+- **Top-of-hour news segment**: `generateNewsSegmentUrl()` fetches real headlines via `searchWeb`, writes a Fred-voiced bulletin, plays as TTS between tracks
+- **Listener requests**: `/radiorequest <song>` command queues up to 5 requests per guild; next request slot announces the requester by name and plays the track
+- `generateRequestAnnouncementUrl()` generates a mildly teasing "this one goes out to [name]" announcement
 
 ## Music System (`server/music.ts`)
 - Lavalink via Shoukaku
@@ -124,6 +134,25 @@ Every AI call receives:
 - `emotional signal:` — from emotional state tracker (new)
 - All previous fields: server, channel, speaker, roles, authority, time, voice, other active, server lore, recent chat context, replying to message
 
+## Fred's Internal Persona States (`server/fred-state.ts`)
+- 12 internal moods: `baseline`, `caffeinated`, `post_banger`, `philosophical`, `tired`, `entertained`, `grumpy`, `warm`, `nostalgic`, `distracted`, `unimpressed`, `genuinely_invested`
+- Each mood has a `promptModifier` string injected into the AI system prompt via `withFredState()` — shapes tone naturally without announcement
+- State stored per guild in `bot_meta` as JSON (`fred_state_<guildId>`). Tiny in-memory cache (one entry per guild, 30-min TTL, max 50 guilds)
+- Updated every 2–3 hours by `initFredState()` cron: 60% time-of-day logic, 40% random selection
+- Also carries a `lifeEvent` — a short sentence injected into `buildUserPrompt()` as `fred's context today: ...` (hand-curated pool of 20 entries, no extra API calls)
+- `nudgeFredStateByVibe()` and `nudgeFredMood()` for reactive updates from server vibe shifts or direct events
+- `initFredState()` called on bot ready for every joined guild
+
+## AI Context Injection (per message) — full list
+Every `askGemini` call builds a rich context block:
+- `server:` / `channel:` / `speaker:` / `roles:` / `authority level:` / `time:` / `voice:` / `other recently active here:`
+- `server lore:` — guild prose summary from `guild_memory`
+- `emotional signal:` — per-user in-RAM signal (celebrating / stressed / frustrated / positive)
+- `things fred remembers about this person:` — up to 5 episodic memory entries from `user_episodes`
+- `fred's context today:` — Fred's current life event (from `fred-state.ts`)
+- `recent chat context:` / `replying to message:` / `message:`
+- System prompt is additionally wrapped with `withFredState()` (mood modifier) and `withModeOverride()` (personality mode)
+
 ## Bot Entry Points
 - `server/bot.ts` — all Discord event handlers and slash/prefix command routing
 - `server/index.ts` — Express server startup, database init, bot auto-start
@@ -131,11 +160,14 @@ Every AI call receives:
 - `server/ai-settings.ts` — system prompt, capability notes, weakness notes
 - `server/semantic-memory.ts` — pgvector embedding, lore search, dossier builder, hypocrisy engine
 - `server/guild-memory.ts` — guild lore extraction, caching, table management
+- `server/episodic-memory.ts` — timestamped personal episode extraction + retrieval (new)
+- `server/fred-state.ts` — Fred's 12 internal moods, per-guild, persisted in bot_meta (new)
 - `server/radio.ts` — Fred FM broadcast system
+- `server/radio-producer.ts` — Gemini DJ script generation + StreamElements TTS URL production (new)
 - `server/music.ts` — Lavalink music queue and helpers
-- `server/tts.ts` — StreamElements TTS via Lavalink (new)
-- `server/mood-engine.ts` — server vibe analysis + music seed selection (new)
-- `server/emotional-state.ts` — per-user emotional signal tracking (new)
+- `server/tts.ts` — StreamElements TTS via Lavalink
+- `server/mood-engine.ts` — server vibe analysis + music seed selection
+- `server/emotional-state.ts` — per-user emotional signal tracking
 
 ## Dashboard
 - React frontend in `client/`

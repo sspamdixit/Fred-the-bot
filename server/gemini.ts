@@ -6,6 +6,8 @@ import { buildSharedSystemPrompt } from "./ai-settings";
 import { getUserEmotionalContext } from "./emotional-state";
 import { storage } from "./storage";
 import { getGuildLore } from "./guild-memory";
+import { getEpisodicContext, queueEpisodeExtraction } from "./episodic-memory";
+import { getFredStateContext } from "./fred-state";
 
 let genAI: GoogleGenerativeAI | null = null;
 let groqClient: Groq | null = null;
@@ -413,6 +415,11 @@ function withModeOverride(systemPrompt: string, modeInstruction?: string): strin
   return `${systemPrompt}\n\nACTIVE MODE OVERRIDE — apply this on top of your normal personality for every request type:\n${modeInstruction}`;
 }
 
+function withFredState(systemPrompt: string, modifier?: string): string {
+  if (!modifier) return systemPrompt;
+  return `${systemPrompt}\n\nfred's current internal state (applies to this interaction — let it shape tone naturally, don't announce it): ${modifier}`;
+}
+
 function recordUserSessionExchange(userId: string, userContent: string, assistantContent: string): void {
   const history = userSessionHistories.get(userId) ?? [];
   history.push({ role: "user", content: userContent });
@@ -636,6 +643,9 @@ interface BuildPromptExtras {
   otherActive?: string;
   lastSeenLabel?: string | null;
   emotionalContext?: string | null;
+  episodicContext?: string | null;
+  fredStateModifier?: string | null;
+  fredLifeEvent?: string | null;
 }
 
 function buildTimeString(): string {
@@ -696,6 +706,14 @@ function buildUserPrompt(
 
   if (extras.emotionalContext) {
     parts.push(`emotional signal: ${extras.emotionalContext}`);
+  }
+
+  if (extras.episodicContext) {
+    parts.push(extras.episodicContext);
+  }
+
+  if (extras.fredLifeEvent) {
+    parts.push(`fred's context today: ${extras.fredLifeEvent}`);
   }
 
   if (channelContext) {
@@ -988,9 +1006,15 @@ export async function askGemini(userMessage: string, authorName: string, channel
   const channelCtx = getFormattedChannelContext(channelId);
   const history = getHistory(channelId);
   const userId = getMemoryUserId(authorName, context);
-  const [memData, guildLore] = await Promise.all([
+  const [memData, guildLore, episodicCtx, fredStateCtx] = await Promise.all([
     getUserMemoryData(userId),
     context.guildId ? getGuildLore(context.guildId) : Promise.resolve(""),
+    (context.userId && context.guildId)
+      ? getEpisodicContext(context.userId, context.guildId)
+      : Promise.resolve(null),
+    context.guildId
+      ? getFredStateContext(context.guildId)
+      : Promise.resolve({ modifier: "", lifeEvent: null, mood: "baseline" as const }),
   ]);
   const emotionalContext = context.userId ? getUserEmotionalContext(context.userId) : null;
   const extras: BuildPromptExtras = {
@@ -998,10 +1022,16 @@ export async function askGemini(userMessage: string, authorName: string, channel
     otherActive: getRecentlyActiveUsers(channelId, authorName) || undefined,
     lastSeenLabel: getLastSeenLabel(context.userId),
     emotionalContext: emotionalContext ?? undefined,
+    episodicContext: episodicCtx ?? undefined,
+    fredStateModifier: fredStateCtx.modifier || undefined,
+    fredLifeEvent: fredStateCtx.lifeEvent ?? undefined,
   };
   const prompt = buildUserPrompt(userMessage, authorName, context, channelCtx || undefined, extras);
   const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), memData);
-  const systemPrompt = withModeOverride(baseSystemPrompt, context.modeInstruction);
+  const systemPrompt = withFredState(
+    withModeOverride(baseSystemPrompt, context.modeInstruction),
+    fredStateCtx.modifier || undefined,
+  );
 
   log("[Text] Routing to Groq (primary).", "gemini");
 
@@ -1011,6 +1041,9 @@ export async function askGemini(userMessage: string, authorName: string, channel
       pushHistory(channelId, "user", prompt);
       pushHistory(channelId, "assistant", reply);
       recordUserSessionExchange(userId, prompt, reply);
+      if (context.userId && context.guildId && userMessage.trim().length >= 10) {
+        queueEpisodeExtraction(context.userId, context.guildId, userMessage);
+      }
       return reply;
     }
     log("[Groq] Failed or unavailable — falling back to Gemini (text).", "gemini");
@@ -1051,6 +1084,9 @@ export async function askGemini(userMessage: string, authorName: string, channel
           pushHistory(channelId, "user", prompt);
           pushHistory(channelId, "assistant", text);
           recordUserSessionExchange(userId, prompt, text);
+          if (context.userId && context.guildId && userMessage.trim().length >= 10) {
+            queueEpisodeExtraction(context.userId, context.guildId, userMessage);
+          }
           return text;
         } catch (err: any) {
           const msg: string = err.message ?? "";
@@ -1080,6 +1116,9 @@ export async function askGemini(userMessage: string, authorName: string, channel
       pushHistory(channelId, "user", prompt);
       pushHistory(channelId, "assistant", hackReply);
       recordUserSessionExchange(userId, prompt, hackReply);
+      if (context.userId && context.guildId && userMessage.trim().length >= 10) {
+        queueEpisodeExtraction(context.userId, context.guildId, userMessage);
+      }
       return hackReply;
     }
     log("[Hackclub] Failed — all providers exhausted.", "gemini");
