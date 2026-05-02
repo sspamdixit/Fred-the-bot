@@ -3,6 +3,7 @@ import Groq from "groq-sdk";
 import type { ChatCompletion as GroqChatCompletion } from "groq-sdk/resources/chat/completions";
 import { log } from "./index";
 import { buildSharedSystemPrompt } from "./ai-settings";
+import { getUserEmotionalContext } from "./emotional-state";
 import { storage } from "./storage";
 import { getGuildLore } from "./guild-memory";
 
@@ -634,6 +635,7 @@ interface BuildPromptExtras {
   guildLore?: string;
   otherActive?: string;
   lastSeenLabel?: string | null;
+  emotionalContext?: string | null;
 }
 
 function buildTimeString(): string {
@@ -690,6 +692,10 @@ function buildUserPrompt(
 
   if (extras.guildLore) {
     parts.push(`server lore: ${extras.guildLore}`);
+  }
+
+  if (extras.emotionalContext) {
+    parts.push(`emotional signal: ${extras.emotionalContext}`);
   }
 
   if (channelContext) {
@@ -986,10 +992,12 @@ export async function askGemini(userMessage: string, authorName: string, channel
     getUserMemoryData(userId),
     context.guildId ? getGuildLore(context.guildId) : Promise.resolve(""),
   ]);
+  const emotionalContext = context.userId ? getUserEmotionalContext(context.userId) : null;
   const extras: BuildPromptExtras = {
     guildLore: guildLore || undefined,
     otherActive: getRecentlyActiveUsers(channelId, authorName) || undefined,
     lastSeenLabel: getLastSeenLabel(context.userId),
+    emotionalContext: emotionalContext ?? undefined,
   };
   const prompt = buildUserPrompt(userMessage, authorName, context, channelCtx || undefined, extras);
   const baseSystemPrompt = withUserRecord(await buildSharedSystemPrompt(), memData);

@@ -9,6 +9,7 @@ import {
 } from "discord.js";
 import type { Player } from "shoukaku";
 import { log } from "./index";
+import { getMoodSeeds } from "./mood-engine";
 import {
   isLavalinkAvailable,
   radioResolveYouTube,
@@ -303,8 +304,16 @@ async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | n
       seedsToTry = shuffled.slice(0, 20).map((t) => `${t.artist} ${t.title}`);
     }
   } else {
-    // No Spotify creds or fetch failed — fall back to genre seeds
-    seedsToTry = getYTSeeds();
+    // No Spotify creds or fetch failed — use mood-aware seeds if possible,
+    // otherwise fall back to the default genre seed list.
+    const moodSeeds = (() => {
+      try {
+        return getMoodSeeds(station.guildId, station.textChannel.id);
+      } catch {
+        return null;
+      }
+    })();
+    seedsToTry = moodSeeds ?? getYTSeeds();
   }
 
   // Try up to 4 different seeds before giving up.

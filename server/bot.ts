@@ -20,6 +20,8 @@ import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
 import { askGemini, askGeminiWithImage, clearUserMemorySession, clearAllHistory, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, pushChannelMessage, recordUserActivity, getChannelContextText, type ImageData } from "./gemini";
 import { ensureGuildMemoryTable, tickGuildMessageCounter } from "./guild-memory";
+import { speakInVoice } from "./tts";
+import { updateUserEmotionalSignal } from "./emotional-state";
 import { queueMemoryIngestion, runHypocrisyEngine, searchServerLore, buildUserDossier } from "./semantic-memory";
 import { startRadio, stopRadio, isRadioActive, previewLibrary, getRadioNowPlaying, pauseRadio, resumeRadio, setRadioVolume, radioSkipCurrentTrack } from "./radio";
 import { searchWeb, formatSearchResultsForAI, detectSearchIntent } from "./search";
@@ -1413,6 +1415,14 @@ const SLASH_COMMANDS = [
     .setDescription("deactivate the current mode (mode channel only)")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
+  // ── voice / tts ──────────────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("speak")
+    .setDescription("make fred say something out loud in your voice channel")
+    .addStringOption((o) =>
+      o.setName("text").setDescription("what fred should say").setRequired(true).setMaxLength(450),
+    ),
+
   // ── radio ────────────────────────────────────────────────────────────────
   new SlashCommandBuilder()
     .setName("radio")
@@ -1661,6 +1671,11 @@ export async function startBot() {
 
     // Track user activity for last-seen awareness
     recordUserActivity(message.author.id);
+
+    // Emotional intelligence: update per-user signal from message content
+    if (message.content.trim().length >= 10) {
+      updateUserEmotionalSignal(message.author.id, message.content);
+    }
 
     // Semantic memory ingestion: every message Fred sees gets embedded + stored.
     if (message.guildId && message.content.trim()) {
@@ -3150,6 +3165,36 @@ export async function startBot() {
         } catch (err: any) {
           log(`[Music/slash:playtop] ${err.message}`, "discord");
           await interaction.editReply({ content: `music error: ${err.message}`, allowedMentions: { parse: [] } });
+        }
+        return;
+      }
+
+      if (commandName === "speak") {
+        const text = interaction.options.getString("text", true).trim();
+        const member = interaction.guild?.members.cache.get(interaction.user.id);
+        const voiceChannel = member?.voice?.channel;
+        if (!voiceChannel) {
+          await interaction.reply({ content: "join a voice channel first and i'll speak in it.", ephemeral: true, allowedMentions: { parse: [] } });
+          return;
+        }
+        await interaction.deferReply();
+        try {
+          const result = await speakInVoice(
+            guildId,
+            text,
+            voiceChannel.id,
+            interaction.channelId,
+            interaction.guild?.shardId ?? 0,
+            interaction.user.username,
+          );
+          if (result.ok) {
+            await interaction.editReply({ content: `🔊 speaking: *"${text.slice(0, 100)}${text.length > 100 ? "…" : ""}"*`, allowedMentions: { parse: [] } });
+          } else {
+            await interaction.editReply({ content: `couldn't do the tts: ${result.reason ?? "unknown error"}`, allowedMentions: { parse: [] } });
+          }
+        } catch (err: any) {
+          log(`[Slash:speak] ${err.message}`, "discord");
+          await interaction.editReply({ content: `tts blew up: ${err.message}`, allowedMentions: { parse: [] } });
         }
         return;
       }

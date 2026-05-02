@@ -93,6 +93,37 @@ Every AI call (`askGemini`, `askGeminiWithImage`, passive watch, slash commands)
 - `/lyrics`: lyrics.ovh API, auto-detects from queue or Fred FM
 - `/history`: last 20 tracks per guild session
 
+## Fred's Voice / TTS (`server/tts.ts`)
+- `/speak <text>` slash command plays text-to-speech in the user's voice channel
+- Uses StreamElements Brian voice (British male, free, no API key) via direct MP3 URL
+- URL format: `https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=...`
+- Lavalink resolves and plays the HTTP audio — no separate audio pipeline needed
+- If music is already playing: TTS is inserted at the front of the queue via `addToFront`
+- If no queue: joins the user's voice channel, speaks, then the auto-disconnect timer fires after 30s idle
+
+## Intelligent Reactive DJ / Mood Engine (`server/mood-engine.ts`)
+- Reads recent channel messages (via `getChannelContextText`) and heuristically scores the server vibe
+- Vibes: `hype` / `chill` / `sad` / `focus` / `late-night` / `normal`; energy: `high` / `medium` / `low`
+- Signals scored: hype words, sad words, focus/study words, chill words, exclamation density, UTC hour
+- Returns an array of mood-appropriate YouTube search seeds (8 per vibe)
+- Cached per guild+channel for 10 minutes to avoid redundant re-analysis
+- **Music autoplay** (`fetchAutoplayTracks` strategy 3): when strategies 1 and 2 don't fill the count, mood seeds are used as discovery queries
+- **Fred FM radio** fallback: when no Spotify credentials, `pickYouTubeTrack` uses mood seeds instead of generic genre seeds
+
+## Emotional Intelligence Layer (`server/emotional-state.ts`)
+- Per-user in-RAM emotional signal tracking (resets on restart)
+- `updateUserEmotionalSignal(userId, content)` — heuristic regex classifier, 5 signal types: `celebrating`, `stressed`, `frustrated`, `negative`, `positive`. Only non-neutral signals are stored.
+- `getUserEmotionalContext(userId)` — reads last 2 hours of signals, returns a brief instruction string (or null)
+- Example outputs: `"speaker seems to be celebrating something"`, `"speaker has shown stress signals recently"`, `"speaker is in a good mood"`
+- Called in `messageCreate` for every human message ≥10 chars
+- Injected into `buildUserPrompt()` as `emotional signal:` field — present in every AI call
+- Allows Fred to read the room and modulate sarcasm/tone appropriately without explicit commands
+
+## AI Context Injection (per message) — updated
+Every AI call receives:
+- `emotional signal:` — from emotional state tracker (new)
+- All previous fields: server, channel, speaker, roles, authority, time, voice, other active, server lore, recent chat context, replying to message
+
 ## Bot Entry Points
 - `server/bot.ts` — all Discord event handlers and slash/prefix command routing
 - `server/index.ts` — Express server startup, database init, bot auto-start
@@ -102,6 +133,9 @@ Every AI call (`askGemini`, `askGeminiWithImage`, passive watch, slash commands)
 - `server/guild-memory.ts` — guild lore extraction, caching, table management
 - `server/radio.ts` — Fred FM broadcast system
 - `server/music.ts` — Lavalink music queue and helpers
+- `server/tts.ts` — StreamElements TTS via Lavalink (new)
+- `server/mood-engine.ts` — server vibe analysis + music seed selection (new)
+- `server/emotional-state.ts` — per-user emotional signal tracking (new)
 
 ## Dashboard
 - React frontend in `client/`

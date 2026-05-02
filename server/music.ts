@@ -529,6 +529,8 @@ async function fetchAutoplayTracks(
   seed: QueueTrack,
   count: number,
   exclude: Set<string>,
+  guildId?: string,
+  textChannelId?: string,
 ): Promise<QueueTrack[]> {
   if (!shoukaku) return [];
   const node = shoukaku.getIdealNode();
@@ -577,6 +579,19 @@ async function fetchAutoplayTracks(
         for (const t of (result.data as any[])) collect(t);
       }
     } catch { /* ignore */ }
+  }
+
+  // Strategy 3: mood-based discovery — read the server vibe and search accordingly
+  if (candidates.length < count && guildId && textChannelId) {
+    try {
+      const { getMoodSeeds } = await import("./mood-engine");
+      const moodSeeds = getMoodSeeds(guildId, textChannelId);
+      const pick = moodSeeds[Math.floor(Math.random() * moodSeeds.length)];
+      const result = await node.rest.resolve(`ytsearch:${pick}`);
+      if (result?.loadType === "search") {
+        for (const t of (result.data as any[])) collect(t);
+      }
+    } catch { /* ignore — mood engine is optional */ }
   }
 
   return candidates.slice(0, count);
@@ -645,7 +660,7 @@ async function advanceQueue(player: Player, guildId: string): Promise<void> {
           q.isFetchingAutoplay = true;
           try {
             const exclude = new Set(q.recentlyPlayedUris);
-            const fetched = await fetchAutoplayTracks(seed, 5, exclude);
+            const fetched = await fetchAutoplayTracks(seed, 5, exclude, guildId, q.textChannelId);
             if (fetched.length) {
               q.tracks.push(...fetched);
               log(`[Music:autoplay] Queued ${fetched.length} tracks based on "${seed.title}" in guild ${guildId}.`, "discord");
