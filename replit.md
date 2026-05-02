@@ -1,6 +1,6 @@
 # Project Overview
 
-**Fred** is a Discord bot with an AI-driven personality, music system (Lavalink/Shoukaku), Fred FM live radio, and a React web dashboard for real-time monitoring and control. Built with Node.js, TypeScript, Discord.js v14, Express, Socket.IO, Drizzle ORM, and PostgreSQL.
+**Fred** is a Discord bot with a British AI personality, music system (Lavalink/Shoukaku), Fred FM live radio station (Spotify playlist-driven, hosted by a Dutch DJ named Lukas), semantic memory, guild lore engine, and a React web dashboard. Built with Node.js, TypeScript, Discord.js v14, Express, Socket.IO, Drizzle ORM, and PostgreSQL.
 
 # Replit Configuration
 
@@ -13,46 +13,104 @@
 
 # Architecture Notes
 
-- Server code lives in `server/`.
-- Client code lives in `client/`.
-- Shared schema/types live in `shared/`.
-- Static production assets are served from `dist/public` after build.
-- API routes are mounted under `/api` and protected by dashboard authentication where appropriate.
-- Secrets such as Discord bot tokens, Spotify client credentials, and API keys are read from environment variables and must not be committed.
-- AI chat responses receive full Discord context per message: server name, channel name, speaker display name, roles sorted by hierarchy (highest → lowest), and a resolved authority level (owner / moderator / developer / member). Authority is determined purely by roles — no hardcoded usernames anywhere in the system instructions.
-- AI chat memory is retained per channel for up to 150 recent user/assistant messages.
-- Shared AI system instructions, capability notes, and weakness notes are defined in `server/ai-settings.ts`.
-- Gemini, Groq, and the Hack Club fallback all use the same shared AI system instructions and bot profile from code.
-- Groq text and QOTD generation now try multiple Groq models: `llama-3.1-8b-instant`, `llama-3.3-70b-versatile`, `meta-llama/llama-4-scout-17b-16e-instruct`, `openai/gpt-oss-20b`, and `openai/gpt-oss-120b`.
-- Discord users can view the bot profile with `?info`; `?help` lists the primary public commands. Legacy aliases `!help` and `!bubbl <message>` remain supported.
-- `/overlord` and `?overlord` use a fictional English authoritarian-supervillain voice only; the prompt explicitly forbids imitating Hitler, Nazis, real dictators, extremist ideology, hate, or real-world violence.
-- When a user talks to Fred mostly in a non-English language, AI replies are formatted as the response in that language followed by a smaller Discord line (`-#...`) containing the same response translated into English.
-- Legacy `?`/`!` commands, except `?fred` and `!fred`, automatically append one of three fixed smaller Discord discouragement lines asking users to use slash commands instead. These lines are deterministic code strings and do not use AI tokens.
-- Long-term user memory is stored in Neon PostgreSQL via `process.env.DATABASE_URL` in the `user_memory` table (`user_id` text primary key, `dossier` text).
-- The server runs a safe startup initializer for `user_memory` using `CREATE TABLE IF NOT EXISTS` so Render/Neon production environments self-create the table even if local `db:push` was not run against that database.
-- AI responses fetch the current user's dossier and inject it into the system prompt as `user record: ...`; missing rows use `new user. no record.`
-- After a sent bot reply, memory updates are triggered only when recent bot-directed messages contain substantial personal context such as failures, losses, major worries, school/work setbacks, health issues, important relationships, or pets. The background updater sends only those substantial user messages plus the existing dossier to Groq `llama-3.1-8b-instant`, stores lowercase plain text capped at 100 words, excludes usernames/Discord roles/IDs/generic tech specs/temporary chatter, and skips database writes when unchanged.
-- Owner-only Discord dossier commands are handled through text commands: `?dossview @user`, `?dossdelete @user`, and `?dosswipe @user`. The bot attempts to delete the visible command message, sends results by DM for privacy, `?dossdelete` removes the persisted dossier, and `?dosswipe` removes the persisted dossier plus current in-session memory state.
-- Discord moderation includes a non-AI slur filter at the start of `messageCreate`. It combines direct obfuscation regexes with leetspeak token normalization for configured slurs, including shortened and altered forms. Matches immediately attempt to delete the message, send a firm DM warning with a fixed random roast regardless of role, apply a 10-minute timeout when Discord permissions/role hierarchy allow it, report action status to moderator channel `1484059697123164264`, log deletion/warning/timeout/report failures, and return before live-feed emission or AI processing so no model tokens are spent.
-- The 30-minute lounge vibe check now sends at most one dead-chat follow-up (`the chat is extremely dead.`) after an unanswered bot vibe check, then stays muted until a human posts in the lounge again.
-- Discord custom status now refreshes every 30 minutes. AI-generated statuses are weighted toward recent memes, pop culture, gaming, anime, music, celebrity drama, and viral internet references; politics is rare and prompted only for substantial major events. Statuses stay short, lowercase, internet-literate, and may use one fitting emoji from `😭 💀 ✌🏻 💔 🙏🏻`.
-- Daily QOTD generation is prompted to stay relevant to a Gen-Z/community Discord audience with gaming, anime/JJBA, internet culture, school/work, taste debates, harmless drama, and weird hypotheticals. QOTD posts mention the `qotd` role and direct discussion to a QOTD talk channel when one exists (`qotd-talk`, `qotd-discussion`, `qotd-chat`, or `question-talk`).
-- Music Lavalink startup no longer includes the DNS-broken `lavalink.devamop.in` public node. Default free/public nodes include HeavenCloud, Jirayu, Serenetia v4/universal, MilloHost, and AjieBlogs. Custom nodes can be provided via `LAVALINK_NODES` JSON or `LAVALINK_URL`/`LAVALINK_AUTH`/`LAVALINK_SECURE`.
-- Fred FM (`/radio`) routes ALL audio (local music + adverts/intros/outros/selftalk/weirdsound) through Lavalink instead of `@discordjs/voice`. The bot's HTTP server exposes two public static prefixes — `/radio-cdn/assets/*` (serving `radio_assets/`) and `/radio-cdn/music/*` (serving `music_library/`) — mounted before the `/api` auth middleware in `server/routes.ts`. `server/radio.ts` joins the voice channel via `shoukaku.joinVoiceChannel` once per session, resolves each clip through Lavalink's `/loadtracks` (with an in-memory cache for local files), and plays them on a single persistent `Player` for the whole broadcast. This is required on hosts that block UDP egress (e.g. Render free tier), where `@discordjs/voice` got stuck in `signalling→connecting→signalling` and never reached `ready`. The public base URL is detected from `PUBLIC_BASE_URL`, then `RENDER_EXTERNAL_URL`, `SERVICE_URL`, `REPLIT_DOMAINS`, or `REPLIT_DEV_DOMAIN` — `/radio` refuses to start without one. Lavalink helpers `radioJoinVoice`, `radioResolveTrack`, and `radioPlayTrackBlocking` live in `server/music.ts` and bypass the music-queue watchdog so radio-owned players are not touched by recovery/autoplay/health.
-- During Lavalink node failover, music recovery captures the current player position and seeks the resumed track to that same timestamp on the replacement node when the track is seekable.
-- Discord music now-playing embeds use a Spotify-style minimal layout with a red embed color, track title, artist author line, large album-art hero image from Spotify Web API when `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` are configured, and a 5-second updating progress bar sourced from `queue.player.position`.
-- **Fred FM playlist mode**: Fred FM uses a curated Spotify playlist (`FRED_FM_PLAYLIST` env var, defaults to `0u1nVS6XR1CFjbSmkFDYyL`) as its music source. When `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` are set, the playlist is fetched via the Spotify Web API client-credentials flow and cached for 1 hour. On each music slot: 55% chance the bot searches Lavalink for a specific playlist track (`artist title`); 45% chance it generates a discovery/autoplay query around a playlist artist (`artist radio mix`, `songs like artist`, `best of artist`, etc.) — this is what keeps similar songs flowing before, after, and between the playlist songs. Falls back to `RADIO_YT_SEEDS` genre strings if Spotify creds are not configured. The playlist is pre-fetched when the radio starts to avoid a cold-start delay on the first track.
-- `/stop`, `/skip`, `/pause`, `/resume`, `/volume`, `/nowplaying` (and their `?` prefix equivalents) now check `isRadioActive(guildId)` first and route to the radio player when Fred FM is active. This means `/radiostop` is no longer required — `/stop` works for both music and radio. Dedicated radio control exports in `server/radio.ts`: `pauseRadio`, `resumeRadio`, `setRadioVolume`, `radioSkipCurrentTrack`, `getRadioNowPlaying`. The station's current track is tracked in `stationNowPlaying` (set on every `sendNowPlaying` call, cleared on stop).
-- `/lyrics [song]` — fetches lyrics from the lyrics.ovh API. With no argument, uses the current music queue or Fred FM track. With an argument, expects `artist - title` format. Long lyrics are truncated to fit Discord's 2000-char limit.
-- `/history` — shows the last 20 tracks played in the music queue this session, with duration and relative time. Tracks are recorded via `setNowPlayingCallback` into a per-guild `trackHistory` map.
-- Fun commands added: `/rate <thing>` (rates anything out of 10), `/8ball <question>` (magic 8-ball oracle), `/ship <person1> <person2>` (compatibility %), `/hottake [topic]` (spicy takes), `/compliment <user>` (backhanded), `/debate <topic>` (picks a side). All use `askGemini` with tailored prompts.
+## Core Structure
+- Server code: `server/`
+- Client code: `client/`
+- Shared schema/types: `shared/`
+- Static production assets: `dist/public` (after build)
+- API routes mounted under `/api`, protected by dashboard auth where appropriate
+- Secrets (Discord token, Spotify credentials, API keys) read from environment variables — never committed
 
-# Migration Notes
+## Personality & Identity
+- Fred has a defined British character: cultural calibration, references, and swearing style are all grounded in UK internet culture. Fred knows it's an AI and is unbothered by that.
+- Lukas is the Dutch radio DJ who handles Fred FM chatter and track introductions. Fred and Lukas coexist with a professionally tolerant dynamic.
+- Fred has specific music opinions (respects grime, garage, drum and bass, hip-hop with craft; finds acoustic covers of hip-hop tracks specifically offensive).
+- Emotional range: default dry sarcasm, rare genuine amusement (goes quieter), late-night honesty, secret community pride, distinct annoyance register.
+- All personality is defined in `server/ai-settings.ts` (`DEFAULT_SYSTEM_INSTRUCTIONS`).
 
-- The project was adapted to run on Replit without rewriting the app.
-- Replit web preview is configured to use port 5000.
-- PostgreSQL schema was synced with Drizzle using the existing schema.
-- Development preview allows Replit iframe rendering; production still sends `X-Frame-Options: DENY`.
-- Render free-tier optimization pass keeps features intact while reducing idle work: dashboard polling now slows down and pauses while hidden, sockets use websocket transport, live-feed payloads are built only when a dashboard viewer is connected, bot restart clears background timers, QOTD/login/keep-alive timers are unref'd, and the dashboard uses a simpler dark low-animation style instead of animated blurred glass.
-- Uptime hardening for Render free tier: the browser app sends a lightweight `/health` ping every 4 minutes even on the login screen, the server continues bot startup if the memory table check has a transient database error, process-level unexpected errors are logged, and a Discord watchdog restarts the client if it stays disconnected for more than 2 minutes.
-- Dashboard optimization pass: duplicate AI provider controls were consolidated into Diagnostics, desktop layout now uses a wider two-column workspace for presence and message controls, mobile spacing/actions stack more cleanly, and browser health pings now pause while hidden and run less often.
+## AI Context Injection (per message)
+Every AI call (`askGemini`, `askGeminiWithImage`, passive watch, slash commands) receives a rich context block built in `server/gemini.ts` → `buildUserPrompt()`:
+- `server:` — guild name + member count
+- `channel:` — channel name
+- `speaker:` — display name + last-seen label (e.g. "away 2h") from in-RAM `userLastSeenAt` map, updated by `recordUserActivity()` on every non-bot message
+- `roles (highest → lowest):` — sorted role names
+- `authority level:` — resolved as owner / moderator / developer / member
+- `time:` — current UTC day and time, built by `buildTimeString()`
+- `voice:` — who's in Fred's voice channel + what's playing (music queue or Fred FM), built by `buildVoiceSituation()` in `server/bot.ts`
+- `other recently active here:` — up to 5 recent non-bot speakers in this channel, from `getRecentlyActiveUsers()`
+- `server lore:` — guild-specific lore from `getGuildLore()` (see below)
+- `recent chat context:` — last 12 channel messages from `recentChannelContext` map
+- `replying to message:` — if the user replied to a message, the referenced message content
+
+## Guild Lore System (`server/guild-memory.ts`)
+- Autonomous, self-building server culture memory
+- Every 45 messages per guild, an async background job (`extractGuildLore`) calls `gemini-2.0-flash-lite` to read recent channel messages and update a compact prose summary (~200 words) capturing inside jokes, recurring bits, member dynamics, beefs, shared obsessions
+- Stored in `guild_memory` postgres table (guild_id PK, lore text, updated_at)
+- RAM-cached per guild: 30-minute TTL, max 50 guilds, LRU eviction
+- Fetched in parallel with user memory inside `askGemini` and `askGeminiWithImage` using `Promise.all`
+- `ensureGuildMemoryTable()` called on bot startup
+- `tickGuildMessageCounter()` called from `messageCreate` handler on every human message with content
+- `getGuildLore()` exported for use in gemini.ts
+
+## AI Model Routing
+- Primary: Groq — `llama-3.1-8b-instant` → `llama-3.3-70b-versatile` → `llama-4-scout-17b` → `gpt-oss-20b` → `gpt-oss-120b`
+- Secondary: Gemini — `gemini-2.5-flash-lite` → `gemini-2.5-flash` → `gemini-2.0-flash-lite` → `gemini-2.0-flash`
+- Tertiary: Hackclub/Grok — `x-ai/grok-4.1-fast`
+- Image/video analysis: Gemini only
+- Guild lore extraction: `gemini-2.0-flash-lite` (separate client in `guild-memory.ts`)
+- QOTD generation: Groq
+
+## Memory Systems
+- **Short-term**: last 30 messages per channel in RAM (`recentChannelContext`), up to 150 stored. Resets on restart.
+- **Long-term dossier**: per-user postgres record (`user_memory` table), up to ~200 words of personal context. Injected into every prompt.
+- **Semantic memory**: every message embedded via `text-embedding-004`, stored as pgvector in `user_memories` table. Powers hypocrisy engine, `?lore`, `?dossier`.
+- **Guild lore**: per-guild prose summary in `guild_memory` table. Built automatically, injected into every prompt.
+- **Last-seen tracking**: in-RAM `userLastSeenAt` Map in `gemini.ts`, updated by `recordUserActivity()` on every human message. Used to compute last-seen labels in prompts.
+
+## Database Schema (`shared/schema.ts`)
+- `user_memory` — userId (PK), dossier text, sureties text
+- `user_memories` — pgvector semantic memory (userId, guildId, content, embedding, createdAt)
+- `guild_memory` — guildId (PK), lore text, updatedAt
+- `bot_meta` — key-value store for bot metadata
+- Schema sync: `npm run db:push` (Drizzle)
+- Both `user_memory` and `guild_memory` use `CREATE TABLE IF NOT EXISTS` for safe startup on fresh databases
+
+## Fred FM Radio (`server/radio.ts`)
+- All audio (local files, ads, DJ clips, YouTube tracks) routes through Lavalink — no `@discordjs/voice`, no UDP
+- **Spotify playlist mode**: 55% of music slots pull directly from the configured Spotify playlist; 45% are discovery queries around playlist artists
+- Playlist fetched on radio start, cached 1 hour
+- Director between tracks: weighted dice roll over advert/selftalk/trackintro/trackoutro/weirdsound clip types
+- Anti-repeat windows for recent tracks, YouTube URIs, and clips
+- DJ Lukas handles audio chatter; Fred handles text-side context
+- `/stop`, `/skip`, `/pause`, `/resume`, `/volume` all route to radio player when Fred FM is active
+
+## Music System (`server/music.ts`)
+- Lavalink via Shoukaku
+- Now-playing embeds: Spotify-style layout, album art from Spotify Web API, live progress bar
+- Autoplay, node-health watchdog, stuck/exception recovery, filter reset between tracks
+- Vote-skip: majority required if 3+ in voice, instant if ≤2
+- `/reconnect`: force-migrates to fresh node at same timestamp
+- `/lyrics`: lyrics.ovh API, auto-detects from queue or Fred FM
+- `/history`: last 20 tracks per guild session
+
+## Bot Entry Points
+- `server/bot.ts` — all Discord event handlers and slash/prefix command routing
+- `server/index.ts` — Express server startup, database init, bot auto-start
+- `server/gemini.ts` — all AI calls, context building, channel memory, passive watch, hypocrisy engine coordination
+- `server/ai-settings.ts` — system prompt, capability notes, weakness notes
+- `server/semantic-memory.ts` — pgvector embedding, lore search, dossier builder, hypocrisy engine
+- `server/guild-memory.ts` — guild lore extraction, caching, table management
+- `server/radio.ts` — Fred FM broadcast system
+- `server/music.ts` — Lavalink music queue and helpers
+
+## Dashboard
+- React frontend in `client/`
+- Socket.IO live feed of Discord messages
+- Controls: bot presence, send messages, toggle AI providers, trigger QOTD
+- Diagnostics panel, dossier browser
+- Low-animation dark style; polling pauses when tab is hidden
+
+## Hosting Notes
+- Render free tier optimized: progress bar throttles, album art LRU capped at 200, guild lore cache bounded at 50 guilds, dashboard polling pauses when hidden, `/health` ping every 4 minutes
+- `PUBLIC_BASE_URL` required for Fred FM (auto-detected from `RENDER_EXTERNAL_URL`, `REPLIT_DOMAINS`, `REPLIT_DEV_DOMAIN`)
+- `pgvector` extension required for semantic memory; bot degrades gracefully if unavailable
