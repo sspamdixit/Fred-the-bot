@@ -1380,6 +1380,11 @@ export function isLavalinkAvailable(): boolean {
   }
 }
 
+export function getLavalinkNodeCount(): number {
+  if (!shoukaku) return 0;
+  return shoukaku.nodes.size;
+}
+
 // Resolves a single Lavalink track from a URL or search query. Used by radio
 // to look up local mp3 assets served via the bot's HTTP CDN, as well as
 // arbitrary YouTube URIs.

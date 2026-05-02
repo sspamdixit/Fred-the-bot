@@ -13,6 +13,9 @@ import {
 } from "./bot";
 import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled, getHackclubEnabled, setHackclubEnabled, askGemini, NEWS_FEEDS, fetchRssHeadlines, generateBotStatus } from "./gemini";
 import { triggerQotdNow, getQotdStatus } from "./qotd";
+import { getRadioAllStationsStatus, getPlaylistSource, getCachedPlaylistTrackCount } from "./radio";
+import { getMoodProfile } from "./fred-state";
+import { isLavalinkAvailable, getLavalinkNodeCount } from "./music";
 import { z } from "zod";
 import { DASHBOARD_AUTH_HEADER, issueAuthToken, isAuthTokenValid } from "./auth";
 
@@ -206,6 +209,30 @@ export async function registerRoutes(
     const result = await triggerQotdNow();
     if (!result.ok) return res.status(500).json({ error: result.error });
     return res.json({ ok: true, type: result.type });
+  });
+
+  app.get("/api/radio/status", async (_req, res) => {
+    const stationStatuses = getRadioAllStationsStatus();
+    const stationsWithMood = await Promise.all(
+      stationStatuses.map(async (s) => {
+        let mood: { mood: string; promptModifier: string } | null = null;
+        try { mood = await getMoodProfile(s.guildId); } catch { /* non-fatal */ }
+        return { ...s, mood };
+      })
+    );
+    return res.json({
+      stations: stationsWithMood,
+      lavalink: {
+        available: isLavalinkAvailable(),
+        nodeCount: getLavalinkNodeCount(),
+      },
+      playlist: {
+        source: getPlaylistSource(),
+        trackCount: getCachedPlaylistTrackCount(),
+        ytPlaylistUrl: process.env.FRED_FM_YT_PLAYLIST ?? null,
+      },
+      updatedAt: Date.now(),
+    });
   });
 
   app.get("/api/service/health", (_req, res) => {

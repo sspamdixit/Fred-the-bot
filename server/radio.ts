@@ -50,6 +50,7 @@ const PLAYLIST_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 interface PlaylistTrack { title: string; artist: string; }
 let cachedPlaylistTracks: PlaylistTrack[] | null = null;
 let playlistCacheTime = 0;
+let playlistSource: "spotify" | "youtube" | "genre_seeds" = "genre_seeds";
 
 async function getSpotifyToken(): Promise<string | null> {
   const clientId = process.env.SPOTIFY_CLIENT_ID?.trim();
@@ -105,6 +106,7 @@ async function fetchPlaylistTracks(): Promise<PlaylistTrack[]> {
     if (tracks.length > 0) {
       cachedPlaylistTracks = tracks;
       playlistCacheTime = now;
+      playlistSource = "spotify";
       log(`[Radio] Spotify playlist loaded: ${tracks.length} tracks from ${FRED_FM_PLAYLIST_ID}`, "radio");
       return tracks;
     }
@@ -123,6 +125,7 @@ async function fetchPlaylistTracks(): Promise<PlaylistTrack[]> {
         }));
         cachedPlaylistTracks = tracks;
         playlistCacheTime = now;
+        playlistSource = "youtube";
         log(`[Radio] YouTube playlist loaded: ${tracks.length} tracks`, "radio");
         return tracks;
       }
@@ -988,6 +991,34 @@ function stopStation(guildId: string, reason: string): boolean {
 
 export function getRadioNowPlaying(guildId: string): RadioNowPlaying | null {
   return stationNowPlaying.get(guildId) ?? null;
+}
+
+export interface RadioStationStatus {
+  guildId: string;
+  guildName: string;
+  voiceChannelId: string;
+  nowPlaying: RadioNowPlaying | null;
+  songsSinceAdvert: number;
+  songsSinceSelftalk: number;
+}
+
+export function getRadioAllStationsStatus(): RadioStationStatus[] {
+  return Array.from(stations.values()).map((s) => ({
+    guildId: s.guildId,
+    guildName: s.guild.name,
+    voiceChannelId: s.voiceChannelId,
+    nowPlaying: stationNowPlaying.get(s.guildId) ?? null,
+    songsSinceAdvert: s.songsSinceAdvert,
+    songsSinceSelftalk: s.songsSinceSelftalk,
+  }));
+}
+
+export function getPlaylistSource(): "spotify" | "youtube" | "genre_seeds" {
+  return playlistSource;
+}
+
+export function getCachedPlaylistTrackCount(): number {
+  return cachedPlaylistTracks?.length ?? 0;
 }
 
 export async function pauseRadio(guildId: string): Promise<boolean> {
