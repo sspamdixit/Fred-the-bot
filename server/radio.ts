@@ -38,6 +38,10 @@ type AssetKind = typeof ASSET_KINDS[number];
 const RECENT_MUSIC_LIMIT = 20;
 const RECENT_YT_LIMIT = 30;
 const RECENT_ASSETS_LIMIT = 15;
+// Cross-session recent-track memory. Persists for the lifetime of the process
+// so stopping and restarting a station doesn't replay the same opening tracks.
+const GLOBAL_RECENT_YT_LIMIT = 120;
+const globalRecentYTUris: string[] = [];
 const STATION_NAME = "Fred FM";
 const FADE_IN_MS = 1_200;
 const FADE_OUT_MS = 900;
@@ -329,6 +333,19 @@ function pickRandom<T>(arr: T[], exclude: Set<string> = new Set()): T | null {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+// Proper Fisher-Yates shuffle — produces a truly uniform random permutation.
+// The commonly-used .sort(() => Math.random() - 0.5) is biased because
+// TimSort (V8's sort) makes fewer comparisons than needed for a uniform result,
+// causing elements near the start of the input to stay near the start.
+function shuffleArray<T>(arr: T[]): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 function pushRecent(arr: string[], item: string, limit: number): void {
   arr.push(item);
   while (arr.length > limit) arr.shift();
@@ -413,7 +430,7 @@ async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | n
     if (r < 0.50) {
       // 50%: play a specific track from the Spotify playlist.
       // Shuffle and sample so every track in a large playlist gets rotation.
-      const shuffled = [...playlistTracks].sort(() => Math.random() - 0.5);
+      const shuffled = shuffleArray(playlistTracks);
       seedsToTry = shuffled.slice(0, 20).map((t) => `${t.artist} ${t.title}`);
 
     } else if (r < 0.80) {
@@ -450,7 +467,7 @@ async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | n
     } else {
       // 5%: cross-playlist discovery — find music at the intersection of two
       // random playlist artists so the radio develops a coherent blend.
-      const shuffled = [...playlistTracks].sort(() => Math.random() - 0.5);
+      const shuffled = shuffleArray(playlistTracks);
       const artistA = cleanArtist(shuffled[0]?.artist ?? "");
       const artistB = cleanArtist(shuffled[1]?.artist ?? "");
       if (artistA && artistB && artistA !== artistB) {
@@ -462,7 +479,7 @@ async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | n
         ];
       } else {
         // Not enough distinct artists — fall back to direct playlist track
-        seedsToTry = shuffled.slice(0, 20).map((t) => `${t.artist} ${t.title}`);
+        seedsToTry = shuffleArray(playlistTracks).slice(0, 20).map((t) => `${t.artist} ${t.title}`);
       }
     }
 
@@ -491,13 +508,24 @@ async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | n
   }
 
   // Try up to 5 different seeds before giving up.
+  // Request 30 results so the >12-min filter leaves a large enough pool for
+  // genuine variety (with only 12 results, compilations/mixes often eat most
+  // slots leaving 1-2 tracks that always win the random pick).
   for (let i = 0; i < 5; i++) {
     const seed = seedsToTry[Math.floor(Math.random() * seedsToTry.length)];
-    const tracks = await radioResolveYouTube(seed, 12);
+    const tracks = await radioResolveYouTube(seed, 30);
     if (!tracks.length) continue;
-    const fresh = tracks.filter((t) => !station.recentYTUris.includes(t.uri));
-    const pool = fresh.length > 0 ? fresh : tracks;
-    const pick = pool[Math.floor(Math.random() * pool.length)];
+    // Filter against both per-session and cross-session recent-play lists so
+    // restarting the station doesn't replay the same opening tracks.
+    const fresh = tracks.filter(
+      (t) => !station.recentYTUris.includes(t.uri) && !globalRecentYTUris.includes(t.uri),
+    );
+    // Fallback chain: globally-fresh → session-fresh → anything
+    const fallback = fresh.length > 0
+      ? fresh
+      : tracks.filter((t) => !station.recentYTUris.includes(t.uri));
+    const finalPool = fallback.length > 0 ? fallback : tracks;
+    const pick = finalPool[Math.floor(Math.random() * finalPool.length)];
     if (pick) return pick;
   }
   return null;
@@ -506,6 +534,7 @@ async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | n
 async function playYouTubeTrack(station: RadioStation, track: RadioYTTrack): Promise<void> {
   if (!station.active) return;
   pushRecent(station.recentYTUris, track.uri, RECENT_YT_LIMIT);
+  pushRecent(globalRecentYTUris, track.uri, GLOBAL_RECENT_YT_LIMIT);
   setStationPresence(station, track.author);
   await sendNowPlaying(station, track.author, track.title, "YouTube via Lavalink", track.artworkUrl);
   log(`[Radio] ▶ YT ${track.author} — ${track.title}`, "radio");
