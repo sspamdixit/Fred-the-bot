@@ -18,6 +18,7 @@ import {
   radioJoinVoice,
   radioPlayTrackBlocking,
   radioLeaveVoiceChannel,
+  getIdealLavalinkNode,
   type RadioYTTrack,
   type RadioTrack,
 } from "./music";
@@ -185,7 +186,8 @@ interface RadioStation {
   textChannel: TextChannel;
   shardId: number;
   player: Player;
-  pinnedNode: any;                      // Lavalink node hosting the player; HTTP-capable
+  pinnedNode: any;                      // Lavalink node hosting the player
+  httpCapable: boolean;                 // whether pinnedNode supports HTTP source URLs
   recentMusic: string[];               // local file paths
   recentYTUris: string[];              // youtube URIs already played
   recentAssets: string[];
@@ -491,10 +493,13 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
       assetCache.set(k, await listAudio(path.join(ASSETS_DIR, k)));
     }
 
-    if (!ytAvailable && musicFiles.length === 0) {
+    // In YouTube-only mode (no HTTP-capable node), treat local files as unavailable.
+    const effectiveMusicFiles = station.httpCapable ? musicFiles : [];
+
+    if (!ytAvailable && effectiveMusicFiles.length === 0) {
       try {
         await station.textChannel.send({
-          content: "lavalink is offline and there are no local music files. broadcast over.",
+          content: "lavalink is offline and there are no available music sources. broadcast over.",
           allowedMentions: { parse: [] },
         });
       } catch { /* ignore */ }
@@ -504,16 +509,16 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
 
     // Pick this slot's music source.
     let pickYT: boolean;
-    if (musicFiles.length === 0) pickYT = true;
+    if (effectiveMusicFiles.length === 0) pickYT = true;
     else if (!ytAvailable) pickYT = false;
     else pickYT = Math.random() < ytRatio;
 
     if (pickYT) {
       const track = await pickYouTubeTrack(station);
       if (!track) {
-        log(`[Radio] YT pick failed — falling back to local file`, "radio");
-        if (musicFiles.length > 0) {
-          await playLocalMusic(station, resolver, musicFiles);
+        log(`[Radio] YT pick failed — ${effectiveMusicFiles.length > 0 ? "falling back to local file" : "no fallback available"}`, "radio");
+        if (effectiveMusicFiles.length > 0) {
+          await playLocalMusic(station, resolver, effectiveMusicFiles);
         } else {
           await sleep(5_000);
           continue;
@@ -522,11 +527,14 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
         await playYouTubeTrack(station, track);
       }
     } else {
-      await playLocalMusic(station, resolver, musicFiles);
+      await playLocalMusic(station, resolver, effectiveMusicFiles);
     }
     if (!station.active) return;
 
-    // Director: in-between segment.
+    // Director: in-between segment. Skipped entirely in YouTube-only mode
+    // because asset clips require HTTP source support to load.
+    if (!station.httpCapable) continue;
+
     const kind = pickDirectorKind();
     if (kind === "silence") {
       log(`[Radio] · silence`, "radio");
@@ -581,39 +589,45 @@ export async function startRadio(
   }
 
   const baseUrl = getPublicBaseUrl();
-  if (!baseUrl) {
-    return {
-      ok: false,
-      reason:
-        "no public base URL configured. set one of `PUBLIC_BASE_URL`, `RENDER_EXTERNAL_URL`, or `SERVICE_URL` so lavalink can fetch the local audio assets over HTTP.",
-    };
-  }
-
   const localFiles = await listAudio(MUSIC_DIR);
-  log(`[Radio] starting · base=${baseUrl} · local-files=${localFiles.length}`, "radio");
+  log(`[Radio] starting · base=${baseUrl ?? "none"} · local-files=${localFiles.length}`, "radio");
 
-  // Probe Lavalink nodes for HTTP source support using a real radio asset
-  // URL — same one the playback path will hit. We pin the radio player to
-  // whichever node passes so resolution AND playback are guaranteed to
-  // work for every local file and asset clip in the rotation.
-  const probeUrl = await pickProbeUrl();
-  if (!probeUrl) {
-    return {
-      ok: false,
-      reason: "no radio assets found to probe with — drop some files into `radio_assets/` first.",
-    };
+  // Try to find a Lavalink node that supports HTTP sources (needed for local
+  // files and DJ asset clips). If none is found, the station starts anyway in
+  // YouTube-only mode — all local file and asset clip slots are silently
+  // skipped and every music slot is a YouTube track instead.
+  let httpNode: any | null = null;
+  if (baseUrl) {
+    const probeUrl = await pickProbeUrl();
+    if (probeUrl) {
+      httpNode = await radioFindHttpCapableNode(probeUrl);
+    }
   }
-  const httpNode = await radioFindHttpCapableNode(probeUrl);
-  if (!httpNode) {
-    return {
-      ok: false,
-      reason:
-        "none of the connected lavalink nodes accept HTTP-source URLs, so the radio can't play local files. either provide a node with the HTTP source manager enabled (`LAVALINK_NODES`) or use a self-hosted lavalink with `sources.http: true`.",
-    };
-  }
-  log(`[Radio] pinned to lavalink node '${httpNode.name}' (HTTP source verified)`, "radio");
 
-  const joinResult = await radioJoinVoice(guild.id, voiceChannelId, guild.shardId ?? 0, httpNode);
+  if (httpNode) {
+    log(`[Radio] pinned to lavalink node '${httpNode.name}' (HTTP source verified)`, "radio");
+  } else {
+    const reason = !baseUrl
+      ? "no PUBLIC_BASE_URL configured"
+      : "no lavalink node has the HTTP source manager enabled";
+    log(`[Radio] ${reason} — starting in YouTube-only mode (local files and DJ clips disabled)`, "radio");
+    try {
+      await textChannel.send({
+        content: `⚠️ ${reason} — local files and DJ clips are disabled. broadcasting YouTube tracks only.`,
+        allowedMentions: { parse: [] },
+      });
+    } catch { /* ignore */ }
+  }
+
+  // Use the HTTP-capable node if we have one; otherwise fall back to whatever
+  // ideal node is available (YouTube playback doesn't need HTTP support).
+  const playerNode = httpNode ?? getIdealLavalinkNode();
+
+  if (!playerNode) {
+    return { ok: false, reason: "no lavalink node available to host the radio player." };
+  }
+
+  const joinResult = await radioJoinVoice(guild.id, voiceChannelId, guild.shardId ?? 0, playerNode);
   if (!joinResult.ok) {
     return { ok: false, reason: `couldn't join voice via lavalink: ${joinResult.reason}` };
   }
@@ -625,7 +639,8 @@ export async function startRadio(
     textChannel,
     shardId: guild.shardId ?? 0,
     player: joinResult.player,
-    pinnedNode: httpNode,
+    pinnedNode: playerNode,
+    httpCapable: !!httpNode,
     recentMusic: [],
     recentYTUris: [],
     recentAssets: [],

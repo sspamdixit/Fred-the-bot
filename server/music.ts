@@ -1479,6 +1479,10 @@ export function clearRadioHttpSupportCache(): void {
   httpSupportCache.clear();
 }
 
+export function getIdealLavalinkNode(): any | null {
+  return shoukaku?.getIdealNode() ?? null;
+}
+
 // Returns a connected Lavalink node that has the HTTP source manager, or
 // null if none do. Probes happen in parallel and are cached.
 export async function radioFindHttpCapableNode(testUrl: string): Promise<any | null> {
