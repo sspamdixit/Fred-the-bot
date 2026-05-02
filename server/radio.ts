@@ -567,9 +567,11 @@ async function playLocalMusic(station: RadioStation, resolver: TrackResolver, mu
   if (!result.ok) {
     log(`[Radio] LOCAL playback aborted: ${result.reason}`, "radio");
   }
-  // Track in commentary history so next YT track's commentary can reference it.
-  station.recentCommentaryTracks.push({ artist, title });
-  if (station.recentCommentaryTracks.length > 2) station.recentCommentaryTracks.shift();
+  // Only track in commentary history when playback actually succeeded.
+  if (result.ok) {
+    station.recentCommentaryTracks.push({ artist, title });
+    if (station.recentCommentaryTracks.length > 2) station.recentCommentaryTracks.shift();
+  }
 }
 
 async function broadcastLoop(station: RadioStation): Promise<void> {
@@ -639,6 +641,11 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
       }
     }
 
+    // Consume the advert-return flag for this song slot regardless of which
+    // source plays. Clearing it here ensures it never bleeds past one song.
+    const _afterAdvert = comingBackFromAdvert;
+    comingBackFromAdvert = false;
+
     // Check for listener requests — play next request if available.
     const request = consumeNextRequest(station.guildId);
 
@@ -665,6 +672,9 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
           } catch { /* non-critical */ }
           if (station.active) {
             await playYouTubeTrack(station, track);
+            // Track in commentary history for subsequent commentary context.
+            station.recentCommentaryTracks.push({ artist: track.author, title: track.title });
+            if (station.recentCommentaryTracks.length > 2) station.recentCommentaryTracks.shift();
           }
         } else {
           log(`[Radio] · request "${request.query}" resolved nothing — skipping`, "radio");
@@ -694,9 +704,8 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
         // sees the right values even if the outer vars mutate during playback.
         const _commentaryCtx: TrackCommentaryContext = {
           prevTracks: [...station.recentCommentaryTracks],
-          afterAdvert: comingBackFromAdvert,
+          afterAdvert: _afterAdvert,
         };
-        comingBackFromAdvert = false;
         void (async () => {
           try {
             const comment = await generateTrackCommentaryText(track.author, track.title, _commentaryCtx);
