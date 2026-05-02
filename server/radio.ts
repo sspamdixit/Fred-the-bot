@@ -38,6 +38,7 @@ const RECENT_YT_LIMIT = 30;
 const RECENT_ASSETS_LIMIT = 15;
 const STATION_NAME = "Fred FM";
 const FRED_FM_PLAYLIST_ID = (process.env.FRED_FM_PLAYLIST ?? "0u1nVS6XR1CFjbSmkFDYyL").trim();
+const FRED_FM_YT_PLAYLIST = process.env.FRED_FM_YT_PLAYLIST?.trim() ?? null;
 const PLAYLIST_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 interface PlaylistTrack { title: string; artist: string; }
@@ -69,43 +70,66 @@ async function fetchPlaylistTracks(): Promise<PlaylistTrack[]> {
   if (cachedPlaylistTracks && now - playlistCacheTime < PLAYLIST_CACHE_TTL) {
     return cachedPlaylistTracks;
   }
+
+  // --- Spotify path ---
   const token = await getSpotifyToken();
-  if (!token) {
-    log("[Radio] Spotify creds not set — using genre seeds as fallback", "radio");
-    return [];
-  }
-  const tracks: PlaylistTrack[] = [];
-  let url: string | null = `https://api.spotify.com/v1/playlists/${FRED_FM_PLAYLIST_ID}/tracks?limit=100&fields=next,items(track(name,artists(name)))`;
-  while (url) {
-    try {
-      const res = await fetch(url, {
-        headers: { "Authorization": `Bearer ${token}` },
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!res.ok) break;
-      const data = await res.json() as {
-        next: string | null;
-        items: Array<{ track: { name: string; artists: Array<{ name: string }> } | null }>;
-      };
-      for (const item of data.items) {
-        if (!item.track) continue;
-        const artist = item.track.artists[0]?.name ?? "Unknown";
-        const title = item.track.name;
-        tracks.push({ artist, title });
+  if (token) {
+    const tracks: PlaylistTrack[] = [];
+    let url: string | null = `https://api.spotify.com/v1/playlists/${FRED_FM_PLAYLIST_ID}/tracks?limit=100&fields=next,items(track(name,artists(name)))`;
+    while (url) {
+      try {
+        const res = await fetch(url, {
+          headers: { "Authorization": `Bearer ${token}` },
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) break;
+        const data = await res.json() as {
+          next: string | null;
+          items: Array<{ track: { name: string; artists: Array<{ name: string }> } | null }>;
+        };
+        for (const item of data.items) {
+          if (!item.track) continue;
+          tracks.push({ artist: item.track.artists[0]?.name ?? "Unknown", title: item.track.name });
+        }
+        url = data.next ?? null;
+      } catch {
+        break;
       }
-      url = data.next ?? null;
-    } catch {
-      break;
+    }
+    if (tracks.length > 0) {
+      cachedPlaylistTracks = tracks;
+      playlistCacheTime = now;
+      log(`[Radio] Spotify playlist loaded: ${tracks.length} tracks from ${FRED_FM_PLAYLIST_ID}`, "radio");
+      return tracks;
+    }
+    log(`[Radio] Spotify playlist fetch returned 0 tracks`, "radio");
+  }
+
+  // --- YouTube playlist path (no Spotify creds needed) ---
+  if (FRED_FM_YT_PLAYLIST) {
+    try {
+      log(`[Radio] Loading YouTube playlist: ${FRED_FM_YT_PLAYLIST}`, "radio");
+      const ytTracks = await radioResolveYouTube(FRED_FM_YT_PLAYLIST, 500);
+      if (ytTracks.length > 0) {
+        const tracks: PlaylistTrack[] = ytTracks.map((t) => ({
+          artist: t.author,
+          title: t.title,
+        }));
+        cachedPlaylistTracks = tracks;
+        playlistCacheTime = now;
+        log(`[Radio] YouTube playlist loaded: ${tracks.length} tracks`, "radio");
+        return tracks;
+      }
+      log(`[Radio] YouTube playlist resolved 0 tracks — using genre seeds`, "radio");
+    } catch (err: any) {
+      log(`[Radio] YouTube playlist load error: ${err.message} — using genre seeds`, "radio");
     }
   }
-  if (tracks.length > 0) {
-    cachedPlaylistTracks = tracks;
-    playlistCacheTime = now;
-    log(`[Radio] Spotify playlist loaded: ${tracks.length} tracks from ${FRED_FM_PLAYLIST_ID}`, "radio");
-  } else {
-    log(`[Radio] Spotify playlist fetch returned 0 tracks — using genre seeds`, "radio");
+
+  if (!token && !FRED_FM_YT_PLAYLIST) {
+    log("[Radio] No playlist configured (SPOTIFY_CLIENT_ID/SECRET or FRED_FM_YT_PLAYLIST) — using genre seeds", "radio");
   }
-  return tracks;
+  return [];
 }
 
 export interface RadioNowPlaying {
@@ -527,7 +551,7 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
   const ytRatio = getYouTubeMixRatio();
   const playlistSize = cachedPlaylistTracks?.length ?? 0;
   log(
-    `[Radio] director config: yt-available=${isLavalinkAvailable()} yt-ratio=${ytRatio.toFixed(2)} playlist=${playlistSize > 0 ? `${playlistSize} tracks (${FRED_FM_PLAYLIST_ID})` : "genre seeds (no Spotify)"}`,
+    `[Radio] director config: yt-available=${isLavalinkAvailable()} yt-ratio=${ytRatio.toFixed(2)} playlist=${playlistSize > 0 ? `${playlistSize} tracks` : FRED_FM_YT_PLAYLIST ? "yt-playlist (loading...)" : "genre seeds (no playlist configured)"}`,
     "radio",
   );
 
