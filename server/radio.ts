@@ -31,6 +31,15 @@ const RECENT_YT_LIMIT = 30;
 const RECENT_ASSETS_LIMIT = 15;
 const STATION_NAME = "Fred FM";
 
+export interface RadioNowPlaying {
+  title: string;
+  artist: string;
+  source: string;
+  artworkUrl: string | null;
+}
+
+const stationNowPlaying = new Map<string, RadioNowPlaying>();
+
 // Default search seeds for the YouTube-via-Lavalink rotation. Override with
 // the `RADIO_YT_SEEDS` env var (comma-separated). Each round picks one and
 // queries Lavalink for matches.
@@ -258,6 +267,7 @@ async function sendNowPlaying(
   source: string,
   artwork: string | null = null,
 ): Promise<void> {
+  stationNowPlaying.set(station.guildId, { title, artist, source, artworkUrl: artwork });
   try {
     const embed = new EmbedBuilder()
       .setAuthor({ name: `📻 ${STATION_NAME}` })
@@ -532,9 +542,42 @@ function stopStation(guildId: string, reason: string): boolean {
   if (!station) return false;
   station.active = false;
   stations.delete(guildId);
+  stationNowPlaying.delete(guildId);
   void radioLeaveVoiceChannel(guildId);
   clearStationPresence(station);
   log(`[Radio] OFF AIR in guild ${guildId} (${reason})`, "radio");
+  return true;
+}
+
+export function getRadioNowPlaying(guildId: string): RadioNowPlaying | null {
+  return stationNowPlaying.get(guildId) ?? null;
+}
+
+export async function pauseRadio(guildId: string): Promise<boolean> {
+  const station = stations.get(guildId);
+  if (!station) return false;
+  await station.player.setPaused(true);
+  return true;
+}
+
+export async function resumeRadio(guildId: string): Promise<boolean> {
+  const station = stations.get(guildId);
+  if (!station) return false;
+  await station.player.setPaused(false);
+  return true;
+}
+
+export async function setRadioVolume(guildId: string, vol: number): Promise<boolean> {
+  const station = stations.get(guildId);
+  if (!station) return false;
+  await station.player.setGlobalVolume(vol);
+  return true;
+}
+
+export function radioSkipCurrentTrack(guildId: string): boolean {
+  const station = stations.get(guildId);
+  if (!station) return false;
+  station.player.stopTrack();
   return true;
 }
 

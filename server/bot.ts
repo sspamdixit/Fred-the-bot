@@ -20,7 +20,7 @@ import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
 import { askGemini, askGeminiWithImage, clearUserMemorySession, clearAllHistory, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, pushChannelMessage, type ImageData } from "./gemini";
 import { queueMemoryIngestion, runHypocrisyEngine, searchServerLore, buildUserDossier } from "./semantic-memory";
-import { startRadio, stopRadio, isRadioActive, previewLibrary } from "./radio";
+import { startRadio, stopRadio, isRadioActive, previewLibrary, getRadioNowPlaying, pauseRadio, resumeRadio, setRadioVolume, radioSkipCurrentTrack } from "./radio";
 import { searchWeb, formatSearchResultsForAI, detectSearchIntent } from "./search";
 import { startQotd, stopQotd } from "./qotd";
 import { storage } from "./storage";
@@ -100,6 +100,31 @@ export interface LiveMessage {
   content: string;
   attachments: LiveAttachment[];
   timestamp: number;
+}
+
+const HISTORY_LIMIT = 20;
+const trackHistory = new Map<string, Array<{
+  title: string;
+  author: string;
+  duration: number;
+  uri: string;
+  requestedBy: string;
+  playedAt: number;
+}>>();
+
+async function fetchLyrics(artist: string, title: string): Promise<string | null> {
+  try {
+    const cleanArtist = artist.replace(/\s*[\(\[]feat\..*?[\)\]]/gi, "").replace(/\s*ft\..*$/i, "").trim();
+    const cleanTitle = title.replace(/\s*\(.*?\)/g, "").replace(/\s*\[.*?\]/g, "").trim();
+    const url = `https://api.lyrics.ovh/v1/${encodeURIComponent(cleanArtist)}/${encodeURIComponent(cleanTitle)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) return null;
+    const data = await res.json() as { lyrics?: string; error?: string };
+    if (data.error || !data.lyrics?.trim()) return null;
+    return data.lyrics.trim();
+  } catch {
+    return null;
+  }
 }
 
 let botState: BotStatus = {
@@ -1328,6 +1353,38 @@ const SLASH_COMMANDS = [
     .setName("autoplay")
     .setDescription("toggle autoplay — keep queueing similar tracks when the queue ends")
     .addBooleanOption((o) => o.setName("enabled").setDescription("explicitly turn autoplay on or off").setRequired(false)),
+  new SlashCommandBuilder()
+    .setName("lyrics")
+    .setDescription("fetch lyrics for the current song or search for a song")
+    .addStringOption((o) => o.setName("song").setDescription("artist - title (leave blank for current track)").setRequired(false)),
+  new SlashCommandBuilder()
+    .setName("history")
+    .setDescription("show recently played tracks this session"),
+  new SlashCommandBuilder()
+    .setName("rate")
+    .setDescription("fred rates anything out of 10")
+    .addStringOption((o) => o.setName("thing").setDescription("what to rate").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("8ball")
+    .setDescription("ask the magic 8 ball (fred edition)")
+    .addStringOption((o) => o.setName("question").setDescription("your yes/no question").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("ship")
+    .setDescription("rate the romantic compatibility between two people")
+    .addStringOption((o) => o.setName("person1").setDescription("first person").setRequired(true))
+    .addStringOption((o) => o.setName("person2").setDescription("second person").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("hottake")
+    .setDescription("fred delivers a spicy hot take")
+    .addStringOption((o) => o.setName("topic").setDescription("topic (optional — leave blank for a random one)").setRequired(false)),
+  new SlashCommandBuilder()
+    .setName("compliment")
+    .setDescription("fred compliments someone (expect backhanded ones)")
+    .addStringOption((o) => o.setName("user").setDescription("who to compliment").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("debate")
+    .setDescription("fred picks a side and argues it")
+    .addStringOption((o) => o.setName("topic").setDescription("topic to debate").setRequired(true)),
 
   // ── mod accessible ───────────────────────────────────────────────────────
   new SlashCommandBuilder()
@@ -1438,6 +1495,11 @@ export async function startBot() {
     setNowPlayingCallback((guildId, track, queue) => {
       // New track is now playing — reset any pending skip votes from the previous one.
       clearSkipVotes(guildId);
+      // Record to per-guild play history
+      const hist = trackHistory.get(guildId) ?? [];
+      hist.unshift({ title: track.title, author: track.author, duration: track.duration, uri: track.uri, requestedBy: track.requestedBy, playedAt: Date.now() });
+      if (hist.length > HISTORY_LIMIT) hist.length = HISTORY_LIMIT;
+      trackHistory.set(guildId, hist);
       const channel = readyClient.channels.cache.get(queue.textChannelId) as TextChannel | null;
       if (!channel) return;
       void (async () => {
@@ -2160,11 +2222,13 @@ export async function startBot() {
 
       if (musicCmd === "skip") {
         try {
-          const result = await requestSkip(client!, guildId, message.author.id);
-          await message.reply({
-            content: formatSkipReply(result),
-            allowedMentions: { parse: [], repliedUser: false },
-          });
+          if (isRadioActive(guildId)) {
+            const skipped = radioSkipCurrentTrack(guildId);
+            await message.reply({ content: skipped ? "⏭ skipping to the next track." : "radio isn't active.", allowedMentions: { parse: [], repliedUser: false } });
+          } else {
+            const result = await requestSkip(client!, guildId, message.author.id);
+            await message.reply({ content: formatSkipReply(result), allowedMentions: { parse: [], repliedUser: false } });
+          }
         } catch (err: any) {
           await message.reply({ content: `skip failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
         }
@@ -2173,11 +2237,16 @@ export async function startBot() {
 
       if (musicCmd === "stop") {
         try {
-          const stopped = await stopMusic(guildId);
-          await message.reply({
-            content: stopped ? "stopped and disconnected." : "i wasn't even playing anything.",
-            allowedMentions: { parse: [], repliedUser: false },
-          });
+          if (isRadioActive(guildId)) {
+            stopRadio(guildId);
+            await message.reply({ content: "📻 fred fm is off the air.", allowedMentions: { parse: [], repliedUser: false } });
+          } else {
+            const stopped = await stopMusic(guildId);
+            await message.reply({
+              content: stopped ? "stopped and disconnected." : "i wasn't even playing anything.",
+              allowedMentions: { parse: [], repliedUser: false },
+            });
+          }
         } catch (err: any) {
           await message.reply({ content: `stop failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
         }
@@ -2223,11 +2292,13 @@ export async function startBot() {
 
       if (musicCmd === "pause") {
         try {
-          const paused = await pauseMusic(guildId);
-          await message.reply({
-            content: paused ? "paused." : "nothing to pause.",
-            allowedMentions: { parse: [], repliedUser: false },
-          });
+          if (isRadioActive(guildId)) {
+            await pauseRadio(guildId);
+            await message.reply({ content: "📻 radio paused.", allowedMentions: { parse: [], repliedUser: false } });
+          } else {
+            const paused = await pauseMusic(guildId);
+            await message.reply({ content: paused ? "paused." : "nothing to pause.", allowedMentions: { parse: [], repliedUser: false } });
+          }
         } catch (err: any) {
           await message.reply({ content: `pause failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
         }
@@ -2236,11 +2307,13 @@ export async function startBot() {
 
       if (musicCmd === "resume") {
         try {
-          const resumed = await resumeMusic(guildId);
-          await message.reply({
-            content: resumed ? "resumed." : "nothing to resume.",
-            allowedMentions: { parse: [], repliedUser: false },
-          });
+          if (isRadioActive(guildId)) {
+            await resumeRadio(guildId);
+            await message.reply({ content: "📻 radio resumed.", allowedMentions: { parse: [], repliedUser: false } });
+          } else {
+            const resumed = await resumeMusic(guildId);
+            await message.reply({ content: resumed ? "resumed." : "nothing to resume.", allowedMentions: { parse: [], repliedUser: false } });
+          }
         } catch (err: any) {
           await message.reply({ content: `resume failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
         }
@@ -2274,6 +2347,22 @@ export async function startBot() {
       }
 
       if (musicCmd === "np" || musicCmd === "nowplaying") {
+        if (isRadioActive(guildId)) {
+          const np = getRadioNowPlaying(guildId);
+          if (!np) {
+            await message.reply({ content: "📻 fred fm is on the air but i'm between tracks.", allowedMentions: { parse: [], repliedUser: false } });
+            return;
+          }
+          const embed = new EmbedBuilder()
+            .setAuthor({ name: "📻 Fred FM — Now Playing" })
+            .setTitle(np.title)
+            .setDescription(`by **${np.artist}**`)
+            .setFooter({ text: np.source })
+            .setColor(0xff5e3a);
+          if (np.artworkUrl) embed.setThumbnail(np.artworkUrl);
+          await message.reply({ embeds: [embed], allowedMentions: { parse: [], repliedUser: false } });
+          return;
+        }
         const q = getQueue(guildId);
         if (!q?.current) {
           await message.reply({ content: "nothing is playing.", allowedMentions: { parse: [], repliedUser: false } });
@@ -2295,11 +2384,16 @@ export async function startBot() {
           return;
         }
         try {
-          const set = await setMusicVolume(guildId, vol);
-          await message.reply({
-            content: set ? `volume set to ${vol}%.` : "nothing is playing.",
-            allowedMentions: { parse: [], repliedUser: false },
-          });
+          if (isRadioActive(guildId)) {
+            await setRadioVolume(guildId, vol);
+            await message.reply({ content: `📻 radio volume set to ${vol}%.`, allowedMentions: { parse: [], repliedUser: false } });
+          } else {
+            const set = await setMusicVolume(guildId, vol);
+            await message.reply({
+              content: set ? `volume set to ${vol}%.` : "nothing is playing.",
+              allowedMentions: { parse: [], repliedUser: false },
+            });
+          }
         } catch (err: any) {
           await message.reply({ content: `volume failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
         }
@@ -2851,16 +2945,26 @@ export async function startBot() {
           "",
           "**music**",
           "`/play <query>` — play a song (or `?play`)",
-          "`/skip` — skip current track",
-          "`/stop` — stop and disconnect",
-          "`/pause` / `/resume` — pause or resume",
+          "`/skip` — skip current track (works for radio too)",
+          "`/stop` — stop and disconnect (works for radio too)",
+          "`/pause` / `/resume` — pause or resume (works for radio too)",
+          "`/nowplaying` — show current track (works for radio too)",
+          "`/volume <0-100>` — set volume (works for radio too)",
           "`/queue` — show the queue",
-          "`/nowplaying` — show current track",
-          "`/volume <0-100>` — set volume",
+          "`/lyrics [artist - title]` — fetch lyrics for current/specified song",
+          "`/history` — show recently played tracks",
           "",
           "**radio**",
           "`/radio` — start fred fm in your voice channel",
           "`/radiostop` — stop fred fm",
+          "",
+          "**fun**",
+          "`/rate <thing>` — fred rates anything out of 10",
+          "`/8ball <question>` — ask the oracle",
+          "`/ship <a> <b>` — compatibility check",
+          "`/hottake [topic]` — hot take incoming",
+          "`/compliment <user>` — (backhanded) compliment",
+          "`/debate <topic>` — fred picks a side",
         );
       }
 
@@ -3014,11 +3118,13 @@ export async function startBot() {
 
       if (commandName === "skip") {
         try {
-          const result = await requestSkip(client!, guildId, interaction.user.id);
-          await interaction.reply({
-            content: formatSkipReply(result),
-            allowedMentions: { parse: [] },
-          });
+          if (isRadioActive(guildId)) {
+            const skipped = radioSkipCurrentTrack(guildId);
+            await interaction.reply({ content: skipped ? "⏭ skipping to the next track." : "radio isn't active.", allowedMentions: { parse: [] } });
+          } else {
+            const result = await requestSkip(client!, guildId, interaction.user.id);
+            await interaction.reply({ content: formatSkipReply(result), allowedMentions: { parse: [] } });
+          }
         } catch (err: any) {
           await interaction.reply({ content: `skip failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
         }
@@ -3027,11 +3133,16 @@ export async function startBot() {
 
       if (commandName === "stop") {
         try {
-          const stopped = await stopMusic(guildId);
-          await interaction.reply({
-            content: stopped ? "stopped and disconnected." : "i wasn't even playing anything.",
-            allowedMentions: { parse: [] },
-          });
+          if (isRadioActive(guildId)) {
+            stopRadio(guildId);
+            await interaction.reply({ content: "📻 fred fm is off the air.", allowedMentions: { parse: [] } });
+          } else {
+            const stopped = await stopMusic(guildId);
+            await interaction.reply({
+              content: stopped ? "stopped and disconnected." : "i wasn't even playing anything.",
+              allowedMentions: { parse: [] },
+            });
+          }
         } catch (err: any) {
           await interaction.reply({ content: `stop failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
         }
@@ -3078,11 +3189,13 @@ export async function startBot() {
 
       if (commandName === "pause") {
         try {
-          const paused = await pauseMusic(guildId);
-          await interaction.reply({
-            content: paused ? "paused." : "nothing to pause.",
-            allowedMentions: { parse: [] },
-          });
+          if (isRadioActive(guildId)) {
+            await pauseRadio(guildId);
+            await interaction.reply({ content: "📻 radio paused.", allowedMentions: { parse: [] } });
+          } else {
+            const paused = await pauseMusic(guildId);
+            await interaction.reply({ content: paused ? "paused." : "nothing to pause.", allowedMentions: { parse: [] } });
+          }
         } catch (err: any) {
           await interaction.reply({ content: `pause failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
         }
@@ -3091,11 +3204,13 @@ export async function startBot() {
 
       if (commandName === "resume") {
         try {
-          const resumed = await resumeMusic(guildId);
-          await interaction.reply({
-            content: resumed ? "resumed." : "nothing to resume.",
-            allowedMentions: { parse: [] },
-          });
+          if (isRadioActive(guildId)) {
+            await resumeRadio(guildId);
+            await interaction.reply({ content: "📻 radio resumed.", allowedMentions: { parse: [] } });
+          } else {
+            const resumed = await resumeMusic(guildId);
+            await interaction.reply({ content: resumed ? "resumed." : "nothing to resume.", allowedMentions: { parse: [] } });
+          }
         } catch (err: any) {
           await interaction.reply({ content: `resume failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
         }
@@ -3129,6 +3244,22 @@ export async function startBot() {
       }
 
       if (commandName === "nowplaying") {
+        if (isRadioActive(guildId)) {
+          const np = getRadioNowPlaying(guildId);
+          if (!np) {
+            await interaction.reply({ content: "📻 fred fm is on the air but i'm between tracks.", allowedMentions: { parse: [] } });
+            return;
+          }
+          const embed = new EmbedBuilder()
+            .setAuthor({ name: "📻 Fred FM — Now Playing" })
+            .setTitle(np.title)
+            .setDescription(`by **${np.artist}**`)
+            .setFooter({ text: np.source })
+            .setColor(0xff5e3a);
+          if (np.artworkUrl) embed.setThumbnail(np.artworkUrl);
+          await interaction.reply({ embeds: [embed], allowedMentions: { parse: [] } });
+          return;
+        }
         const q = getQueue(guildId);
         if (!q?.current) {
           await interaction.reply({ content: "nothing is playing.", allowedMentions: { parse: [] } });
@@ -3147,11 +3278,16 @@ export async function startBot() {
       if (commandName === "volume") {
         const vol = interaction.options.getInteger("level", true);
         try {
-          const set = await setMusicVolume(guildId, vol);
-          await interaction.reply({
-            content: set ? `volume set to ${vol}%.` : "nothing is playing.",
-            allowedMentions: { parse: [] },
-          });
+          if (isRadioActive(guildId)) {
+            await setRadioVolume(guildId, vol);
+            await interaction.reply({ content: `📻 radio volume set to ${vol}%.`, allowedMentions: { parse: [] } });
+          } else {
+            const set = await setMusicVolume(guildId, vol);
+            await interaction.reply({
+              content: set ? `volume set to ${vol}%.` : "nothing is playing.",
+              allowedMentions: { parse: [] },
+            });
+          }
         } catch (err: any) {
           await interaction.reply({ content: `volume failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
         }
@@ -3308,7 +3444,7 @@ export async function startBot() {
       }
 
       if (isRadioActive(guildId)) {
-        await replyEph("fred fm is already on the air. use `/radiostop` first.");
+        await replyEph("fred fm is already on the air. use `/stop` first.");
         return;
       }
 
@@ -3378,8 +3514,76 @@ export async function startBot() {
       return;
     }
 
+    // lyrics / history
+    if (commandName === "lyrics" || commandName === "history") {
+      const guildId = interaction.guildId;
+      if (!guildId) {
+        await replyEph("this command only works in servers.");
+        return;
+      }
+
+      if (commandName === "history") {
+        const hist = trackHistory.get(guildId);
+        if (!hist || hist.length === 0) {
+          await interaction.reply({ content: "no tracks played yet this session.", allowedMentions: { parse: [] } });
+          return;
+        }
+        const lines = hist.map((t, i) => {
+          const dur = formatDuration(t.duration);
+          const ago = Math.floor((Date.now() - t.playedAt) / 60000);
+          const agoStr = ago < 1 ? "just now" : ago === 1 ? "1 min ago" : `${ago} min ago`;
+          return `${i + 1}. **${t.title}** by ${t.author} [${dur}] — req by ${t.requestedBy} · ${agoStr}`;
+        });
+        await interaction.reply({ content: `**recently played:**\n${lines.join("\n")}`, allowedMentions: { parse: [] } });
+        return;
+      }
+
+      // lyrics
+      await interaction.deferReply();
+      let lyricsArtist = "";
+      let lyricsTitle = "";
+      const songArg = interaction.options.getString("song", false);
+      if (songArg) {
+        const dashIdx = songArg.indexOf(" - ");
+        if (dashIdx !== -1) {
+          lyricsArtist = songArg.slice(0, dashIdx).trim();
+          lyricsTitle = songArg.slice(dashIdx + 3).trim();
+        } else {
+          lyricsArtist = songArg.trim();
+          lyricsTitle = songArg.trim();
+        }
+      } else {
+        const q = getQueue(guildId);
+        if (q?.current) {
+          lyricsArtist = q.current.author;
+          lyricsTitle = q.current.title;
+        } else {
+          const np = getRadioNowPlaying(guildId);
+          if (np) {
+            lyricsArtist = np.artist;
+            lyricsTitle = np.title;
+          }
+        }
+      }
+      if (!lyricsArtist && !lyricsTitle) {
+        await interaction.editReply({ content: "nothing is playing. provide a song with `/lyrics artist - title`.", allowedMentions: { parse: [] } });
+        return;
+      }
+      const lyrics = await fetchLyrics(lyricsArtist, lyricsTitle);
+      if (!lyrics) {
+        await interaction.editReply({ content: `couldn't find lyrics for **${lyricsTitle}**${lyricsArtist !== lyricsTitle ? ` by ${lyricsArtist}` : ""}. try formatting as \`artist - title\`.`, allowedMentions: { parse: [] } });
+        return;
+      }
+      const header = `**${lyricsTitle}**${lyricsArtist !== lyricsTitle ? ` by ${lyricsArtist}` : ""}\n\n`;
+      const maxLyrics = 2000 - header.length - 6;
+      const truncated = lyrics.length > maxLyrics;
+      const displayLyrics = truncated ? lyrics.slice(0, maxLyrics) + "\n…" : lyrics;
+      await interaction.editReply({ content: header + displayLyrics, allowedMentions: { parse: [] } });
+      return;
+    }
+
     // AI commands
-    if (["fred", "poem", "roast", "explain", "translate", "tldr"].includes(commandName)) {
+    if (["fred", "poem", "roast", "explain", "translate", "tldr", "rate", "8ball", "ship", "hottake", "compliment", "debate"].includes(commandName)) {
       await interaction.deferReply();
       try {
         let taskPrompt: string;
@@ -3418,6 +3622,27 @@ export async function startBot() {
         } else if (commandName === "explain") {
           const topic = interaction.options.getString("topic", true);
           taskPrompt = `explain this thoroughly and accurately: ${topic}. be as detailed as the topic warrants. still in your voice, but actually useful.`;
+        } else if (commandName === "rate") {
+          const thing = interaction.options.getString("thing", true);
+          taskPrompt = `rate "${thing}" out of 10. give a specific score like 7.3/10 or 2/10 — no round numbers unless it truly deserves them. explain your rating in 2-3 sharp sentences. be honest and opinionated. start your response with just the score.`;
+        } else if (commandName === "8ball") {
+          const question = interaction.options.getString("question", true);
+          taskPrompt = `the user asked the magic 8 ball: "${question}". give a magic 8 ball style answer, but in your voice as fred — a slightly sarcastic oracle who's seen too much. pick one definitive answer and commit to it. one or two sentences max.`;
+        } else if (commandName === "ship") {
+          const person1 = interaction.options.getString("person1", true);
+          const person2 = interaction.options.getString("person2", true);
+          taskPrompt = `rate the romantic compatibility between ${person1} and ${person2}. give a compatibility percentage like "64%" — make it a weird specific number. analyze why they would or wouldn't work together in 2-3 sentences. be entertaining and honest. start with the percentage.`;
+        } else if (commandName === "hottake") {
+          const topic = interaction.options.getString("topic", false);
+          taskPrompt = topic
+            ? `deliver a spicy, controversial hot take about: ${topic}. be bold, specific, and willing to defend it. 1-3 sentences, no hedging, no "some people think" — own it.`
+            : `deliver a completely unprompted spicy, controversial hot take about anything — music, food, culture, technology, society, whatever. be bold, specific, and willing to defend it. 1-3 sentences, no hedging.`;
+        } else if (commandName === "compliment") {
+          const user = interaction.options.getString("user", true);
+          taskPrompt = `give ${user} a compliment, but make it subtly backhanded — the kind that sounds nice at first but has a sting in the tail. be witty about it, not mean-spirited. 1-2 sentences.`;
+        } else if (commandName === "debate") {
+          const topic = interaction.options.getString("topic", true);
+          taskPrompt = `pick a side on the following topic and argue it convincingly in 3-5 sentences: "${topic}". don't be neutral — commit to your position fully. be persuasive, specific, and a little provocative.`;
         } else {
           // translate
           const lang = interaction.options.getString("language", true);
