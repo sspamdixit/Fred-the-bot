@@ -30,6 +30,76 @@ const RECENT_MUSIC_LIMIT = 20;
 const RECENT_YT_LIMIT = 30;
 const RECENT_ASSETS_LIMIT = 15;
 const STATION_NAME = "Fred FM";
+const FRED_FM_PLAYLIST_ID = (process.env.FRED_FM_PLAYLIST ?? "0u1nVS6XR1CFjbSmkFDYyL").trim();
+const PLAYLIST_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+interface PlaylistTrack { title: string; artist: string; }
+let cachedPlaylistTracks: PlaylistTrack[] | null = null;
+let playlistCacheTime = 0;
+
+async function getSpotifyToken(): Promise<string | null> {
+  const clientId = process.env.SPOTIFY_CLIENT_ID?.trim();
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) return null;
+  try {
+    const creds = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+    const res = await fetch("https://accounts.spotify.com/api/token", {
+      method: "POST",
+      headers: { "Authorization": `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: "grant_type=client_credentials",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { access_token?: string };
+    return data.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchPlaylistTracks(): Promise<PlaylistTrack[]> {
+  const now = Date.now();
+  if (cachedPlaylistTracks && now - playlistCacheTime < PLAYLIST_CACHE_TTL) {
+    return cachedPlaylistTracks;
+  }
+  const token = await getSpotifyToken();
+  if (!token) {
+    log("[Radio] Spotify creds not set — using genre seeds as fallback", "radio");
+    return [];
+  }
+  const tracks: PlaylistTrack[] = [];
+  let url: string | null = `https://api.spotify.com/v1/playlists/${FRED_FM_PLAYLIST_ID}/tracks?limit=100&fields=next,items(track(name,artists(name)))`;
+  while (url) {
+    try {
+      const res = await fetch(url, {
+        headers: { "Authorization": `Bearer ${token}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) break;
+      const data = await res.json() as {
+        next: string | null;
+        items: Array<{ track: { name: string; artists: Array<{ name: string }> } | null }>;
+      };
+      for (const item of data.items) {
+        if (!item.track) continue;
+        const artist = item.track.artists[0]?.name ?? "Unknown";
+        const title = item.track.name;
+        tracks.push({ artist, title });
+      }
+      url = data.next ?? null;
+    } catch {
+      break;
+    }
+  }
+  if (tracks.length > 0) {
+    cachedPlaylistTracks = tracks;
+    playlistCacheTime = now;
+    log(`[Radio] Spotify playlist loaded: ${tracks.length} tracks from ${FRED_FM_PLAYLIST_ID}`, "radio");
+  } else {
+    log(`[Radio] Spotify playlist fetch returned 0 tracks — using genre seeds`, "radio");
+  }
+  return tracks;
+}
 
 export interface RadioNowPlaying {
   title: string;
@@ -206,10 +276,40 @@ class TrackResolver {
 // YouTube-via-Lavalink playback
 
 async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | null> {
-  const seeds = getYTSeeds();
+  const playlistTracks = await fetchPlaylistTracks();
+
+  let seedsToTry: string[];
+  if (playlistTracks.length > 0) {
+    // 55% chance: play an actual track from the Spotify playlist
+    // 45% chance: play a discovery/autoplay track based on a playlist artist
+    const useDiscovery = Math.random() < 0.45;
+    if (useDiscovery) {
+      // Pick a random playlist artist and build a discovery query around them
+      const base = playlistTracks[Math.floor(Math.random() * playlistTracks.length)];
+      const artistOnly = base.artist.replace(/\s*&.*$/, "").replace(/\s*feat\..*$/i, "").trim();
+      const discoveryForms = [
+        `${artistOnly} radio mix`,
+        `${artistOnly} similar songs`,
+        `best of ${artistOnly}`,
+        `${artistOnly} top hits`,
+        `songs like ${artistOnly}`,
+        `${artistOnly} playlist`,
+        `${artistOnly} greatest hits`,
+      ];
+      seedsToTry = discoveryForms;
+    } else {
+      // Pick a random slice of playlist tracks and use them as search queries
+      const shuffled = [...playlistTracks].sort(() => Math.random() - 0.5);
+      seedsToTry = shuffled.slice(0, 20).map((t) => `${t.artist} ${t.title}`);
+    }
+  } else {
+    // No Spotify creds or fetch failed — fall back to genre seeds
+    seedsToTry = getYTSeeds();
+  }
+
   // Try up to 4 different seeds before giving up.
   for (let i = 0; i < 4; i++) {
-    const seed = seeds[Math.floor(Math.random() * seeds.length)];
+    const seed = seedsToTry[Math.floor(Math.random() * seedsToTry.length)];
     const tracks = await radioResolveYouTube(seed, 12);
     if (!tracks.length) continue;
     const fresh = tracks.filter((t) => !station.recentYTUris.includes(t.uri));
@@ -364,8 +464,9 @@ async function playLocalMusic(station: RadioStation, resolver: TrackResolver, mu
 
 async function broadcastLoop(station: RadioStation): Promise<void> {
   const ytRatio = getYouTubeMixRatio();
+  const playlistSize = cachedPlaylistTracks?.length ?? 0;
   log(
-    `[Radio] director config: yt-available=${isLavalinkAvailable()} yt-ratio=${ytRatio.toFixed(2)} seeds=${getYTSeeds().length}`,
+    `[Radio] director config: yt-available=${isLavalinkAvailable()} yt-ratio=${ytRatio.toFixed(2)} playlist=${playlistSize > 0 ? `${playlistSize} tracks (${FRED_FM_PLAYLIST_ID})` : "genre seeds (no Spotify)"}`,
     "radio",
   );
 
@@ -524,6 +625,9 @@ export async function startRadio(
   stations.set(guild.id, station);
 
   log(`[Radio] ON AIR in ${guild.name} (vc ${voiceChannelId}) · local=${localFiles.length}`, "radio");
+
+  // Pre-warm the Spotify playlist cache so the first track pick is instant.
+  void fetchPlaylistTracks().catch(() => {});
 
   void broadcastLoop(station).catch((err) => {
     log(`[Radio] broadcast loop crashed: ${err?.message ?? err}`, "radio");
