@@ -93,6 +93,7 @@ async function extractEpisodeText(content: string): Promise<ExtractedEpisode | n
       "TOPIC — 1-3 word tag for the subject area (e.g. 'university', 'relationship', 'music', 'health', 'career', 'gaming')",
       "",
       "NOT worth extracting: generic questions, greetings, bot commands, casual banter with no personal content.",
+      "NEVER extract: anything about 'fred', 'the bot', or 'the assistant' as a person in the user's life. The message is addressed TO fred — fred is not a human in their social circle. 'i love talking to fred' is not a relationship worth storing.",
       "",
       "Output format — EXACTLY this, one line, pipe-separated:",
       "category|probe|topic|text",
