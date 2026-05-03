@@ -136,9 +136,9 @@ the lore builds itself.
 ## fred fm (live radio broadcasting)
 
 - `/radio` joins your voice channel and starts a non-stop radio station run by lukas
-- **everything plays through lavalink** — local files, ads, dj chatter, weird sounds, youtube tracks — single audio path, no ffmpeg, no udp, works on render free tier
-- **spotify playlist mode**: fred fm pulls from a curated spotify playlist (`FRED_FM_PLAYLIST` env var). 50% of music slots pick directly from the playlist; 50% are discovery tracks derived from playlist artists — artist mixes, similar-artist searches, track-level discovery — so the station expands naturally while staying on-genre
-- **director** between tracks rolls weighted dice: adverts, dj selftalk, track intros/outros, weird sounds
+- **everything plays through lavalink** — local files, dj chatter, weird sounds, youtube tracks — single audio path, no ffmpeg, no udp, works on render free tier
+- **spotify playlist**: fred fm pulls exclusively from a curated spotify playlist. shuffled drain-and-refill queue — every track plays exactly once before any repeats, order re-randomised on each cycle so the station never sounds the same twice
+- **director** between tracks rolls weighted dice: dj selftalk, track intros/outros, weird sounds. no adverts, ever.
 - **anti-repeat windows** — recent tracks, youtube uris, and clips never repeat
 - **lukas is the only voice on air.** the pre-recorded clips in `radio_assets/` are the only audio source. no generated tts, no other voices. lukas sounds like lukas. that's the point.
 
@@ -277,8 +277,7 @@ guild lore extraction, episodic memory extraction, and hypocrisy engine embeddin
 | `BRAVE_SEARCH_API_KEY` | optional | better general search. 2000 free/month. |
 | `LAVALINK_NODES` | optional | json array of `{url, auth, secure}` to override public nodes |
 | `LAVALINK_URL` / `LAVALINK_AUTH` / `LAVALINK_SECURE` | optional | quick single-node override |
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | optional | enables spotify playlist mode for fred fm and album art for now-playing embeds |
-| `FRED_FM_PLAYLIST` | optional | spotify playlist id for fred fm. defaults to a curated list. requires spotify credentials. |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | optional | enables spotify playlist fetching for fred fm and album art for now-playing embeds |
 | `PUBLIC_BASE_URL` | required for `/radio` (auto on render/replit) | absolute https url for the bot's web server — lavalink fetches local radio assets from here |
 | `RENDER_EXTERNAL_URL` | optional (auto on render) | keep-alive target and public base url for fred fm |
 | `PROGRESS_UPDATE_MS` | optional | progress bar tick interval in ms (default 7000) |
@@ -315,7 +314,7 @@ npm run dev
 
 episodic memory (`user_episodes` table) is created automatically on bot startup via raw sql — no migration step needed.
 
-**fred fm:** radio assets live in `radio_assets/{advert,selftalk,trackintro,trackoutro,weirdsound}/` — a starter pack ships with the repo. these are lukas's pre-recorded clips and the only voice that comes out of the voice channel. don't replace them with something else and then wonder why it sounds weird.
+**fred fm:** radio assets live in `radio_assets/{selftalk,trackintro,trackoutro,weirdsound}/` — a starter pack ships with the repo. these are lukas's pre-recorded clips and the only voice that comes out of the voice channel. don't replace them with something else and then wonder why it sounds weird.
 
 production:
 
