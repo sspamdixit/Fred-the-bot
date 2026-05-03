@@ -47,7 +47,7 @@ const FADE_IN_MS = 1_200;
 const FADE_OUT_MS = 900;
 const MIN_SONGS_BETWEEN_ADVERTS = 4;
 const MIN_SONGS_BETWEEN_SELFTALK = 2;
-const FRED_FM_PLAYLIST_ID = (process.env.FRED_FM_PLAYLIST ?? "0u1nVS6XR1CFjbSmkFDYyL").trim();
+const FRED_FM_PLAYLIST_ID = "0u1nVS6XR1CFjbSmkFDYyL";
 const FRED_FM_YT_PLAYLIST = process.env.FRED_FM_YT_PLAYLIST?.trim() ?? null;
 const PLAYLIST_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
@@ -115,11 +115,13 @@ async function fetchPlaylistTracks(): Promise<PlaylistTrack[]> {
       }
     }
     if (tracks.length > 0) {
-      cachedPlaylistTracks = tracks;
+      // Shuffle immediately so the in-memory order is random and every station
+      // that draws from this cache starts from a different position.
+      cachedPlaylistTracks = shuffleArray(tracks);
       playlistCacheTime = now;
       playlistSource = "spotify";
-      log(`[Radio] Spotify playlist loaded: ${tracks.length} tracks from ${FRED_FM_PLAYLIST_ID}`, "radio");
-      return tracks;
+      log(`[Radio] Spotify playlist loaded: ${tracks.length} tracks from ${FRED_FM_PLAYLIST_ID} (shuffled)`, "radio");
+      return cachedPlaylistTracks;
     }
     log(`[Radio] Spotify playlist fetch returned 0 tracks`, "radio");
     playlistFetchBackoffUntil = now + 5 * 60 * 1000;
@@ -304,6 +306,7 @@ interface RadioStation {
   pinnedNode: any;                      // Lavalink node hosting the player; HTTP-capable
   recentMusic: string[];               // local file paths
   recentYTUris: string[];              // youtube URIs already played this session
+  playlistQueue: PlaylistTrack[];      // shuffled copy of playlist; drained then refilled so every track plays before repeating
   recentAssets: string[];
   active: boolean;
   lastNewsHour: number;                 // UTC hour of last news segment (-1 = never)
@@ -436,14 +439,19 @@ async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | n
   if (playlistTracks.length > 0) {
     const r = Math.random();
 
-    if (r < 0.50) {
-      // 50%: play a specific track from the Spotify playlist.
-      // Shuffle and sample so every track in a large playlist gets rotation.
-      const shuffled = shuffleArray(playlistTracks);
-      seedsToTry = shuffled.slice(0, 20).map((t) => `${t.artist} ${t.title}`);
+    if (r < 0.70) {
+      // 70%: play a specific track directly from the Spotify playlist.
+      // Use a per-station drain-and-refill queue so every track gets played
+      // exactly once before any are repeated — true shuffle, no early repeats.
+      if (station.playlistQueue.length === 0) {
+        station.playlistQueue = shuffleArray(playlistTracks);
+        log(`[Radio] playlist queue refilled with ${station.playlistQueue.length} tracks (reshuffled)`, "radio");
+      }
+      const nextTrack = station.playlistQueue.shift()!;
+      seedsToTry = [`${nextTrack.artist} ${nextTrack.title}`];
 
-    } else if (r < 0.80) {
-      // 30%: artist-level discovery — radiate outward from a playlist artist.
+    } else if (r < 0.88) {
+      // 18%: artist-level discovery — radiate outward from a playlist artist.
       const base = playlistTracks[Math.floor(Math.random() * playlistTracks.length)];
       const artist = cleanArtist(base.artist);
       seedsToTry = [
@@ -459,8 +467,8 @@ async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | n
         `${artist} b-sides`,
       ];
 
-    } else if (r < 0.95) {
-      // 15%: track-level discovery — radiate outward from a specific playlist song.
+    } else if (r < 0.96) {
+      // 8%: track-level discovery — radiate outward from a specific playlist song.
       const base = playlistTracks[Math.floor(Math.random() * playlistTracks.length)];
       const artist = cleanArtist(base.artist);
       const title = cleanTitle(base.title);
@@ -474,7 +482,7 @@ async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | n
       ];
 
     } else {
-      // 5%: cross-playlist discovery — find music at the intersection of two
+      // 4%: cross-playlist discovery — find music at the intersection of two
       // random playlist artists so the radio develops a coherent blend.
       const shuffled = shuffleArray(playlistTracks);
       const artistA = cleanArtist(shuffled[0]?.artist ?? "");
@@ -487,8 +495,10 @@ async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | n
           `${artistA} x ${artistB}`,
         ];
       } else {
-        // Not enough distinct artists — fall back to direct playlist track
-        seedsToTry = shuffleArray(playlistTracks).slice(0, 20).map((t) => `${t.artist} ${t.title}`);
+        // Not enough distinct artists — fall back to next queued playlist track
+        if (station.playlistQueue.length === 0) station.playlistQueue = shuffleArray(playlistTracks);
+        const fallbackTrack = station.playlistQueue.shift()!;
+        seedsToTry = [`${fallbackTrack.artist} ${fallbackTrack.title}`];
       }
     }
 
@@ -1000,6 +1010,7 @@ export async function startRadio(
     pinnedNode: httpNode,
     recentMusic: [],
     recentYTUris: [],
+    playlistQueue: [],
     recentAssets: [],
     active: true,
     lastNewsHour: -1,
