@@ -60,7 +60,7 @@ import {
   type QueueTrack,
   type GuildQueue,
 } from "./music";
-import { djSessions, getDjStatus, onDjTrackStart, onDjStop, refillDjQueue, type DjSession } from "./dj";
+import { djSessions, getDjStatus, onDjTrackStart, onDjStop, refillDjQueue, cancelDjFades, type DjSession } from "./dj";
 
 // ── DJ mode — state + helpers live in server/dj.ts ────────────────────────
 export { getDjStatus } from "./dj";
@@ -122,18 +122,32 @@ const trackHistory = new Map<string, Array<{
 }>>();
 
 async function fetchLyrics(artist: string, title: string): Promise<string | null> {
+  const cleanArtist = artist.replace(/\s*[\(\[]feat\..*?[\)\]]/gi, "").replace(/\s*ft\..*$/i, "").trim();
+  const cleanTitle  = title.replace(/\s*\(.*?\)/g, "").replace(/\s*\[.*?\]/g, "").trim();
+  // Primary: lrclib.net — free, no key, large catalogue
   try {
-    const cleanArtist = artist.replace(/\s*[\(\[]feat\..*?[\)\]]/gi, "").replace(/\s*ft\..*$/i, "").trim();
-    const cleanTitle = title.replace(/\s*\(.*?\)/g, "").replace(/\s*\[.*?\]/g, "").trim();
-    const url = `https://api.lyrics.ovh/v1/${encodeURIComponent(cleanArtist)}/${encodeURIComponent(cleanTitle)}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-    if (!res.ok) return null;
-    const data = await res.json() as { lyrics?: string; error?: string };
-    if (data.error || !data.lyrics?.trim()) return null;
-    return data.lyrics.trim();
-  } catch {
-    return null;
-  }
+    const url = `https://lrclib.net/api/get?artist_name=${encodeURIComponent(cleanArtist)}&track_name=${encodeURIComponent(cleanTitle)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+    if (res.ok) {
+      const data = await res.json() as { plainLyrics?: string; syncedLyrics?: string; statusCode?: number };
+      if (data.statusCode !== 404) {
+        const text = data.plainLyrics?.trim() ?? data.syncedLyrics?.trim();
+        if (text) return text;
+      }
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+// Per-user cooldown for AI slash commands — prevents spam
+const aiCooldowns = new Map<string, number>();
+const AI_COOLDOWN_MS = 7_000;
+function checkAiCooldown(userId: string): { ok: boolean; remaining: number } {
+  const last = aiCooldowns.get(userId) ?? 0;
+  const remaining = AI_COOLDOWN_MS - (Date.now() - last);
+  if (remaining > 0) return { ok: false, remaining: Math.ceil(remaining / 1000) };
+  aiCooldowns.set(userId, Date.now());
+  return { ok: true, remaining: 0 };
 }
 
 let botState: BotStatus = {
@@ -1470,6 +1484,30 @@ const SLASH_COMMANDS = [
     .setName("history")
     .setDescription("show recently played tracks this session"),
   new SlashCommandBuilder()
+    .setName("savequeue")
+    .setDescription("save the current queue as a named playlist")
+    .addStringOption((o) =>
+      o.setName("name").setDescription("playlist name (e.g. chill vibes)").setRequired(true).setMaxLength(50),
+    ),
+  new SlashCommandBuilder()
+    .setName("playlist")
+    .setDescription("manage saved playlists")
+    .addSubcommand((s) =>
+      s.setName("list").setDescription("show your saved playlists"),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("load")
+        .setDescription("load a saved playlist into the queue")
+        .addStringOption((o) => o.setName("name").setDescription("playlist name").setRequired(true)),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("delete")
+        .setDescription("delete a saved playlist")
+        .addStringOption((o) => o.setName("name").setDescription("playlist name").setRequired(true)),
+    ),
+  new SlashCommandBuilder()
     .setName("rate")
     .setDescription("fred rates anything out of 10")
     .addStringOption((o) => o.setName("thing").setDescription("what to rate").setRequired(true)),
@@ -1809,7 +1847,8 @@ export async function startBot() {
       .values() ?? [])];
     const sortedRoleNames = sortedRoleEntries.map((r) => r.name);
     const roleNames = sortedRoleNames;
-    const isOwner = roleNames.some((role) => role.trim().toLowerCase() === "owner");
+    const isOwner = roleNames.some((role) => role.trim().toLowerCase() === "owner")
+      || message.guild?.ownerId === message.author.id;
     const activeModeKey = message.guildId ? guildModes.get(message.guildId) : undefined;
     const activeModeInstruction = activeModeKey ? BOT_MODES[activeModeKey]?.instruction : undefined;
 
@@ -3081,7 +3120,8 @@ export async function startBot() {
           .forEach((r) => roleNames.push(r.name));
       }
     }
-    const isOwner = roleNames.some((r) => r.trim().toLowerCase() === "owner");
+    const isOwner = roleNames.some((r) => r.trim().toLowerCase() === "owner")
+      || interaction.guild?.ownerId === interaction.user.id;
     const authorDisplayName = (interaction.member as any)?.displayName ?? interaction.user.username;
     const guildName = interaction.guild?.name ?? "unknown server";
     const channelName = (interaction.channel as TextChannel)?.name ?? "unknown";
@@ -3420,6 +3460,7 @@ export async function startBot() {
       }
 
       if (commandName === "skip") {
+        cancelDjFades(guildId);
         try {
           const result = await requestSkip(client!, guildId, interaction.user.id);
           await interaction.reply({ content: formatSkipReply(result), allowedMentions: { parse: [] } });
@@ -3545,6 +3586,7 @@ export async function startBot() {
 
       if (commandName === "volume") {
         const vol = interaction.options.getInteger("level", true);
+        cancelDjFades(guildId);
         try {
           const set = await setMusicVolume(guildId, vol);
           await interaction.reply({
@@ -3623,6 +3665,128 @@ export async function startBot() {
           content: count > 0 ? `cleared ${count} track${count === 1 ? "" : "s"} from the queue.` : "queue was already empty.",
           allowedMentions: { parse: [] },
         });
+        return;
+      }
+
+      if (commandName === "savequeue") {
+        const name = interaction.options.getString("name", true).trim();
+        const q = getQueue(guildId);
+        const tracks = q ? [q.current, ...q.tracks].filter(Boolean) as typeof q.tracks : [];
+        if (!tracks.length) {
+          await replyEph("nothing is playing — nothing to save.");
+          return;
+        }
+        await interaction.deferReply();
+        try {
+          let playlist = await storage.getPlaylist(interaction.user.id, guildId, name);
+          if (playlist) {
+            await storage.setPlaylistTracks(playlist.id, tracks.map((t, i) => ({
+              position: i,
+              encoded: t.encoded,
+              title: t.title,
+              author: t.author,
+              uri: t.uri,
+              duration: t.duration,
+              artworkUrl: t.artworkUrl ?? null,
+            })));
+          } else {
+            playlist = await storage.createPlaylist(interaction.user.id, guildId, name);
+            await storage.setPlaylistTracks(playlist.id, tracks.map((t, i) => ({
+              position: i,
+              encoded: t.encoded,
+              title: t.title,
+              author: t.author,
+              uri: t.uri,
+              duration: t.duration,
+              artworkUrl: t.artworkUrl ?? null,
+            })));
+          }
+          await interaction.editReply({
+            content: `saved **${tracks.length}** track${tracks.length !== 1 ? "s" : ""} as playlist **${name}**.`,
+            allowedMentions: { parse: [] },
+          });
+        } catch (err: any) {
+          log(`[Playlist:save] failed: ${err.message}`, "discord");
+          await interaction.editReply({ content: `couldn't save playlist: ${err.message}`, allowedMentions: { parse: [] } }).catch(() => {});
+        }
+        return;
+      }
+
+      if (commandName === "playlist") {
+        const sub = interaction.options.getSubcommand();
+        if (sub === "list") {
+          await interaction.deferReply({ ephemeral: true });
+          try {
+            const lists = await storage.getPlaylists(interaction.user.id, guildId);
+            if (!lists.length) {
+              await interaction.editReply({ content: "you have no saved playlists in this server. use `/savequeue <name>` to save one.", allowedMentions: { parse: [] } });
+              return;
+            }
+            const lines = lists.map((p, i) => `${i + 1}. **${p.name}**`).join("\n");
+            await interaction.editReply({ content: `**your playlists:**\n${lines}`, allowedMentions: { parse: [] } });
+          } catch (err: any) {
+            await interaction.editReply({ content: `error: ${err.message}`, allowedMentions: { parse: [] } }).catch(() => {});
+          }
+          return;
+        }
+
+        if (sub === "load") {
+          const name = interaction.options.getString("name", true).trim();
+          const voiceChannel = (interaction.guild?.members.cache.get(interaction.user.id))?.voice?.channel;
+          if (!voiceChannel) {
+            await replyEph("join a voice channel first.");
+            return;
+          }
+          await interaction.deferReply();
+          try {
+            const playlist = await storage.getPlaylist(interaction.user.id, guildId, name);
+            if (!playlist) {
+              await interaction.editReply({ content: `no playlist named **${name}** found.`, allowedMentions: { parse: [] } });
+              return;
+            }
+            const rows = await storage.getPlaylistTracks(playlist.id);
+            if (!rows.length) {
+              await interaction.editReply({ content: `playlist **${name}** is empty.`, allowedMentions: { parse: [] } });
+              return;
+            }
+            const tracks: QueueTrack[] = rows.map((r) => ({
+              encoded: r.encoded,
+              title: r.title,
+              author: r.author,
+              uri: r.uri,
+              duration: r.duration,
+              isStream: false,
+              requestedBy: interaction.user.username,
+              artworkUrl: r.artworkUrl ?? null,
+            }));
+            const result = await joinAndPlayMultiple(guildId, voiceChannel.id, interaction.channelId, tracks, interaction.guild?.shardId ?? 0);
+            await interaction.editReply({
+              content: result === "playing"
+                ? `playing playlist **${name}** — ${tracks.length} tracks.`
+                : `queued playlist **${name}** — ${tracks.length} tracks added.`,
+              allowedMentions: { parse: [] },
+            });
+          } catch (err: any) {
+            log(`[Playlist:load] failed: ${err.message}`, "discord");
+            await interaction.editReply({ content: `couldn't load playlist: ${err.message}`, allowedMentions: { parse: [] } }).catch(() => {});
+          }
+          return;
+        }
+
+        if (sub === "delete") {
+          const name = interaction.options.getString("name", true).trim();
+          await interaction.deferReply({ ephemeral: true });
+          try {
+            const deleted = await storage.deletePlaylist(interaction.user.id, guildId, name);
+            await interaction.editReply({
+              content: deleted ? `deleted playlist **${name}**.` : `no playlist named **${name}** found.`,
+              allowedMentions: { parse: [] },
+            });
+          } catch (err: any) {
+            await interaction.editReply({ content: `error: ${err.message}`, allowedMentions: { parse: [] } }).catch(() => {});
+          }
+          return;
+        }
         return;
       }
 
@@ -3849,6 +4013,11 @@ export async function startBot() {
 
     // AI commands
     if (["fred", "poem", "roast", "explain", "translate", "tldr", "rate", "8ball", "ship", "hottake", "compliment", "debate"].includes(commandName)) {
+      const cd = checkAiCooldown(interaction.user.id);
+      if (!cd.ok) {
+        await interaction.reply({ content: `slow down — ${cd.remaining}s cooldown remaining.`, ephemeral: true, allowedMentions: { parse: [] } });
+        return;
+      }
       await interaction.deferReply();
       try {
         let taskPrompt: string;
