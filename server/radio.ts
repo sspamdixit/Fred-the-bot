@@ -44,84 +44,40 @@ const STATION_NAME = "Fred FM";
 const FADE_IN_MS = 1_200;
 const FADE_OUT_MS = 900;
 const MIN_SONGS_BETWEEN_SELFTALK = 2;
-const FRED_FM_PLAYLIST_ID = "0u1nVS6XR1CFjbSmkFDYyL";
+// Fred FM playlist — resolved directly through Lavalink (same path as /play), no Spotify credentials needed.
+const FRED_FM_PLAYLIST_URL = "https://open.spotify.com/playlist/0u1nVS6XR1CFjbSmkFDYyL";
 const PLAYLIST_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
-interface PlaylistTrack { title: string; artist: string; }
-let cachedPlaylistTracks: PlaylistTrack[] | null = null;
+let cachedResolvedTracks: RadioYTTrack[] | null = null;
 let playlistCacheTime = 0;
-let playlistFetchBackoffUntil = 0; // epoch ms — skip re-fetching until this time after a failed fetch
+let playlistFetchBackoffUntil = 0;
 
-async function getSpotifyToken(): Promise<string | null> {
-  const clientId = process.env.SPOTIFY_CLIENT_ID?.trim();
-  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret) return null;
-  try {
-    const creds = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-    const res = await fetch("https://accounts.spotify.com/api/token", {
-      method: "POST",
-      headers: { "Authorization": `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
-      body: "grant_type=client_credentials",
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as { access_token?: string };
-    return data.access_token ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchPlaylistTracks(): Promise<PlaylistTrack[]> {
+async function loadPlaylistTracks(): Promise<RadioYTTrack[]> {
   const now = Date.now();
-  if (cachedPlaylistTracks && now - playlistCacheTime < PLAYLIST_CACHE_TTL) {
-    return cachedPlaylistTracks;
+  if (cachedResolvedTracks && now - playlistCacheTime < PLAYLIST_CACHE_TTL) {
+    return cachedResolvedTracks;
   }
-
   if (now < playlistFetchBackoffUntil) {
-    return cachedPlaylistTracks ?? [];
+    return cachedResolvedTracks ?? [];
+  }
+  if (!isLavalinkAvailable()) {
+    return cachedResolvedTracks ?? [];
   }
 
-  const token = await getSpotifyToken();
-  if (!token) {
-    log("[Radio] No Spotify credentials (SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET) — station cannot play", "radio");
-    playlistFetchBackoffUntil = now + 5 * 60 * 1000;
-    return cachedPlaylistTracks ?? [];
-  }
-
-  const tracks: PlaylistTrack[] = [];
-  let url: string | null = `https://api.spotify.com/v1/playlists/${FRED_FM_PLAYLIST_ID}/tracks?limit=100&fields=next,items(track(name,artists(name)))`;
-  while (url) {
-    try {
-      const res = await fetch(url, {
-        headers: { "Authorization": `Bearer ${token}` },
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!res.ok) break;
-      const data = await res.json() as {
-        next: string | null;
-        items: Array<{ track: { name: string; artists: Array<{ name: string }> } | null }>;
-      };
-      for (const item of data.items) {
-        if (!item.track) continue;
-        tracks.push({ artist: item.track.artists[0]?.name ?? "Unknown", title: item.track.name });
-      }
-      url = data.next ?? null;
-    } catch {
-      break;
-    }
-  }
+  // Pass the playlist URL directly to Lavalink — same resolution path as /play.
+  // radioResolveYouTube handles loadType "playlist" when given an https URL.
+  const tracks = await radioResolveYouTube(FRED_FM_PLAYLIST_URL, 500);
 
   if (tracks.length > 0) {
-    cachedPlaylistTracks = shuffleArray(tracks);
+    cachedResolvedTracks = tracks;
     playlistCacheTime = now;
-    log(`[Radio] Spotify playlist loaded: ${tracks.length} tracks from ${FRED_FM_PLAYLIST_ID} (shuffled)`, "radio");
-    return cachedPlaylistTracks;
+    log(`[Radio] playlist loaded via Lavalink: ${tracks.length} tracks`, "radio");
+    return cachedResolvedTracks;
   }
 
-  log("[Radio] Spotify playlist fetch returned 0 tracks — will retry shortly", "radio");
+  log("[Radio] playlist resolve returned 0 tracks — will retry in 5 min", "radio");
   playlistFetchBackoffUntil = now + 5 * 60 * 1000;
-  return cachedPlaylistTracks ?? [];
+  return cachedResolvedTracks ?? [];
 }
 
 export interface RadioNowPlaying {
@@ -182,7 +138,7 @@ interface RadioStation {
   pinnedNode: any;                      // Lavalink node hosting the player; HTTP-capable
   recentMusic: string[];               // local file paths
   recentYTUris: string[];              // youtube URIs already played this session
-  playlistQueue: PlaylistTrack[];      // shuffled copy of playlist; drained then refilled so every track plays before repeating
+  playlistQueue: RadioYTTrack[];       // shuffled copy of pre-resolved playlist tracks; drained then refilled
   recentAssets: string[];
   active: boolean;
   lastNewsHour: number;                 // UTC hour of last news segment (-1 = never)
@@ -295,66 +251,48 @@ function cleanTitle(raw: string): string {
   return raw.replace(/\s*\(.*?\)/g, "").replace(/\s*\[.*?\]/g, "").trim();
 }
 
-// Sentinel: returned when Spotify itself is unavailable (caller should wait before retrying).
-const SPOTIFY_UNAVAILABLE = Symbol("SPOTIFY_UNAVAILABLE");
+// Sentinel: returned when the playlist can't be loaded (caller should wait before retrying).
+const PLAYLIST_UNAVAILABLE = Symbol("PLAYLIST_UNAVAILABLE");
 
-// Picks the next track from the Spotify playlist queue.
-// The queue is a shuffled drain-and-refill: every track plays exactly once
-// before any repeats, and the order is re-randomised on each refill so the
-// station never sounds the same twice.
-//
-// Returns SPOTIFY_UNAVAILABLE if the playlist can't be fetched (caller should
-// back off). Returns null only if the entire queue was exhausted without any
-// YouTube resolution succeeding (very rare — caller can try again immediately).
-// Returns a RadioYTTrack on success.
+// Picks the next pre-resolved track from the playlist queue.
+// Tracks are loaded once via Lavalink (same path as /play) and cached — no per-song
+// YouTube search needed. The queue is shuffled drain-and-refill.
 async function pickYouTubeTrack(
   station: RadioStation,
-): Promise<RadioYTTrack | null | typeof SPOTIFY_UNAVAILABLE> {
-  const playlistTracks = await fetchPlaylistTracks();
+): Promise<RadioYTTrack | null | typeof PLAYLIST_UNAVAILABLE> {
+  const allTracks = await loadPlaylistTracks();
 
-  if (playlistTracks.length === 0) {
-    log("[Radio] Spotify playlist unavailable — waiting for next retry", "radio");
-    return SPOTIFY_UNAVAILABLE;
+  if (allTracks.length === 0) {
+    log("[Radio] playlist unavailable — waiting for Lavalink", "radio");
+    return PLAYLIST_UNAVAILABLE;
   }
 
-  // Try up to 15 tracks before giving up so one bad YouTube lookup doesn't
-  // stall the station. Most playlists have plenty of resolvable tracks.
+  // Drain-and-refill: reshuffled each cycle so order is always different.
+  if (station.playlistQueue.length === 0) {
+    station.playlistQueue = shuffleArray(allTracks);
+    log(`[Radio] queue refilled: ${station.playlistQueue.length} tracks (reshuffled)`, "radio");
+  }
+
+  // Skip recently-played URIs (up to 15 skips before accepting a repeat).
   const MAX_SKIP = 15;
-  for (let attempt = 0; attempt < MAX_SKIP; attempt++) {
-    // Drain-and-refill: reshuffled on every cycle so order is always different.
+  for (let i = 0; i < MAX_SKIP; i++) {
     if (station.playlistQueue.length === 0) {
-      station.playlistQueue = shuffleArray(playlistTracks);
-      log(`[Radio] playlist queue refilled with ${station.playlistQueue.length} tracks (reshuffled)`, "radio");
+      station.playlistQueue = shuffleArray(allTracks);
     }
-    const nextTrack = station.playlistQueue.shift()!;
-
-    // Try the exact title first, then a looser query as fallback.
-    const queries = [
-      `${nextTrack.artist} - ${nextTrack.title}`,
-      `${nextTrack.artist} ${nextTrack.title}`,
-    ];
-
-    let resolved = false;
-    for (const query of queries) {
-      const tracks = await radioResolveYouTube(query, 5);
-      if (!tracks.length) continue;
-      const fresh = tracks.filter(
-        (t) => !station.recentYTUris.includes(t.uri) && !globalRecentYTUris.includes(t.uri),
-      );
-      const pool = fresh.length > 0 ? fresh : tracks;
-      const pick = pool[Math.floor(Math.random() * pool.length)];
-      if (pick) return pick;
-      resolved = true; // search returned results but all were recent — that's fine, move on
-      break;
-    }
-
-    if (!resolved) {
-      log(`[Radio] could not resolve "${nextTrack.artist} — ${nextTrack.title}" on YouTube — skipping`, "radio");
+    const candidate = station.playlistQueue.shift()!;
+    if (
+      !station.recentYTUris.includes(candidate.uri) &&
+      !globalRecentYTUris.includes(candidate.uri)
+    ) {
+      return candidate;
     }
   }
 
-  log("[Radio] exhausted track attempts — will retry next cycle", "radio");
-  return null;
+  // All candidates were recent — just return the next one anyway.
+  if (station.playlistQueue.length === 0) {
+    station.playlistQueue = shuffleArray(allTracks);
+  }
+  return station.playlistQueue.shift() ?? null;
 }
 
 async function playYouTubeTrack(station: RadioStation, track: RadioYTTrack): Promise<void> {
@@ -515,7 +453,7 @@ async function playLocalMusic(station: RadioStation, resolver: TrackResolver, mu
 }
 
 async function broadcastLoop(station: RadioStation): Promise<void> {
-  const playlistSize = cachedPlaylistTracks?.length ?? 0;
+  const playlistSize = cachedResolvedTracks?.length ?? 0;
   log(
     `[Radio] director config: lavalink=${isLavalinkAvailable()} playlist=${playlistSize > 0 ? `${playlistSize} tracks` : "loading..."}`,
     "radio",
@@ -602,8 +540,8 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
     } else {
       // Always pull from the Spotify playlist — no seeds, no discovery, no fallback sources.
       const track = await pickYouTubeTrack(station);
-      if (track === SPOTIFY_UNAVAILABLE) {
-        // Spotify is down / credentials missing — back off before hammering it again.
+      if (track === PLAYLIST_UNAVAILABLE) {
+        // Lavalink unavailable or playlist unresolvable — back off before retrying.
         await sleep(15_000);
         continue;
       } else if (!track) {
@@ -772,8 +710,8 @@ export async function startRadio(
 
   log(`[Radio] ON AIR in ${guild.name} (vc ${voiceChannelId}) · local=${localFiles.length}`, "radio");
 
-  // Pre-warm the Spotify playlist cache so the first track pick is instant.
-  void fetchPlaylistTracks().catch(() => {});
+  // Pre-warm the playlist cache via Lavalink so the first pick is instant.
+  void loadPlaylistTracks().catch(() => {});
 
   void broadcastLoop(station).catch((err) => {
     log(`[Radio] broadcast loop crashed: ${err?.message ?? err}`, "radio");
@@ -826,7 +764,7 @@ export function getPlaylistSource(): "spotify" {
 }
 
 export function getCachedPlaylistTrackCount(): number {
-  return cachedPlaylistTracks?.length ?? 0;
+  return cachedResolvedTracks?.length ?? 0;
 }
 
 export async function pauseRadio(guildId: string): Promise<boolean> {
