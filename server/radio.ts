@@ -30,7 +30,7 @@ import {
 
 const MUSIC_DIR = path.resolve("music_library");
 const ASSETS_DIR = path.resolve("radio_assets");
-const ASSET_KINDS = ["advert", "selftalk", "trackintro", "trackoutro", "weirdsound"] as const;
+const ASSET_KINDS = ["selftalk", "trackintro", "trackoutro", "weirdsound"] as const;
 type AssetKind = typeof ASSET_KINDS[number];
 
 const RECENT_MUSIC_LIMIT = 20;
@@ -43,7 +43,6 @@ const globalRecentYTUris: string[] = [];
 const STATION_NAME = "Fred FM";
 const FADE_IN_MS = 1_200;
 const FADE_OUT_MS = 900;
-const MIN_SONGS_BETWEEN_ADVERTS = 4;
 const MIN_SONGS_BETWEEN_SELFTALK = 2;
 const FRED_FM_PLAYLIST_ID = "0u1nVS6XR1CFjbSmkFDYyL";
 const PLAYLIST_CACHE_TTL = 60 * 60 * 1000; // 1 hour
@@ -187,9 +186,7 @@ interface RadioStation {
   recentAssets: string[];
   active: boolean;
   lastNewsHour: number;                 // UTC hour of last news segment (-1 = never)
-  songsSinceAdvert: number;            // songs played since last advert
   songsSinceSelftalk: number;          // songs played since last selftalk
-  pendingIntro: boolean;               // play trackintro before the next song
   recentCommentaryTracks: Array<{ artist: string; title: string }>; // last 2 played, for commentary context
 }
 
@@ -355,20 +352,16 @@ async function playYouTubeTrack(station: RadioStation, track: RadioYTTrack): Pro
 // Director / scheduling
 
 // Break-segment picker. Called after a song (+ optional outro) to decide what
-// plays before the next song. Adverts are gated behind a per-song counter so
-// they never come back-to-back. null = silence (no asset).
+// plays before the next song. null = silence (no asset).
 function pickBreakKind(
-  canAdvert: boolean,
   canSelftalk: boolean,
   assetCache: Map<AssetKind, string[]>,
 ): AssetKind | null {
-  const hasAdvert    = canAdvert    && (assetCache.get("advert")    ?? []).length > 0;
-  const hasSelftalk  = canSelftalk  && (assetCache.get("selftalk")  ?? []).length > 0;
-  const hasWeirdsound =               (assetCache.get("weirdsound") ?? []).length > 0;
+  const hasSelftalk  = canSelftalk && (assetCache.get("selftalk")  ?? []).length > 0;
+  const hasWeirdsound =              (assetCache.get("weirdsound") ?? []).length > 0;
   const r = Math.random();
-  if (hasAdvert    && r < 0.28) return "advert";
-  if (hasSelftalk  && r < 0.52) return "selftalk";
-  if (hasWeirdsound && r < 0.62) return "weirdsound";
+  if (hasSelftalk   && r < 0.40) return "selftalk";
+  if (hasWeirdsound && r < 0.55) return "weirdsound";
   return null;
 }
 
@@ -507,8 +500,6 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
   );
 
   const resolver = new TrackResolver(station.pinnedNode);
-  // Persists across loop iterations — flags the first song after an advert break.
-  let comingBackFromAdvert = false;
 
   while (station.active) {
     // Re-evaluate sources every loop so a Lavalink node coming online (or
@@ -549,25 +540,6 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
         }
       })();
     }
-
-    // Pre-song: play trackintro if scheduled (e.g. coming out of an advert break).
-    // trackintro always precedes the song — this is the correct radio order.
-    if (station.pendingIntro) {
-      station.pendingIntro = false;
-      const intros = assetCache.get("trackintro") ?? [];
-      if (intros.length > 0) {
-        const intro = pickRandom(intros, new Set(station.recentAssets))!;
-        pushRecent(station.recentAssets, intro, RECENT_ASSETS_LIMIT);
-        log(`[Radio] · trackintro (pre-song): ${path.basename(intro)}`, "radio");
-        await playAssetFaded(station, resolver, "trackintro", intro, intros);
-        if (!station.active) return;
-      }
-    }
-
-    // Consume the advert-return flag for this song slot regardless of which
-    // source plays. Clearing it here ensures it never bleeds past one song.
-    const _afterAdvert = comingBackFromAdvert;
-    comingBackFromAdvert = false;
 
     // Check for listener requests — play next request if available.
     const request = consumeNextRequest(station.guildId);
@@ -618,7 +590,7 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
         // sees the right values even if the outer vars mutate during playback.
         const _commentaryCtx: TrackCommentaryContext = {
           prevTracks: [...station.recentCommentaryTracks],
-          afterAdvert: _afterAdvert,
+          afterAdvert: false,
         };
         void (async () => {
           try {
@@ -639,20 +611,18 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
     }
     if (!station.active) return;
 
-    // Update per-song pacing counters.
-    station.songsSinceAdvert++;
+    // Update per-song pacing counter.
     station.songsSinceSelftalk++;
 
     // Director: asset segment — ALWAYS from radio_assets/, no exceptions.
     // Lukas is the only voice on Fred FM. No generated TTS, ever.
     //
     // Flow per song:
-    //   [trackoutro]  → signed off the track just finished (50% chance)
-    //   [break]       → advert (min 4 songs gap) / selftalk / weirdsound / silence
-    //   [trackintro]  → cued next song (only after an advert, 70% chance; set pendingIntro)
-    //                   trackintro plays at the TOP of the NEXT loop iteration, before the song.
+    //   [trackoutro]  → Lukas signs off the track just finished (50% chance)
+    //   [break]       → selftalk / weirdsound / silence (no adverts)
+    //   [trackintro]  → Lukas introduces the next song (50% chance after selftalk)
 
-    // 1. Post-song outro — Lukas signs off the track.
+    // 1. Post-song outro.
     const outros = assetCache.get("trackoutro") ?? [];
     if (outros.length > 0 && Math.random() < 0.50) {
       const outro = pickRandom(outros, new Set(station.recentAssets))!;
@@ -662,10 +632,9 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
       if (!station.active) return;
     }
 
-    // 2. Break segment — advert only after the minimum gap has passed.
-    const canAdvert    = station.songsSinceAdvert    >= MIN_SONGS_BETWEEN_ADVERTS;
-    const canSelftalk  = station.songsSinceSelftalk  >= MIN_SONGS_BETWEEN_SELFTALK;
-    const breakKind    = pickBreakKind(canAdvert, canSelftalk, assetCache);
+    // 2. Break segment.
+    const canSelftalk = station.songsSinceSelftalk >= MIN_SONGS_BETWEEN_SELFTALK;
+    const breakKind   = pickBreakKind(canSelftalk, assetCache);
 
     if (breakKind !== null) {
       const breakPool = assetCache.get(breakKind) ?? [];
@@ -675,14 +644,17 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
         log(`[Radio] · ${breakKind}: ${path.basename(clip)}`, "radio");
         await playAssetFaded(station, resolver, breakKind, clip, breakPool);
         if (!station.active) return;
-        if (breakKind === "advert") {
-          station.songsSinceAdvert = 0;
-          comingBackFromAdvert = true;
-          // 70% chance Lukas re-introduces the station with a trackintro after ads.
-          station.pendingIntro = Math.random() < 0.70;
-        }
         if (breakKind === "selftalk") {
           station.songsSinceSelftalk = 0;
+          // 50% chance Lukas introduces the next track after selftalk.
+          const intros = assetCache.get("trackintro") ?? [];
+          if (intros.length > 0 && Math.random() < 0.50) {
+            const intro = pickRandom(intros, new Set(station.recentAssets))!;
+            pushRecent(station.recentAssets, intro, RECENT_ASSETS_LIMIT);
+            log(`[Radio] · trackintro: ${path.basename(intro)}`, "radio");
+            await playAssetFaded(station, resolver, "trackintro", intro, intros);
+            if (!station.active) return;
+          }
         }
       } else {
         log(`[Radio] · ${breakKind} pool empty — silence`, "radio");
@@ -767,9 +739,7 @@ export async function startRadio(
     recentAssets: [],
     active: true,
     lastNewsHour: -1,
-    songsSinceAdvert: MIN_SONGS_BETWEEN_ADVERTS,   // start advert-ready
     songsSinceSelftalk: MIN_SONGS_BETWEEN_SELFTALK,
-    pendingIntro: false,
     recentCommentaryTracks: [],
   };
   stations.set(guild.id, station);
@@ -812,7 +782,6 @@ export interface RadioStationStatus {
   guildName: string;
   voiceChannelId: string;
   nowPlaying: RadioNowPlaying | null;
-  songsSinceAdvert: number;
   songsSinceSelftalk: number;
 }
 
@@ -822,7 +791,6 @@ export function getRadioAllStationsStatus(): RadioStationStatus[] {
     guildName: s.guild.name,
     voiceChannelId: s.voiceChannelId,
     nowPlaying: stationNowPlaying.get(s.guildId) ?? null,
-    songsSinceAdvert: s.songsSinceAdvert,
     songsSinceSelftalk: s.songsSinceSelftalk,
   }));
 }
