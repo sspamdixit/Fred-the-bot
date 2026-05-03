@@ -483,11 +483,22 @@ async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | n
       }
     }
 
-    // Inject mood/time-of-day seeds into playlist-backed pools (≈20% chance)
-    // so even curated stations drift toward Fred's current state.
+    // Inject extra discovery seeds (≈20% chance) to keep the rotation fresh.
+    // When a playlist is configured we derive seeds from playlist artists so the
+    // station stays in-genre. Generic time/mood seeds (which include k-pop, j-pop,
+    // afrobeats, etc.) are only used when there is NO configured playlist.
     if (Math.random() < 0.20) {
-      const moodBoost = getYTSeeds(fredMood).slice(0, 6);
-      seedsToTry = [...moodBoost, ...seedsToTry];
+      const boostTrack = playlistTracks[Math.floor(Math.random() * playlistTracks.length)];
+      const boostArtist = cleanArtist(boostTrack.artist);
+      const playlistGenreBoost = [
+        `${boostArtist} similar artists`,
+        `music similar to ${boostArtist}`,
+        `${boostArtist} style mix`,
+        `fans of ${boostArtist}`,
+        `${boostArtist} influences`,
+        `${boostArtist} essential tracks`,
+      ];
+      seedsToTry = [...playlistGenreBoost, ...seedsToTry];
     }
 
   } else {
