@@ -37,7 +37,6 @@ interface StationEntry {
   voiceChannelId: string;
   nowPlaying: RadioNowPlaying | null;
   mood: { mood: string; promptModifier: string } | null;
-  songsSinceAdvert: number;
   songsSinceSelftalk: number;
 }
 
@@ -346,18 +345,6 @@ function StationCard({ station }: { station: StationEntry }) {
               {MOOD_LABELS[moodName] ?? moodName}
             </span>
 
-            <span
-              className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full"
-              style={{
-                color: "rgba(255,255,255,0.55)",
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.1)",
-              }}
-              data-testid={`badge-adpacing-${station.guildId}`}
-            >
-              <Clock className="w-3 h-3 flex-shrink-0" />
-              {station.songsSinceAdvert} song{station.songsSinceAdvert !== 1 ? "s" : ""} since last ad
-            </span>
           </div>
         </div>
       </div>
