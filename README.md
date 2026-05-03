@@ -137,7 +137,7 @@ the lore builds itself.
 
 - `/radio` joins your voice channel and starts a non-stop radio station run by lukas
 - **everything plays through lavalink** — local files, dj chatter, weird sounds, youtube tracks — single audio path, no ffmpeg, no udp, works on render free tier
-- **spotify playlist**: fred fm pulls exclusively from a curated spotify playlist. shuffled drain-and-refill queue — every track plays exactly once before any repeats, order re-randomised on each cycle so the station never sounds the same twice
+- **spotify playlist**: fred fm loads the playlist directly through lavalink — same resolution path as `/play`, no separate spotify api credentials needed. shuffled drain-and-refill queue — every track plays exactly once before any repeats, order re-randomised on each cycle
 - **director** between tracks rolls weighted dice: dj selftalk, track intros/outros, weird sounds. no adverts, ever.
 - **anti-repeat windows** — recent tracks, youtube uris, and clips never repeat
 - **lukas is the only voice on air.** the pre-recorded clips in `radio_assets/` are the only audio source. no generated tts, no other voices. lukas sounds like lukas. that's the point.
@@ -277,7 +277,7 @@ guild lore extraction, episodic memory extraction, and hypocrisy engine embeddin
 | `BRAVE_SEARCH_API_KEY` | optional | better general search. 2000 free/month. |
 | `LAVALINK_NODES` | optional | json array of `{url, auth, secure}` to override public nodes |
 | `LAVALINK_URL` / `LAVALINK_AUTH` / `LAVALINK_SECURE` | optional | quick single-node override |
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | optional | enables spotify playlist fetching for fred fm and album art for now-playing embeds |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | optional | album art in now-playing embeds. fred fm no longer requires these — the playlist loads through lavalink directly. |
 | `PUBLIC_BASE_URL` | required for `/radio` (auto on render/replit) | absolute https url for the bot's web server — lavalink fetches local radio assets from here |
 | `RENDER_EXTERNAL_URL` | optional (auto on render) | keep-alive target and public base url for fred fm |
 | `PROGRESS_UPDATE_MS` | optional | progress bar tick interval in ms (default 7000) |
