@@ -18,12 +18,14 @@ import {
 } from "./radio-producer";
 import {
   isLavalinkAvailable,
+  resolvePlaylist,
   radioResolveYouTube,
   radioResolveTrackOnNode,
   radioFindHttpCapableNode,
   radioJoinVoice,
   radioPlayTrackBlocking,
   radioLeaveVoiceChannel,
+  type QueueTrack,
   type RadioYTTrack,
   type RadioTrack,
 } from "./music";
@@ -64,19 +66,38 @@ async function loadPlaylistTracks(): Promise<RadioYTTrack[]> {
     return cachedResolvedTracks ?? [];
   }
 
-  // Pass the playlist URL directly to Lavalink — same resolution path as /play.
-  // radioResolveYouTube handles loadType "playlist" when given an https URL.
-  const tracks = await radioResolveYouTube(FRED_FM_PLAYLIST_URL, 500);
+  // Use the exact same resolution path as /play — guaranteed to work if /play works.
+  let rawTracks: QueueTrack[] = [];
+  try {
+    const result = await resolvePlaylist(FRED_FM_PLAYLIST_URL, "Fred FM");
+    rawTracks = result.tracks;
+    log(`[Radio] resolvePlaylist returned ${rawTracks.length} tracks (loadType=playlist)`, "radio");
+  } catch (err: any) {
+    log(`[Radio] playlist resolve error: ${err.message}`, "radio");
+    playlistFetchBackoffUntil = now + 60_000;
+    return cachedResolvedTracks ?? [];
+  }
+
+  const tracks: RadioYTTrack[] = rawTracks
+    .filter((t) => t.encoded && !t.isStream)
+    .map((t) => ({
+      encoded: t.encoded!,
+      title: t.title,
+      author: t.author,
+      uri: t.uri,
+      duration: t.duration,
+      artworkUrl: t.artworkUrl,
+    }));
 
   if (tracks.length > 0) {
     cachedResolvedTracks = tracks;
     playlistCacheTime = now;
-    log(`[Radio] playlist loaded via Lavalink: ${tracks.length} tracks`, "radio");
+    log(`[Radio] playlist ready: ${tracks.length} tracks`, "radio");
     return cachedResolvedTracks;
   }
 
-  log("[Radio] playlist resolve returned 0 tracks — will retry in 5 min", "radio");
-  playlistFetchBackoffUntil = now + 5 * 60 * 1000;
+  log(`[Radio] playlist resolved ${rawTracks.length} raw but 0 playable tracks — will retry in 1 min`, "radio");
+  playlistFetchBackoffUntil = now + 60_000;
   return cachedResolvedTracks ?? [];
 }
 
