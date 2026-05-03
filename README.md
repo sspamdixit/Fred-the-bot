@@ -338,3 +338,11 @@ npm start
 - lavalink via shoukaku — single audio path for both `/play` and fred fm, no udp, no ffmpeg in bot process
 - spotify web api (album art + fred fm playlist)
 - itunes search api for album art fallback (free, no key)
+
+---
+
+## cost
+
+an agency would quote this at **~$35,000**. it was built with claude for **~$150** in api credits.
+
+that gap is the point.
