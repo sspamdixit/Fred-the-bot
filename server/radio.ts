@@ -295,43 +295,65 @@ function cleanTitle(raw: string): string {
   return raw.replace(/\s*\(.*?\)/g, "").replace(/\s*\[.*?\]/g, "").trim();
 }
 
+// Sentinel: returned when Spotify itself is unavailable (caller should wait before retrying).
+const SPOTIFY_UNAVAILABLE = Symbol("SPOTIFY_UNAVAILABLE");
+
 // Picks the next track from the Spotify playlist queue.
 // The queue is a shuffled drain-and-refill: every track plays exactly once
 // before any repeats, and the order is re-randomised on each refill so the
 // station never sounds the same twice.
-async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | null> {
+//
+// Returns SPOTIFY_UNAVAILABLE if the playlist can't be fetched (caller should
+// back off). Returns null only if the entire queue was exhausted without any
+// YouTube resolution succeeding (very rare — caller can try again immediately).
+// Returns a RadioYTTrack on success.
+async function pickYouTubeTrack(
+  station: RadioStation,
+): Promise<RadioYTTrack | null | typeof SPOTIFY_UNAVAILABLE> {
   const playlistTracks = await fetchPlaylistTracks();
 
   if (playlistTracks.length === 0) {
     log("[Radio] Spotify playlist unavailable — waiting for next retry", "radio");
-    return null;
+    return SPOTIFY_UNAVAILABLE;
   }
 
-  // Drain-and-refill: reshuffled on every cycle so order is always different.
-  if (station.playlistQueue.length === 0) {
-    station.playlistQueue = shuffleArray(playlistTracks);
-    log(`[Radio] playlist queue refilled with ${station.playlistQueue.length} tracks (reshuffled)`, "radio");
+  // Try up to 15 tracks before giving up so one bad YouTube lookup doesn't
+  // stall the station. Most playlists have plenty of resolvable tracks.
+  const MAX_SKIP = 15;
+  for (let attempt = 0; attempt < MAX_SKIP; attempt++) {
+    // Drain-and-refill: reshuffled on every cycle so order is always different.
+    if (station.playlistQueue.length === 0) {
+      station.playlistQueue = shuffleArray(playlistTracks);
+      log(`[Radio] playlist queue refilled with ${station.playlistQueue.length} tracks (reshuffled)`, "radio");
+    }
+    const nextTrack = station.playlistQueue.shift()!;
+
+    // Try the exact title first, then a looser query as fallback.
+    const queries = [
+      `${nextTrack.artist} - ${nextTrack.title}`,
+      `${nextTrack.artist} ${nextTrack.title}`,
+    ];
+
+    let resolved = false;
+    for (const query of queries) {
+      const tracks = await radioResolveYouTube(query, 5);
+      if (!tracks.length) continue;
+      const fresh = tracks.filter(
+        (t) => !station.recentYTUris.includes(t.uri) && !globalRecentYTUris.includes(t.uri),
+      );
+      const pool = fresh.length > 0 ? fresh : tracks;
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      if (pick) return pick;
+      resolved = true; // search returned results but all were recent — that's fine, move on
+      break;
+    }
+
+    if (!resolved) {
+      log(`[Radio] could not resolve "${nextTrack.artist} — ${nextTrack.title}" on YouTube — skipping`, "radio");
+    }
   }
-  const nextTrack = station.playlistQueue.shift()!;
 
-  // Try the exact track first, then a slightly looser query as fallback.
-  const queries = [
-    `${nextTrack.artist} - ${nextTrack.title}`,
-    `${nextTrack.artist} ${nextTrack.title}`,
-  ];
-
-  for (const query of queries) {
-    const tracks = await radioResolveYouTube(query, 5);
-    if (!tracks.length) continue;
-    const fresh = tracks.filter(
-      (t) => !station.recentYTUris.includes(t.uri) && !globalRecentYTUris.includes(t.uri),
-    );
-    const pool = fresh.length > 0 ? fresh : tracks;
-    const pick = pool[Math.floor(Math.random() * pool.length)];
-    if (pick) return pick;
-  }
-
-  log(`[Radio] could not resolve "${nextTrack.artist} — ${nextTrack.title}" on YouTube — skipping`, "radio");
+  log("[Radio] exhausted track attempts — will retry next cycle", "radio");
   return null;
 }
 
@@ -580,9 +602,13 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
     } else {
       // Always pull from the Spotify playlist — no seeds, no discovery, no fallback sources.
       const track = await pickYouTubeTrack(station);
-      if (!track) {
-        // Playlist temporarily unavailable (Spotify fetch in backoff). Wait and retry.
+      if (track === SPOTIFY_UNAVAILABLE) {
+        // Spotify is down / credentials missing — back off before hammering it again.
         await sleep(15_000);
+        continue;
+      } else if (!track) {
+        // Exhausted the skip limit (very unusual). Brief pause then try again.
+        await sleep(2_000);
         continue;
       } else {
         // Post Fred's text commentary about the track (non-blocking, non-audio).
