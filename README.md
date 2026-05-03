@@ -279,8 +279,6 @@ guild lore extraction, episodic memory extraction, and hypocrisy engine embeddin
 | `LAVALINK_URL` / `LAVALINK_AUTH` / `LAVALINK_SECURE` | optional | quick single-node override |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | optional | enables spotify playlist mode for fred fm and album art for now-playing embeds |
 | `FRED_FM_PLAYLIST` | optional | spotify playlist id for fred fm. defaults to a curated list. requires spotify credentials. |
-| `FRED_FM_YT_PLAYLIST` | optional | youtube playlist url (e.g. `https://www.youtube.com/playlist?list=PLxxx`). used as the music base when spotify credentials aren't set. takes effect immediately — no api key needed. |
-| `RADIO_YT_SEEDS` | optional | comma-separated youtube search queries for fred fm discovery tracks. defaults to 28-genre curated list. only used when no playlist is configured at all. |
 | `PUBLIC_BASE_URL` | required for `/radio` (auto on render/replit) | absolute https url for the bot's web server — lavalink fetches local radio assets from here |
 | `RENDER_EXTERNAL_URL` | optional (auto on render) | keep-alive target and public base url for fred fm |
 | `PROGRESS_UPDATE_MS` | optional | progress bar tick interval in ms (default 7000) |
