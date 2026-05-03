@@ -8,11 +8,13 @@ import {
   RefreshCw,
   ChevronLeft,
   Music2,
+  Clock,
+  ListMusic,
 } from "lucide-react";
 import { DASHBOARD_AUTH_TOKEN_STORAGE_KEY } from "@/lib/queryClient";
 
 const AUTH_FLAG_KEY = "fred-authed";
-const REFETCH_MS = 15_000;
+const REFETCH_MS = 5_000;
 
 function isAuthed(): boolean {
   return (
@@ -21,15 +23,32 @@ function isAuthed(): boolean {
   );
 }
 
+interface DjTrackInfo {
+  title: string;
+  author: string;
+  artworkUrl: string | null;
+  duration: number;
+  position: number;
+}
+
 interface DjSession {
   guildId: string;
   genre: string;
+  currentTrack: DjTrackInfo | null;
+  queueLength: number;
 }
 
 interface DjStatusData {
   sessions: DjSession[];
   lavalink: { available: boolean; nodeCount: number };
   updatedAt: number;
+}
+
+function formatMs(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
 export default function StatusPage() {
@@ -54,7 +73,7 @@ function StatusDashboard() {
   }, []);
 
   useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), 5_000);
+    const t = setInterval(() => setTick((n) => n + 1), 1_000);
     return () => clearInterval(t);
   }, []);
 
@@ -101,7 +120,7 @@ function StatusDashboard() {
                 {secondsSince !== null
                   ? secondsSince < 5
                     ? "updated just now"
-                    : `updated ${secondsSince}s ago · refreshes every 15s`
+                    : `updated ${secondsSince}s ago`
                   : "loading…"}
               </p>
             </div>
@@ -138,36 +157,7 @@ function StatusDashboard() {
             ) : (
               <div className="space-y-3">
                 {data.sessions.map((s) => (
-                  <div
-                    key={s.guildId}
-                    className="glass-panel px-5 py-4 flex items-center gap-4"
-                    data-testid={`card-dj-${s.guildId}`}
-                  >
-                    <div
-                      className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                      style={{ background: "rgba(125,211,252,0.1)", border: "1px solid rgba(125,211,252,0.25)" }}
-                    >
-                      <Music2 className="w-5 h-5" style={{ color: "rgb(125,211,252)" }} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white truncate" data-testid={`text-dj-genre-${s.guildId}`}>
-                        {s.genre}
-                      </p>
-                      <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-                        guild {s.guildId}
-                      </p>
-                    </div>
-                    <span
-                      className="text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0"
-                      style={{
-                        color: "rgb(74,222,128)",
-                        background: "rgba(74,222,128,0.1)",
-                        border: "1px solid rgba(74,222,128,0.3)",
-                      }}
-                    >
-                      LIVE
-                    </span>
-                  </div>
+                  <DjSessionCard key={s.guildId} session={s} />
                 ))}
               </div>
             )}
@@ -201,6 +191,98 @@ function StatusDashboard() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function DjSessionCard({ session: s }: { session: DjSession }) {
+  const t = s.currentTrack;
+
+  const progressPct = t && t.duration > 0
+    ? Math.min(100, (t.position / t.duration) * 100)
+    : 0;
+
+  return (
+    <div
+      className="glass-panel px-5 py-4 space-y-3"
+      data-testid={`card-dj-${s.guildId}`}
+    >
+      <div className="flex items-center gap-4">
+        {t?.artworkUrl ? (
+          <img
+            src={t.artworkUrl}
+            alt="artwork"
+            className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
+            style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+          />
+        ) : (
+          <div
+            className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0"
+            style={{ background: "rgba(125,211,252,0.1)", border: "1px solid rgba(125,211,252,0.25)" }}
+          >
+            <Music2 className="w-5 h-5" style={{ color: "rgb(125,211,252)" }} />
+          </div>
+        )}
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold text-white truncate" data-testid={`text-dj-genre-${s.guildId}`}>
+              {t ? t.title : s.genre}
+            </p>
+            <span
+              className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+              style={{
+                color: "rgb(74,222,128)",
+                background: "rgba(74,222,128,0.1)",
+                border: "1px solid rgba(74,222,128,0.3)",
+              }}
+            >
+              LIVE
+            </span>
+          </div>
+          {t ? (
+            <p className="text-xs mt-0.5 truncate" style={{ color: "rgba(255,255,255,0.5)" }}>
+              {t.author} · {s.genre}
+            </p>
+          ) : (
+            <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
+              guild {s.guildId}
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {s.queueLength > 0 && (
+            <div className="flex items-center gap-1" style={{ color: "rgba(255,255,255,0.4)" }}>
+              <ListMusic className="w-3.5 h-3.5" />
+              <span className="text-xs">{s.queueLength}</span>
+            </div>
+          )}
+          {t && (
+            <div className="flex items-center gap-1" style={{ color: "rgba(255,255,255,0.4)" }}>
+              <Clock className="w-3.5 h-3.5" />
+              <span className="text-xs" data-testid={`text-dj-position-${s.guildId}`}>
+                {formatMs(t.position)} / {formatMs(t.duration)}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {t && t.duration > 0 && (
+        <div
+          className="w-full rounded-full overflow-hidden"
+          style={{ height: "3px", background: "rgba(255,255,255,0.1)" }}
+        >
+          <div
+            className="h-full rounded-full transition-all duration-1000"
+            style={{
+              width: `${progressPct}%`,
+              background: "rgb(125,211,252)",
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
