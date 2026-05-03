@@ -1407,3 +1407,7 @@ export async function resolveSearchResults(
     return [];
   }
 }
+
+export function getIdealLavalinkNode(): any | null {
+  return shoukaku?.getIdealNode() ?? null;
+}
