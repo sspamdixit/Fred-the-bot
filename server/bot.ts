@@ -23,7 +23,6 @@ import { ensureGuildMemoryTable, tickGuildMessageCounter } from "./guild-memory"
 import { speakInVoice } from "./tts";
 import { updateUserEmotionalSignal } from "./emotional-state";
 import { queueMemoryIngestion, runHypocrisyEngine, searchServerLore, buildUserDossier } from "./semantic-memory";
-import { startRadio, stopRadio, isRadioActive, previewLibrary, getRadioNowPlaying, pauseRadio, resumeRadio, setRadioVolume, radioSkipCurrentTrack, addRadioRequest } from "./radio";
 import { initFredState } from "./fred-state";
 import { queueEpisodeExtraction, ensureEpisodesTable } from "./episodic-memory";
 import { searchWeb, formatSearchResultsForAI, detectSearchIntent } from "./search";
@@ -57,9 +56,43 @@ import {
   formatDuration,
   setAutoplay,
   isAutoplayEnabled,
+  resolveSearchResults,
   type QueueTrack,
   type GuildQueue,
 } from "./music";
+
+// ── DJ mode state ─────────────────────────────────────────────────────────
+interface DjSession { genre: string; vcId: string; tcId: string }
+const djSessions = new Map<string, DjSession>();
+
+export function getDjStatus(): Array<{ guildId: string; genre: string }> {
+  return [...djSessions.entries()].map(([guildId, s]) => ({ guildId, genre: s.genre }));
+}
+
+const DJ_REFILL_QUERIES = (genre: string) => [
+  `${genre} music`,
+  `${genre} hits`,
+  `${genre} mix`,
+  `best ${genre} songs`,
+  `${genre} playlist`,
+];
+
+async function refillDjQueue(guildId: string, session: DjSession): Promise<void> {
+  try {
+    const queries = DJ_REFILL_QUERIES(session.genre);
+    const query = queries[Math.floor(Math.random() * queries.length)];
+    const tracks = await resolveSearchResults(query, `dj:${session.genre}`, 10);
+    if (!tracks.length) return;
+    // Shuffle so we don't always get the same top results
+    for (let i = tracks.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
+    }
+    await joinAndPlayMultiple(guildId, session.vcId, session.tcId, tracks);
+  } catch (err: any) {
+    log(`[DJ] queue refill failed for "${session.genre}": ${err.message}`, "discord");
+  }
+}
 
 export interface BotStatus {
   online: boolean;
@@ -1552,19 +1585,16 @@ const SLASH_COMMANDS = [
       o.setName("text").setDescription("what fred should say").setRequired(true).setMaxLength(450),
     ),
 
-  // ── radio ────────────────────────────────────────────────────────────────
+  // ── dj ────────────────────────────────────────────────────────────────────
   new SlashCommandBuilder()
-    .setName("radio")
-    .setDescription("start broadcasting fred fm in your voice channel"),
-  new SlashCommandBuilder()
-    .setName("radiostop")
-    .setDescription("end the fred fm broadcast and leave the voice channel"),
-  new SlashCommandBuilder()
-    .setName("radiorequest")
-    .setDescription("request a song for fred fm (queued for the next music slot)")
+    .setName("dj")
+    .setDescription("start infinite genre-based playback in your voice channel")
     .addStringOption((o) =>
-      o.setName("song").setDescription("artist and/or song title — e.g. 'amy winehouse rehab'").setRequired(true),
+      o.setName("genre").setDescription("genre to play — e.g. afrobeats, jazz, hiphop, lofi, rnb, pop").setRequired(true),
     ),
+  new SlashCommandBuilder()
+    .setName("djstop")
+    .setDescription("stop the dj session and disconnect"),
 
   // ── owner only ───────────────────────────────────────────────────────────
   new SlashCommandBuilder()
@@ -1600,11 +1630,8 @@ function buildVoiceSituation(message: Message): string | null {
   const extra = humanMembers.size > 4 ? ` + ${humanMembers.size - 4} more` : "";
   let voiceStr = `${nameList.join(", ")}${extra} in voice`;
 
-  const radioNP = isRadioActive(guildId) ? getRadioNowPlaying(guildId) : null;
   const queue = getQueue(guildId);
-  if (radioNP) {
-    voiceStr += ` · fred fm: ${radioNP}`;
-  } else if (queue?.current) {
+  if (queue?.current) {
     const t = queue.current;
     voiceStr += ` · playing: ${t.title.slice(0, 55)} by ${t.author.slice(0, 35)}`;
   }
@@ -1677,6 +1704,11 @@ export async function startBot() {
     setNowPlayingCallback((guildId, track, queue) => {
       // New track is now playing — reset any pending skip votes from the previous one.
       clearSkipVotes(guildId);
+      // DJ mode: refill queue when it's running low so playback never stops.
+      const djSession = djSessions.get(guildId);
+      if (djSession && queue.tracks.length <= 3) {
+        void refillDjQueue(guildId, djSession);
+      }
       // Record to per-guild play history
       const hist = trackHistory.get(guildId) ?? [];
       hist.unshift({ title: track.title, author: track.author, duration: track.duration, uri: track.uri, requestedBy: track.requestedBy, playedAt: Date.now() });
@@ -2476,13 +2508,8 @@ export async function startBot() {
 
       if (musicCmd === "skip") {
         try {
-          if (isRadioActive(guildId)) {
-            const skipped = radioSkipCurrentTrack(guildId);
-            await message.reply({ content: skipped ? "⏭ skipping to the next track." : "radio isn't active.", allowedMentions: { parse: [], repliedUser: false } });
-          } else {
-            const result = await requestSkip(client!, guildId, message.author.id);
-            await message.reply({ content: formatSkipReply(result), allowedMentions: { parse: [], repliedUser: false } });
-          }
+          const result = await requestSkip(client!, guildId, message.author.id);
+          await message.reply({ content: formatSkipReply(result), allowedMentions: { parse: [], repliedUser: false } });
         } catch (err: any) {
           await message.reply({ content: `skip failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
         }
@@ -2491,16 +2518,12 @@ export async function startBot() {
 
       if (musicCmd === "stop") {
         try {
-          if (isRadioActive(guildId)) {
-            stopRadio(guildId);
-            await message.reply({ content: "📻 fred fm is off the air.", allowedMentions: { parse: [], repliedUser: false } });
-          } else {
-            const stopped = await stopMusic(guildId);
-            await message.reply({
-              content: stopped ? "stopped and disconnected." : "i wasn't even playing anything.",
-              allowedMentions: { parse: [], repliedUser: false },
-            });
-          }
+          djSessions.delete(guildId);
+          const stopped = await stopMusic(guildId);
+          await message.reply({
+            content: stopped ? "stopped and disconnected." : "i wasn't even playing anything.",
+            allowedMentions: { parse: [], repliedUser: false },
+          });
         } catch (err: any) {
           await message.reply({ content: `stop failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
         }
@@ -2546,13 +2569,8 @@ export async function startBot() {
 
       if (musicCmd === "pause") {
         try {
-          if (isRadioActive(guildId)) {
-            await pauseRadio(guildId);
-            await message.reply({ content: "📻 radio paused.", allowedMentions: { parse: [], repliedUser: false } });
-          } else {
-            const paused = await pauseMusic(guildId);
-            await message.reply({ content: paused ? "paused." : "nothing to pause.", allowedMentions: { parse: [], repliedUser: false } });
-          }
+          const paused = await pauseMusic(guildId);
+          await message.reply({ content: paused ? "paused." : "nothing to pause.", allowedMentions: { parse: [], repliedUser: false } });
         } catch (err: any) {
           await message.reply({ content: `pause failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
         }
@@ -2561,10 +2579,7 @@ export async function startBot() {
 
       if (musicCmd === "resume") {
         try {
-          if (isRadioActive(guildId)) {
-            await resumeRadio(guildId);
-            await message.reply({ content: "📻 radio resumed.", allowedMentions: { parse: [], repliedUser: false } });
-          } else {
+          {
             const resumed = await resumeMusic(guildId);
             await message.reply({ content: resumed ? "resumed." : "nothing to resume.", allowedMentions: { parse: [], repliedUser: false } });
           }
@@ -2601,22 +2616,6 @@ export async function startBot() {
       }
 
       if (musicCmd === "np" || musicCmd === "nowplaying") {
-        if (isRadioActive(guildId)) {
-          const np = getRadioNowPlaying(guildId);
-          if (!np) {
-            await message.reply({ content: "📻 fred fm is on the air but i'm between tracks.", allowedMentions: { parse: [], repliedUser: false } });
-            return;
-          }
-          const embed = new EmbedBuilder()
-            .setAuthor({ name: "📻 Fred FM — Now Playing" })
-            .setTitle(np.title)
-            .setDescription(`by **${np.artist}**`)
-            .setFooter({ text: np.source })
-            .setColor(0xff5e3a);
-          if (np.artworkUrl) embed.setThumbnail(np.artworkUrl);
-          await message.reply({ embeds: [embed], allowedMentions: { parse: [], repliedUser: false } });
-          return;
-        }
         const q = getQueue(guildId);
         if (!q?.current) {
           await message.reply({ content: "nothing is playing.", allowedMentions: { parse: [], repliedUser: false } });
@@ -2638,16 +2637,11 @@ export async function startBot() {
           return;
         }
         try {
-          if (isRadioActive(guildId)) {
-            await setRadioVolume(guildId, vol);
-            await message.reply({ content: `📻 radio volume set to ${vol}%.`, allowedMentions: { parse: [], repliedUser: false } });
-          } else {
-            const set = await setMusicVolume(guildId, vol);
-            await message.reply({
-              content: set ? `volume set to ${vol}%.` : "nothing is playing.",
-              allowedMentions: { parse: [], repliedUser: false },
-            });
-          }
+          const set = await setMusicVolume(guildId, vol);
+          await message.reply({
+            content: set ? `volume set to ${vol}%.` : "nothing is playing.",
+            allowedMentions: { parse: [], repliedUser: false },
+          });
         } catch (err: any) {
           await message.reply({ content: `volume failed: ${err.message}`, allowedMentions: { parse: [], repliedUser: false } });
         }
@@ -3203,18 +3197,18 @@ export async function startBot() {
           "",
           "**music**",
           "`/play <query>` — play a song (or `?play`)",
-          "`/skip` — skip current track (works for radio too)",
-          "`/stop` — stop and disconnect (works for radio too)",
-          "`/pause` / `/resume` — pause or resume (works for radio too)",
-          "`/nowplaying` — show current track (works for radio too)",
-          "`/volume <0-100>` — set volume (works for radio too)",
+          "`/skip` — skip current track",
+          "`/stop` — stop and disconnect",
+          "`/pause` / `/resume` — pause or resume",
+          "`/nowplaying` — show current track",
+          "`/volume <0-100>` — set volume",
           "`/queue` — show the queue",
           "`/lyrics [artist - title]` — fetch lyrics for current/specified song",
           "`/history` — show recently played tracks",
           "",
-          "**radio**",
-          "`/radio` — start fred fm in your voice channel",
-          "`/radiostop` — stop fred fm",
+          "**dj mode**",
+          "`/dj <genre>` — play a genre infinitely (e.g. afrobeats, jazz, lofi)",
+          "`/djstop` — stop dj mode",
           "",
           "**fun**",
           "`/rate <thing>` — fred rates anything out of 10",
@@ -3240,9 +3234,9 @@ export async function startBot() {
       }
 
       if (!isMusicChannel && !isModeChannel) {
-        slashHelpLines.push("", "*music and radio commands available in bot/voice channels. mode commands available in the mode channel.*");
+        slashHelpLines.push("", "*music and dj commands available in bot/voice channels. mode commands available in the mode channel.*");
       } else if (!isMusicChannel) {
-        slashHelpLines.push("", "*music and radio commands available in bot/voice channels.*");
+        slashHelpLines.push("", "*music and dj commands available in bot/voice channels.*");
       } else if (!isModeChannel) {
         slashHelpLines.push("", "*mode commands available in the mode channel.*");
       }
@@ -3455,13 +3449,8 @@ export async function startBot() {
 
       if (commandName === "skip") {
         try {
-          if (isRadioActive(guildId)) {
-            const skipped = radioSkipCurrentTrack(guildId);
-            await interaction.reply({ content: skipped ? "⏭ skipping to the next track." : "radio isn't active.", allowedMentions: { parse: [] } });
-          } else {
-            const result = await requestSkip(client!, guildId, interaction.user.id);
-            await interaction.reply({ content: formatSkipReply(result), allowedMentions: { parse: [] } });
-          }
+          const result = await requestSkip(client!, guildId, interaction.user.id);
+          await interaction.reply({ content: formatSkipReply(result), allowedMentions: { parse: [] } });
         } catch (err: any) {
           await interaction.reply({ content: `skip failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
         }
@@ -3470,16 +3459,12 @@ export async function startBot() {
 
       if (commandName === "stop") {
         try {
-          if (isRadioActive(guildId)) {
-            stopRadio(guildId);
-            await interaction.reply({ content: "📻 fred fm is off the air.", allowedMentions: { parse: [] } });
-          } else {
-            const stopped = await stopMusic(guildId);
-            await interaction.reply({
-              content: stopped ? "stopped and disconnected." : "i wasn't even playing anything.",
-              allowedMentions: { parse: [] },
-            });
-          }
+          djSessions.delete(guildId);
+          const stopped = await stopMusic(guildId);
+          await interaction.reply({
+            content: stopped ? "stopped and disconnected." : "i wasn't even playing anything.",
+            allowedMentions: { parse: [] },
+          });
         } catch (err: any) {
           await interaction.reply({ content: `stop failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
         }
@@ -3526,13 +3511,8 @@ export async function startBot() {
 
       if (commandName === "pause") {
         try {
-          if (isRadioActive(guildId)) {
-            await pauseRadio(guildId);
-            await interaction.reply({ content: "📻 radio paused.", allowedMentions: { parse: [] } });
-          } else {
-            const paused = await pauseMusic(guildId);
-            await interaction.reply({ content: paused ? "paused." : "nothing to pause.", allowedMentions: { parse: [] } });
-          }
+          const paused = await pauseMusic(guildId);
+          await interaction.reply({ content: paused ? "paused." : "nothing to pause.", allowedMentions: { parse: [] } });
         } catch (err: any) {
           await interaction.reply({ content: `pause failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
         }
@@ -3541,13 +3521,8 @@ export async function startBot() {
 
       if (commandName === "resume") {
         try {
-          if (isRadioActive(guildId)) {
-            await resumeRadio(guildId);
-            await interaction.reply({ content: "📻 radio resumed.", allowedMentions: { parse: [] } });
-          } else {
-            const resumed = await resumeMusic(guildId);
-            await interaction.reply({ content: resumed ? "resumed." : "nothing to resume.", allowedMentions: { parse: [] } });
-          }
+          const resumed = await resumeMusic(guildId);
+          await interaction.reply({ content: resumed ? "resumed." : "nothing to resume.", allowedMentions: { parse: [] } });
         } catch (err: any) {
           await interaction.reply({ content: `resume failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
         }
@@ -3581,22 +3556,6 @@ export async function startBot() {
       }
 
       if (commandName === "nowplaying") {
-        if (isRadioActive(guildId)) {
-          const np = getRadioNowPlaying(guildId);
-          if (!np) {
-            await interaction.reply({ content: "📻 fred fm is on the air but i'm between tracks.", allowedMentions: { parse: [] } });
-            return;
-          }
-          const embed = new EmbedBuilder()
-            .setAuthor({ name: "📻 Fred FM — Now Playing" })
-            .setTitle(np.title)
-            .setDescription(`by **${np.artist}**`)
-            .setFooter({ text: np.source })
-            .setColor(0xff5e3a);
-          if (np.artworkUrl) embed.setThumbnail(np.artworkUrl);
-          await interaction.reply({ embeds: [embed], allowedMentions: { parse: [] } });
-          return;
-        }
         const q = getQueue(guildId);
         if (!q?.current) {
           await interaction.reply({ content: "nothing is playing.", allowedMentions: { parse: [] } });
@@ -3615,16 +3574,11 @@ export async function startBot() {
       if (commandName === "volume") {
         const vol = interaction.options.getInteger("level", true);
         try {
-          if (isRadioActive(guildId)) {
-            await setRadioVolume(guildId, vol);
-            await interaction.reply({ content: `📻 radio volume set to ${vol}%.`, allowedMentions: { parse: [] } });
-          } else {
-            const set = await setMusicVolume(guildId, vol);
-            await interaction.reply({
-              content: set ? `volume set to ${vol}%.` : "nothing is playing.",
-              allowedMentions: { parse: [] },
-            });
-          }
+          const set = await setMusicVolume(guildId, vol);
+          await interaction.reply({
+            content: set ? `volume set to ${vol}%.` : "nothing is playing.",
+            allowedMentions: { parse: [] },
+          });
         } catch (err: any) {
           await interaction.reply({ content: `volume failed: ${err.message}`, ephemeral: true, allowedMentions: { parse: [] } });
         }
@@ -3747,95 +3701,55 @@ export async function startBot() {
       return;
     }
 
-    // radio commands
-    if (commandName === "radio" || commandName === "radiostop") {
+    // /dj and /djstop
+    if (commandName === "dj" || commandName === "djstop") {
       const guildId = interaction.guildId;
       if (!guildId || !interaction.guild) {
-        await replyEph("radio only works in servers.");
+        await replyEph("dj only works in servers.");
         return;
       }
 
-      if (commandName === "radiostop") {
-        const stopped = stopRadio(guildId);
+      if (commandName === "djstop") {
+        djSessions.delete(guildId);
+        const stopped = await stopMusic(guildId);
         await interaction.reply({
-          content: stopped
-            ? "📻 fred fm is off the air. silence falls. you'll miss it."
-            : "fred fm wasn't on the air. nothing to stop.",
+          content: stopped ? "dj stopped." : "dj wasn't running.",
           allowedMentions: { parse: [] },
         });
         return;
       }
 
-      // /radio
+      const genre = interaction.options.getString("genre", true).trim();
       const member = interaction.guild.members.cache.get(interaction.user.id);
       const voiceChannel = member?.voice?.channel;
       if (!voiceChannel) {
-        await replyEph("join a voice channel first. fred fm doesn't broadcast into the void.");
-        return;
-      }
-
-      const existingQueue = getQueue(guildId);
-      if (existingQueue) {
-        await replyEph("music is already playing in this guild via `/play`. stop it first (`/stop` then `/disconnect`) before starting fred fm.");
-        return;
-      }
-
-      if (isRadioActive(guildId)) {
-        await replyEph("fred fm is already on the air. use `/stop` first.");
+        await replyEph("join a voice channel first.");
         return;
       }
 
       await interaction.deferReply();
       try {
-        const lib = await previewLibrary();
-        if (lib.music === 0 && !lib.youtube) {
-          await interaction.editReply({
-            content: "no music sources available. drop `.mp3`/`.wav`/`.ogg` files into `music_library/`, or wait for a Lavalink node to come online.",
-            allowedMentions: { parse: [] },
-          });
+        const tracks = await resolveSearchResults(`${genre} music`, `dj:${genre}`, 10);
+        if (!tracks.length) {
+          await interaction.editReply({ content: `couldn't find any tracks for **${genre}**. try a different genre.`, allowedMentions: { parse: [] } });
           return;
         }
-        const result = await startRadio(interaction.guild, voiceChannel.id, interaction.channel as TextChannel);
-        if (!result.ok) {
-          await interaction.editReply({ content: result.reason, allowedMentions: { parse: [] } });
-          return;
+        for (let i = tracks.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
         }
+        const tcId = interaction.channelId ?? voiceChannel.id;
+        djSessions.set(guildId, { genre, vcId: voiceChannel.id, tcId });
+        await joinAndPlayMultiple(guildId, voiceChannel.id, tcId, tracks, interaction.guild.shardId ?? 0);
         await interaction.editReply({
-          content: `📻 **Fred FM** ON AIR 🔴`,
+          content: `🎧 **DJ mode** · playing **${genre}** · auto-refills when queue runs low`,
           allowedMentions: { parse: [] },
         });
       } catch (err: any) {
-        log(`[Slash:radio] failed: ${err.message}`, "discord");
-        await interaction.editReply({
-          content: "couldn't start the broadcast. try again.",
-          allowedMentions: { parse: [] },
-        }).catch(() => {});
+        djSessions.delete(guildId);
+        log(`[Slash:dj] failed: ${err.message}`, "discord");
+        await interaction.editReply({ content: `couldn't start dj: ${err.message}`, allowedMentions: { parse: [] } }).catch(() => {});
       }
-      return;
-    }
-
-    // radiorequest
-    if (commandName === "radiorequest") {
-      const guildId = interaction.guildId;
-      if (!guildId || !interaction.guild) {
-        await replyEph("radio requests only work in servers.");
-        return;
-      }
-      if (!isRadioActive(guildId)) {
-        await replyEph("fred fm isn't on the air. use `/radio` to start it first.");
-        return;
-      }
-      const query = interaction.options.getString("song", true).trim();
-      const requesterName = (interaction.member as any)?.displayName ?? interaction.user.username;
-      const queued = addRadioRequest(guildId, requesterName, query);
-      if (!queued) {
-        await replyEph("request queue is full (max 5 pending). try again after the next track.");
-        return;
-      }
-      await interaction.reply({
-        content: `📻 request queued: **${query}**. fred will get to it.`,
-        allowedMentions: { parse: [] },
-      });
       return;
     }
 
@@ -3942,12 +3856,6 @@ export async function startBot() {
         if (q?.current) {
           lyricsArtist = q.current.author;
           lyricsTitle = q.current.title;
-        } else {
-          const np = getRadioNowPlaying(guildId);
-          if (np) {
-            lyricsArtist = np.artist;
-            lyricsTitle = np.title;
-          }
         }
       }
       if (!lyricsArtist && !lyricsTitle) {
