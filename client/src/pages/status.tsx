@@ -31,11 +31,29 @@ interface DjTrackInfo {
   position: number;
 }
 
+type RavePhase = "warmup" | "peak" | "afterhours" | "cooldown";
+
+const PHASE_LABEL: Record<RavePhase, string> = {
+  warmup:     "🌅 warm-up",
+  peak:       "🔥 peak",
+  afterhours: "🌙 after-hours",
+  cooldown:   "🌌 cool-down",
+};
+
+const PHASE_COLOR: Record<RavePhase, string> = {
+  warmup:     "rgb(68,170,255)",
+  peak:       "rgb(255,68,0)",
+  afterhours: "rgb(255,136,0)",
+  cooldown:   "rgb(102,51,204)",
+};
+
 interface DjSession {
   guildId: string;
   genre: string;
+  phase: RavePhase;
   currentTrack: DjTrackInfo | null;
   queueLength: number;
+  timeRemaining: number | null;
 }
 
 interface DjStatusData {
@@ -195,8 +213,19 @@ function StatusDashboard() {
   );
 }
 
+function formatTimeRemaining(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m left`;
+  if (m > 0) return `${m}m ${s}s left`;
+  return `${s}s left`;
+}
+
 function DjSessionCard({ session: s }: { session: DjSession }) {
   const t = s.currentTrack;
+  const phaseColor = PHASE_COLOR[s.phase];
 
   const progressPct = t && t.duration > 0
     ? Math.min(100, (t.position / t.duration) * 100)
@@ -225,17 +254,20 @@ function DjSessionCard({ session: s }: { session: DjSession }) {
         )}
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-semibold text-white truncate" data-testid={`text-dj-genre-${s.guildId}`}>
               {t ? t.title : s.genre}
             </p>
             <span
               className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0"
-              style={{
-                color: "rgb(74,222,128)",
-                background: "rgba(74,222,128,0.1)",
-                border: "1px solid rgba(74,222,128,0.3)",
-              }}
+              style={{ color: phaseColor, background: `${phaseColor}1a`, border: `1px solid ${phaseColor}55` }}
+              data-testid={`text-dj-phase-${s.guildId}`}
+            >
+              {PHASE_LABEL[s.phase]}
+            </span>
+            <span
+              className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+              style={{ color: "rgb(74,222,128)", background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.3)" }}
             >
               LIVE
             </span>
@@ -252,6 +284,12 @@ function DjSessionCard({ session: s }: { session: DjSession }) {
         </div>
 
         <div className="flex items-center gap-3 flex-shrink-0">
+          {s.timeRemaining !== null && s.timeRemaining > 0 && (
+            <div className="flex items-center gap-1" style={{ color: "rgba(255,255,255,0.4)" }}>
+              <Clock className="w-3.5 h-3.5" />
+              <span className="text-xs">{formatTimeRemaining(s.timeRemaining)}</span>
+            </div>
+          )}
           {s.queueLength > 0 && (
             <div className="flex items-center gap-1" style={{ color: "rgba(255,255,255,0.4)" }}>
               <ListMusic className="w-3.5 h-3.5" />
@@ -276,10 +314,7 @@ function DjSessionCard({ session: s }: { session: DjSession }) {
         >
           <div
             className="h-full rounded-full transition-all duration-1000"
-            style={{
-              width: `${progressPct}%`,
-              background: "rgb(125,211,252)",
-            }}
+            style={{ width: `${progressPct}%`, background: phaseColor }}
           />
         </div>
       )}
