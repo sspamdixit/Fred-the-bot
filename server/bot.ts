@@ -60,7 +60,7 @@ import {
   type QueueTrack,
   type GuildQueue,
 } from "./music";
-import { djSessions, getDjStatus, onDjTrackStart, onDjStop, refillDjQueue, cancelDjFades, type DjSession } from "./dj";
+import { djSessions, getDjStatus, onDjTrackStart, onDjStop, refillDjQueue, cancelDjFades, setRaveClient, type DjSession } from "./dj";
 
 // ── DJ mode — state + helpers live in server/dj.ts ────────────────────────
 export { getDjStatus } from "./dj";
@@ -671,6 +671,18 @@ function clearBotBackgroundTasks(): void {
     loginRetryTimer = null;
   }
   stopQotd();
+}
+
+function parseDuration(s: string): number | null {
+  const c = s.toLowerCase().replace(/\s+/g, "");
+  let ms = 0;
+  const h = c.match(/(\d+)h/);
+  const m = c.match(/(\d+)m(?!s)/);
+  const sec = c.match(/(\d+)s/);
+  if (h)   ms += parseInt(h[1])   * 3_600_000;
+  if (m)   ms += parseInt(m[1])   * 60_000;
+  if (sec) ms += parseInt(sec[1]) * 1_000;
+  return ms > 0 ? ms : null;
 }
 
 function startBotWatchdog(): void {
@@ -1600,6 +1612,9 @@ const SLASH_COMMANDS = [
     .setDescription("start infinite genre-based playback in your voice channel")
     .addStringOption((o) =>
       o.setName("genre").setDescription("genre to play — e.g. afrobeats, jazz, hiphop, lofi, rnb, pop").setRequired(true),
+    )
+    .addStringOption((o) =>
+      o.setName("duration").setDescription("optional time limit — e.g. 1h, 90m, 2h30m").setRequired(false),
     ),
   new SlashCommandBuilder()
     .setName("ravestop")
@@ -1751,6 +1766,7 @@ export async function startBot() {
       if (!channel) return;
       channel.send({ content: message, allowedMentions: { parse: [] } }).catch(() => {});
     });
+    setRaveClient(readyClient);
     startBotWatchdog();
 
     try {
@@ -3874,11 +3890,26 @@ export async function startBot() {
           const j = Math.floor(Math.random() * (i + 1));
           [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
         }
-        const tcId = interaction.channelId ?? voiceChannel.id;
-        djSessions.set(guildId, { genre, vcId: voiceChannel.id, tcId, lastTrackUri: null, recentUris: [] });
+        const tcId       = interaction.channelId ?? voiceChannel.id;
+        const durationRaw = interaction.options.getString("duration") ?? null;
+        const endsAt      = durationRaw ? parseDuration(durationRaw) : null;
+        djSessions.set(guildId, {
+          genre,
+          vcId:             voiceChannel.id,
+          tcId,
+          lastTrackUri:     null,
+          recentUris:       [],
+          phase:            "warmup",
+          totalTrackCount:  0,
+          startedAt:        Date.now(),
+          endsAt:           endsAt ? Date.now() + endsAt : null,
+          playedTracks:     [],
+          vibeShift:        false,
+        });
         await joinAndPlayMultiple(guildId, voiceChannel.id, tcId, tracks, interaction.guild.shardId ?? 0);
+        const durationNote = endsAt ? ` · ends in **${durationRaw}**` : " · auto-refills when queue runs low";
         await interaction.editReply({
-          content: `🎧 **rave** · playing **${genre}** · auto-refills when queue runs low`,
+          content: `🎧 **rave** · playing **${genre}**${durationNote}`,
           allowedMentions: { parse: [] },
         });
       } catch (err: any) {
