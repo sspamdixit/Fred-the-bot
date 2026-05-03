@@ -1241,6 +1241,9 @@ export async function reconnectMusic(guildId: string): Promise<ReconnectResult> 
       recoveryWindowStartedAt: 0,
       isRecovering: false,
       lastTrackStartedAt: 0,
+      nodeUnhealthySince: 0,
+      lastAutoMigrateAt: Date.now(),
+      isAutoMigrating: false,
     };
 
     attachPlayerEvents(newPlayer, guildId);

@@ -1968,7 +1968,7 @@ export async function startBot() {
           `total requests: ${s.totalRequests}`,
           `total tokens: ${totalTokens.toLocaleString()} (gemini: ${s.totalTokens.gemini.toLocaleString()} | groq: ${s.totalTokens.groq.toLocaleString()} | grok: ${s.totalTokens.hackclub.toLocaleString()})`,
           "",
-          `version: ${getVersionString()}`,
+          `version: ${process.env.npm_package_version ?? "dev"}`,
         ].join("\n"),
         allowedMentions: { parse: [], repliedUser: false },
       });

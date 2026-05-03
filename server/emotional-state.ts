@@ -14,7 +14,7 @@ const MAX_SIGNALS = 25;
 const SIGNAL_TTL_MS = 2 * 60 * 60 * 1000;
 
 const CELEBRATION_RE =
-  /\b(got in|got accepted|i got the job|i passed|i got a|i made it|we won|i did it|finally did it|graduated|promoted|promotion|first place|got hired|i aced)\b|[🎉🥳🎊🏆]/u;
+  /\b(got in|got accepted|i got the job|i passed|i got a|i made it|we won|i did it|finally did it|graduated|promoted|promotion|first place|got hired|i aced)\b|[🎉🥳🎊🏆]/;
 
 const STRESS_RE =
   /\b(so stressed|i'm stressed|im stressed|so anxious|anxiety|can'?t sleep|overwhelmed|freaking out|losing my mind|can'?t cope|i'm failing|im failing|everything'?s wrong|panicking)\b/;
@@ -26,7 +26,7 @@ const NEGATIVE_RE =
   /\b(terrible|horrible|worst day|i give up|exhausted|miserable|depressed|sad\b|crying|broke up|failed|rejected|didn'?t get|bad day|so bad|awful)\b/;
 
 const POSITIVE_RE =
-  /\b(amazing|great day|love this|so happy|best day|excited|hyped|incredible|awesome|fantastic|let'?s go|so good|this is it|feeling good|happy rn)\b|[😊😄🔥💪✨]/u;
+  /\b(amazing|great day|love this|so happy|best day|excited|hyped|incredible|awesome|fantastic|let'?s go|so good|this is it|feeling good|happy rn)\b|[😊😄🔥💪✨]/;
 
 function classifyMessage(content: string): SignalType | null {
   const text = content.toLowerCase();

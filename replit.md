@@ -1,6 +1,6 @@
 # Project Overview
 
-**Fred** is a Discord bot with a British AI personality, music system (Lavalink/Shoukaku), Fred FM live radio station (Spotify playlist-driven, hosted by a Dutch DJ named Lukas), semantic memory, guild lore engine, and a React web dashboard. Built with Node.js, TypeScript, Discord.js v14, Express, Socket.IO, Drizzle ORM, and PostgreSQL.
+**Fred** is a Discord bot with a Dutch AI personality, music system (Lavalink/Shoukaku), Fred FM live radio station (Spotify playlist-driven, hosted by a Dutch DJ named Lukas), semantic memory, guild lore engine, and a React web dashboard. Built with Node.js, TypeScript, Discord.js v14, Express, Socket.IO, Drizzle ORM, and PostgreSQL.
 
 # Replit Configuration
 
@@ -22,7 +22,7 @@
 - Secrets (Discord token, Spotify credentials, API keys) read from environment variables — never committed
 
 ## Personality & Identity
-- Fred has a defined British character: cultural calibration, references, and swearing style are all grounded in UK internet culture. Fred knows it's an AI and is unbothered by that.
+- Fred has a defined Dutch character: direct, calm, culturally grounded in the Netherlands. Grew up on the internet so UK music culture and British slang are in there too, but the base layer is Dutch. Fred knows it's an AI and is unbothered by that.
 - Lukas is the Dutch radio DJ who handles Fred FM chatter and track introductions. Fred and Lukas coexist with a professionally tolerant dynamic.
 - Fred has specific music opinions (respects grime, garage, drum and bass, hip-hop with craft; finds acoustic covers of hip-hop tracks specifically offensive).
 - Emotional range: default dry sarcasm, rare genuine amusement (goes quieter), late-night honesty, secret community pride, distinct annoyance register.
@@ -86,13 +86,10 @@ Every AI call (`askGemini`, `askGeminiWithImage`, passive watch, slash commands)
 - `/stop`, `/skip`, `/pause`, `/resume`, `/volume` all route to radio player when Fred FM is active
 
 ## Radio Auto-Production (`server/radio-producer.ts`)
-- Gemini generates DJ scripts; StreamElements Brian TTS converts them to direct HTTP URLs; Lavalink plays them
-- No disk writes — all generated audio is streamed by URL. Render-safe.
-- **Track intros**: `pregenerateTrackIntro()` fires in the background as a track starts playing; `consumePendingIntro()` picks it up at the next trackintro slot — zero latency penalty
-- **Selftalk slot**: 70% generated ad-lib (`generateAdLibUrl`), 30% station ident (`generateStationIdentUrl`). Falls back to asset files on failure
-- **Top-of-hour news segment**: `generateNewsSegmentUrl()` fetches real headlines via `searchWeb`, writes a Fred-voiced bulletin, plays as TTS between tracks
-- **Listener requests**: `/radiorequest <song>` command queues up to 5 requests per guild; next request slot announces the requester by name and plays the track
-- `generateRequestAnnouncementUrl()` generates a mildly teasing "this one goes out to [name]" announcement
+- Gemini generates DJ script **text** posted as Discord messages in the radio text channel. AUDIO is always and only the pre-recorded Lukas clips from `radio_assets/`. No TTS. No generated voices.
+- **Track commentary**: `generateTrackCommentaryText()` — 1-2 sentence Fred comment on the upcoming track, posted to the Discord text channel. Does not touch audio.
+- **Top-of-hour news**: `generateNewsText()` fetches real headlines via `searchWeb`, writes a dry Fred-voiced bulletin, posted as a Discord message between tracks.
+- **Listener requests**: `/radiorequest <song>` queues up to 5 requests per guild; next request slot posts a text announcement and plays the track via YouTube.
 
 ## Music System (`server/music.ts`)
 - Lavalink via Shoukaku

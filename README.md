@@ -131,7 +131,7 @@ the lore builds itself.
 
 - `/radio` joins your voice channel and starts a non-stop radio station run by lukas
 - **everything plays through lavalink** — local files, ads, dj chatter, weird sounds, youtube tracks — single audio path, no ffmpeg, no udp, works on render free tier
-- **spotify playlist mode**: fred fm pulls from a curated spotify playlist (`FRED_FM_PLAYLIST` env var). 55% of music slots pick directly from the playlist; 45% are discovery tracks from the same artists so similar songs flow naturally before, after, and between playlist tracks
+- **spotify playlist mode**: fred fm pulls from a curated spotify playlist (`FRED_FM_PLAYLIST` env var). 50% of music slots pick directly from the playlist; 50% are discovery tracks derived from playlist artists — artist mixes, similar-artist searches, track-level discovery — so the station expands naturally while staying on-genre
 - **director** between tracks rolls weighted dice: adverts, dj selftalk, track intros/outros, weird sounds
 - **anti-repeat windows** — recent tracks, youtube uris, and clips never repeat
 - **lukas is the only voice on air.** the pre-recorded clips in `radio_assets/` are the only audio source. no generated tts, no other voices. lukas sounds like lukas. that's the point.
@@ -311,7 +311,7 @@ npm run dev
 
 episodic memory (`user_episodes` table) is created automatically on bot startup via raw sql — no migration step needed.
 
-**fred fm:** drop music files into `music_library/`. name them `Artist - Title.mp3` (or `.wav`/`.ogg`) so the presence works. radio assets live in `radio_assets/{advert,selftalk,trackintro,trackoutro,weirdsound}/` — a starter pack ships with the repo. these are lukas's pre-recorded clips and the only voice that comes out of the voice channel. don't replace them with something else and then wonder why it sounds weird.
+**fred fm:** radio assets live in `radio_assets/{advert,selftalk,trackintro,trackoutro,weirdsound}/` — a starter pack ships with the repo. these are lukas's pre-recorded clips and the only voice that comes out of the voice channel. don't replace them with something else and then wonder why it sounds weird.
 
 production:
 
