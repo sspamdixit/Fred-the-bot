@@ -18,14 +18,12 @@ import {
 } from "./radio-producer";
 import {
   isLavalinkAvailable,
-  resolvePlaylist,
   radioResolveYouTube,
   radioResolveTrackOnNode,
   radioFindHttpCapableNode,
   radioJoinVoice,
   radioPlayTrackBlocking,
   radioLeaveVoiceChannel,
-  type QueueTrack,
   type RadioYTTrack,
   type RadioTrack,
 } from "./music";
@@ -46,60 +44,10 @@ const STATION_NAME = "Fred FM";
 const FADE_IN_MS = 1_200;
 const FADE_OUT_MS = 900;
 const MIN_SONGS_BETWEEN_SELFTALK = 2;
-// Fred FM playlist — resolved directly through Lavalink (same path as /play), no Spotify credentials needed.
+// Fred FM playlist — resolved directly on the station's pinned Lavalink node so
+// the encoded track values are always from the same node that plays them.
 const FRED_FM_PLAYLIST_URL = "https://open.spotify.com/playlist/0u1nVS6XR1CFjbSmkFDYyL";
 const PLAYLIST_CACHE_TTL = 60 * 60 * 1000; // 1 hour
-
-let cachedResolvedTracks: RadioYTTrack[] | null = null;
-let playlistCacheTime = 0;
-let playlistFetchBackoffUntil = 0;
-
-async function loadPlaylistTracks(): Promise<RadioYTTrack[]> {
-  const now = Date.now();
-  if (cachedResolvedTracks && now - playlistCacheTime < PLAYLIST_CACHE_TTL) {
-    return cachedResolvedTracks;
-  }
-  if (now < playlistFetchBackoffUntil) {
-    return cachedResolvedTracks ?? [];
-  }
-  if (!isLavalinkAvailable()) {
-    return cachedResolvedTracks ?? [];
-  }
-
-  // Use the exact same resolution path as /play — guaranteed to work if /play works.
-  let rawTracks: QueueTrack[] = [];
-  try {
-    const result = await resolvePlaylist(FRED_FM_PLAYLIST_URL, "Fred FM");
-    rawTracks = result.tracks;
-    log(`[Radio] resolvePlaylist returned ${rawTracks.length} tracks (loadType=playlist)`, "radio");
-  } catch (err: any) {
-    log(`[Radio] playlist resolve error: ${err.message}`, "radio");
-    playlistFetchBackoffUntil = now + 60_000;
-    return cachedResolvedTracks ?? [];
-  }
-
-  const tracks: RadioYTTrack[] = rawTracks
-    .filter((t) => t.encoded && !t.isStream)
-    .map((t) => ({
-      encoded: t.encoded!,
-      title: t.title,
-      author: t.author,
-      uri: t.uri,
-      duration: t.duration,
-      artworkUrl: t.artworkUrl,
-    }));
-
-  if (tracks.length > 0) {
-    cachedResolvedTracks = tracks;
-    playlistCacheTime = now;
-    log(`[Radio] playlist ready: ${tracks.length} tracks`, "radio");
-    return cachedResolvedTracks;
-  }
-
-  log(`[Radio] playlist resolved ${rawTracks.length} raw but 0 playable tracks — will retry in 1 min`, "radio");
-  playlistFetchBackoffUntil = now + 60_000;
-  return cachedResolvedTracks ?? [];
-}
 
 export interface RadioNowPlaying {
   title: string;
@@ -160,6 +108,9 @@ interface RadioStation {
   recentMusic: string[];               // local file paths
   recentYTUris: string[];              // youtube URIs already played this session
   playlistQueue: RadioYTTrack[];       // shuffled copy of pre-resolved playlist tracks; drained then refilled
+  cachedPlaylist: RadioYTTrack[] | null; // tracks loaded from Lavalink on the pinned node
+  playlistLoadedAt: number;            // epoch ms of last successful playlist load
+  playlistBackoffUntil: number;        // epoch ms — skip reload attempts until this time
   recentAssets: string[];
   active: boolean;
   lastNewsHour: number;                 // UTC hour of last news segment (-1 = never)
@@ -275,13 +226,55 @@ function cleanTitle(raw: string): string {
 // Sentinel: returned when the playlist can't be loaded (caller should wait before retrying).
 const PLAYLIST_UNAVAILABLE = Symbol("PLAYLIST_UNAVAILABLE");
 
+// Loads the playlist on the station's pinned Lavalink node so the encoded track
+// values come from the same node that will play them.
+async function loadPlaylistOnPinnedNode(station: RadioStation): Promise<RadioYTTrack[]> {
+  const now = Date.now();
+  if (station.cachedPlaylist && now - station.playlistLoadedAt < PLAYLIST_CACHE_TTL) {
+    return station.cachedPlaylist;
+  }
+  if (now < station.playlistBackoffUntil) {
+    return station.cachedPlaylist ?? [];
+  }
+  try {
+    const result = await station.pinnedNode.rest.resolve(FRED_FM_PLAYLIST_URL);
+    const loadType: string = result?.loadType ?? "unknown";
+    const raw: any[] = loadType === "playlist"
+      ? ((result.data as any).tracks ?? [])
+      : [];
+    log(`[Radio] playlist resolve on pinned node: loadType=${loadType} raw=${raw.length}`, "radio");
+
+    const tracks: RadioYTTrack[] = raw
+      .filter((t: any) => t?.encoded && t.info && !t.info.isStream)
+      .map((t: any) => ({
+        encoded: String(t.encoded),
+        title: String(t.info.title ?? "Unknown"),
+        author: String(t.info.author ?? "Unknown"),
+        uri: String(t.info.uri ?? ""),
+        duration: Number(t.info.length) || 0,
+        artworkUrl: t.info.artworkUrl ?? null,
+      }));
+
+    if (tracks.length > 0) {
+      station.cachedPlaylist = tracks;
+      station.playlistLoadedAt = now;
+      log(`[Radio] playlist ready: ${tracks.length} playable tracks`, "radio");
+      return tracks;
+    }
+    log(`[Radio] playlist: ${raw.length} raw, 0 playable — retry in 1 min`, "radio");
+  } catch (err: any) {
+    log(`[Radio] playlist load error: ${err.message}`, "radio");
+  }
+  station.playlistBackoffUntil = now + 60_000;
+  return station.cachedPlaylist ?? [];
+}
+
 // Picks the next pre-resolved track from the playlist queue.
-// Tracks are loaded once via Lavalink (same path as /play) and cached — no per-song
-// YouTube search needed. The queue is shuffled drain-and-refill.
+// Tracks are loaded on the pinned node so encoded values and player are always in sync.
 async function pickYouTubeTrack(
   station: RadioStation,
 ): Promise<RadioYTTrack | null | typeof PLAYLIST_UNAVAILABLE> {
-  const allTracks = await loadPlaylistTracks();
+  const allTracks = await loadPlaylistOnPinnedNode(station);
 
   if (allTracks.length === 0) {
     log("[Radio] playlist unavailable — waiting for Lavalink", "radio");
@@ -474,7 +467,7 @@ async function playLocalMusic(station: RadioStation, resolver: TrackResolver, mu
 }
 
 async function broadcastLoop(station: RadioStation): Promise<void> {
-  const playlistSize = cachedResolvedTracks?.length ?? 0;
+  const playlistSize = station.cachedPlaylist?.length ?? 0;
   log(
     `[Radio] director config: lavalink=${isLavalinkAvailable()} playlist=${playlistSize > 0 ? `${playlistSize} tracks` : "loading..."}`,
     "radio",
@@ -721,6 +714,9 @@ export async function startRadio(
     recentMusic: [],
     recentYTUris: [],
     playlistQueue: [],
+    cachedPlaylist: null,
+    playlistLoadedAt: 0,
+    playlistBackoffUntil: 0,
     recentAssets: [],
     active: true,
     lastNewsHour: -1,
@@ -731,8 +727,8 @@ export async function startRadio(
 
   log(`[Radio] ON AIR in ${guild.name} (vc ${voiceChannelId}) · local=${localFiles.length}`, "radio");
 
-  // Pre-warm the playlist cache via Lavalink so the first pick is instant.
-  void loadPlaylistTracks().catch(() => {});
+  // Pre-warm the playlist cache on the pinned node so the first pick is instant.
+  void loadPlaylistOnPinnedNode(station).catch(() => {});
 
   void broadcastLoop(station).catch((err) => {
     log(`[Radio] broadcast loop crashed: ${err?.message ?? err}`, "radio");
@@ -785,7 +781,10 @@ export function getPlaylistSource(): "spotify" {
 }
 
 export function getCachedPlaylistTrackCount(): number {
-  return cachedResolvedTracks?.length ?? 0;
+  for (const s of stations.values()) {
+    if (s.cachedPlaylist) return s.cachedPlaylist.length;
+  }
+  return 0;
 }
 
 export async function pauseRadio(guildId: string): Promise<boolean> {
