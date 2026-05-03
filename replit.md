@@ -79,7 +79,7 @@ Every AI call (`askGemini`, `askGeminiWithImage`, passive watch, slash commands)
 
 ## Fred FM Radio (`server/radio.ts`)
 - All audio (local files, ads, DJ clips, YouTube tracks) routes through Lavalink — no `@discordjs/voice`, no UDP
-- **Spotify playlist mode**: 55% of music slots pull directly from the configured Spotify playlist; 45% are discovery queries around playlist artists
+- **Spotify playlist mode**: 50% of music slots pull directly from the configured Spotify playlist; 50% are discovery queries around playlist artists (artist mixes, similar-artist searches, track-level discovery). Discovery injection uses playlist-derived artist seeds only — no generic genre seeds — so the station stays on-genre.
 - Playlist fetched on radio start, cached 1 hour
 - Director between tracks: weighted dice roll over advert/selftalk/trackintro/trackoutro/weirdsound clip types
 - Anti-repeat windows for recent tracks, YouTube URIs, and clips

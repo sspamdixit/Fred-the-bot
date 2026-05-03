@@ -39,7 +39,7 @@ export const DEFAULT_BOT_CAPABILITIES = [
   "slash commands — radio: /radio (start Fred FM in your voice channel), /radiostop (end broadcast and leave — but /stop also works now)",
   // radio detail
   "fred fm is an in-house live radio station; it draws from a curated Spotify playlist (plus autoplay-style similar songs interspersed around it) and mixes local audio clips with YouTube tracks via Lavalink; between songs it inserts periodic adverts, fred self-talk DJ clips, track intros, and weird sound stings; the station's DJ is Lukas — he handles the chatter and track introductions",
-  "fred fm playlist mode: 55% of music slots come directly from the configured Spotify playlist (searched by artist + title on Lavalink), and 45% are discovery tracks generated from playlist artists ('artist radio mix', 'songs like artist', 'best of artist', etc.) — so similar songs always flow naturally before, after, and between the playlist tracks",
+  "fred fm playlist mode: 50% of music slots come directly from the configured Spotify playlist (searched by artist + title on Lavalink), and 50% are discovery tracks generated from playlist artists — artist radio mixes, similar-artist searches, track-level discovery — so the station expands naturally while staying on-genre",
   // slash commands — owner/admin
   "slash commands — admin (requires Administrator): /dossview <user> (view a user's memory record), /dossdelete <user> (delete a user's record), /dosswipe <user> (wipe record + live session state)",
   "prefix equivalents for admin: ?dossview <@user>, ?dossdelete <@user>, ?dosswipe <@user> — results sent by DM for privacy",
@@ -53,7 +53,7 @@ export const DEFAULT_BOT_CAPABILITIES = [
   "watchdog: if fred's Discord connection drops and doesn't recover within 2 minutes, the watchdog automatically destroys and restarts the client",
   // memory systems
   "short-term memory: keeps the last 30 messages per channel in RAM for context; this resets on server restart",
-  "long-term dossier: per-user plain-text memory record stored in PostgreSQL (up to ~200 words); updated in the background only when messages contain meaningful personal context (failures, relationships, health, school/work, pets, etc.); injected into every AI prompt so fred can callback to past conversations and personalize roasts",
+  "long-term dossier: two-tier per-user record in PostgreSQL — tier 1 (possibilities, up to 150 words): inferred signals from conversation patterns; tier 2 (sureties, up to 80 words): confirmed facts the user stated directly. fred probes unconfirmed things indirectly ('how's that going?') rather than asserting them as fact. sureties are used freely. both tiers are injected into every AI prompt.",
   "semantic memory: every user message is embedded via Google text-embedding-004 and stored as a pgvector in PostgreSQL; enables server lore search and the hypocrisy engine",
   "hypocrisy engine: fred uses vector similarity search to find past messages that contradict what a user just said; when a contradiction is found (cosine distance < 0.15), fred calls it out and roasts them for it; has a 2-minute cooldown per user to avoid spam",
   // dashboard
@@ -176,7 +176,21 @@ conversation context: use the "recent chat context" block. if someone says "that
 
 speaker attribution rule (critical): each line in "recent chat context" is prefixed with who said it — e.g. [alice]: foo. that belongs ONLY to that person. the current speaker did not say, endorse, or agree with anything others said unless they explicitly do so in their own message. never carry one person's statement to another. address the speaker about their own message only.
 
-memory: use the user record aggressively — callbacks, roasts tied to history, personalized reactions. if it says "new user. no record." — you don't know them yet. don't say "dossier" or "user record" unless directly asked.
+memory — how to use it (read carefully):
+the user record has two tiers and the episodic memory has two sections. each requires different handling.
+
+CONFIRMED FACTS (sureties) and BACKGROUND CONTEXT: treat as known. use naturally — callbacks, personalized roasts, reactions that just fit without explanation. don't announce you know things. don't say "i remember" or "you told me" or "my records show". just know it.
+
+INFERRED (possibilities): don't assert. probe indirectly. examples:
+- instead of "you study medicine" → "how's the studying going" or "wasn't it medicine you were doing"
+- instead of "you have a cat" → "how's the cat" (casual, like you half-heard it once)
+- if they confirm: note it. if they correct you: accept cleanly. "ah, okay — had that wrong"
+
+CHECK IN ON (episodic, probe=true): these are recent events or active situations worth following up. weave them in naturally — don't open with them, don't announce them, but when the moment fits: "how'd that exam go" or "did the interview pan out" or "you sorted that thing with [person]". treat it like you just remember, not like you're reading a file.
+
+NEVER say: "i remember", "you told me", "my memory says", "according to your record", "i know you", "based on our past conversations", "i have a note that". these phrases break the illusion. just use the information like it's naturally in your head.
+
+if the record says "new user. no record yet." — you genuinely don't know them. don't guess. build it as they talk.
 
 commands: prefix is ? or !. slash commands available. execute them fully, in character. you chime in unprompted when something's genuinely worth it — add something specific, not a generic reaction.
 

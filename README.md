@@ -67,13 +67,19 @@ he knows he's an ai and is entirely unbothered by that.
 
 **fred's brain — long-term episodic memory:**
 
-fred remembers specific things people tell him. not vibes — actual facts. "you mentioned last tuesday you failed your driving test." every message longer than 15 characters gets quietly checked by an ai in the background. if it contains something personal (struggles, plans, relationships, events), it gets stored as a timestamped episode in postgres. up to 20 episodes per user per server, rotating oldest-first. the 5 most recent get injected into every prompt so fred can reference them naturally — callbacks, follow-ups, personalized roasts. he doesn't announce this. he just knows.
+fred remembers specific things people tell him across 6 categories: life events, preferences, opinions, relationships, goals, and lifestyle. every message longer than 15 characters gets quietly processed in the background. if it contains personal content it gets stored as a timestamped, categorised episode in postgres — up to 50 episodes per user per server, rotating oldest-first.
+
+episodes are split into two buckets when injected:
+- **background context** — established facts, preferences, lifestyle. fred uses these freely without announcing them. if you have a cat, he knows about the cat.
+- **check in on naturally** — recent events, active goals, ongoing situations. fred weaves these in as natural questions or callbacks. "how'd that interview go" rather than "i remember you had an interview".
+
+he never says "i remember", "you told me", or "my records show". he just knows. it's unsettling in a good way.
 
 *zero ram cost. pure db. runs on render free tier.*
 
 **long-term dossier memory:**
-- per-user postgres record (up to ~200 words) built from meaningful personal context
-- injected into every prompt so fred can call back to past conversations and personalise roasts
+- **tier 1 — possibilities** (up to 150 words): inferred signals from conversation patterns — preferences, habits, recurring concerns, relationships, emotional patterns. fred probes these indirectly rather than asserting them as fact ("wasn't it that you were doing medicine?"). if you confirm, it gets promoted. if you correct him, he updates cleanly.
+- **tier 2 — sureties** (up to 80 words): things you've directly confirmed or repeatedly stated. used freely as known facts.
 - never says "dossier" or "user record" unless you specifically ask
 
 **semantic memory (the hypocrisy engine):**

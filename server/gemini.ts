@@ -388,21 +388,21 @@ function withUserRecord(systemPrompt: string, memData: UserMemoryData): string {
   const { possibilities, sureties } = memData;
   const hasAny = possibilities || sureties;
   if (!hasAny) {
-    return `${systemPrompt}\n\nuser record: new user. no record yet.`;
+    return `${systemPrompt}\n\nuser record: new user. no record yet. build it as they talk.`;
   }
 
   const lines: string[] = ["\n\nuser record:"];
 
   if (sureties) {
     lines.push(
-      "[confirmed facts — more reliable, but still open to correction if the user updates you]",
+      "[confirmed — stated directly or repeatedly; use freely in conversation, treat as fact unless they correct you]",
       sureties,
     );
   }
 
   if (possibilities) {
     lines.push(
-      "[inferred / unconfirmed — picked up from conversation patterns; use carefully for personalization, don't assert as fact, stay open to being wrong]",
+      "[inferred — patterns from conversation; DO NOT assert as fact. instead: probe indirectly ('how's that going?', 'wasn't it that you were...'), react as if you half-remember, or just let it shape tone. never say 'i know you' or 'you told me'. if they correct you, update cleanly.]",
       possibilities,
     );
   }

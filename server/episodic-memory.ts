@@ -5,11 +5,19 @@ import { log } from "./index";
 
 // Episodic memory: timestamped personal moments extracted from conversations.
 // Stored in PostgreSQL only — no RAM cache — safe under Render's 512MB limit.
-// Max 20 episodes per user per guild; oldest are pruned automatically.
+// Max 50 episodes per user per guild; oldest are pruned automatically.
+//
+// Each episode has:
+//   - category: event | preference | opinion | relationship | goal | lifestyle
+//   - probe: whether Fred should naturally check in on it (ongoing situation, recent event, active goal)
+//   - topic: short topic tag for relevance grouping
 
-const MAX_EPISODES = 20;
-const MAX_EPISODE_CHARS = 120;
+const MAX_EPISODES = 50;
+const MAX_EPISODE_CHARS = 200;
 const EXTRACTION_QUEUE_CAP = 25;
+
+// How old (ms) an episode has to be before it moves from "check in on" to "established context"
+const PROBE_RECENCY_MS = 10 * 24 * 60 * 60 * 1000; // 10 days
 
 let tableReady = false;
 
@@ -23,6 +31,9 @@ export async function ensureEpisodesTable(): Promise<void> {
         guild_id TEXT NOT NULL,
         episode TEXT NOT NULL,
         event_label TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'event',
+        probe BOOLEAN NOT NULL DEFAULT FALSE,
+        topic TEXT NOT NULL DEFAULT '',
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
@@ -30,6 +41,10 @@ export async function ensureEpisodesTable(): Promise<void> {
       CREATE INDEX IF NOT EXISTS user_episodes_user_guild_idx
         ON user_episodes(user_id, guild_id)
     `);
+    // Safe migrations for existing installs
+    await db.execute(sql`ALTER TABLE user_episodes ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'event'`);
+    await db.execute(sql`ALTER TABLE user_episodes ADD COLUMN IF NOT EXISTS probe BOOLEAN NOT NULL DEFAULT FALSE`);
+    await db.execute(sql`ALTER TABLE user_episodes ADD COLUMN IF NOT EXISTS topic TEXT NOT NULL DEFAULT ''`);
     tableReady = true;
     log("[EpisodicMemory] user_episodes table ready.", "memory");
   } catch (err: any) {
@@ -45,30 +60,70 @@ function humanDateLabel(): string {
   return `${days[now.getUTCDay()]} ${months[now.getUTCMonth()]} ${now.getUTCDate()}`;
 }
 
-async function extractEpisodeText(content: string): Promise<string | null> {
+interface ExtractedEpisode {
+  text: string;
+  category: string;
+  probe: boolean;
+  topic: string;
+}
+
+async function extractEpisodeText(content: string): Promise<ExtractedEpisode | null> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return null;
   try {
     const client = new GoogleGenerativeAI(key);
     const model = client.getGenerativeModel({
       model: "gemini-2.0-flash-lite",
-      generationConfig: { temperature: 0.1, maxOutputTokens: 60 },
+      generationConfig: { temperature: 0.1, maxOutputTokens: 80 },
     });
     const prompt = [
-      "Extract a single memorable personal fact or event from this Discord message, if one exists.",
-      "Worth extracting: health news, results (passed/failed/got in/rejected), relationships, worries, plans, life events, achievements, losses, strong personal updates.",
-      "NOT worth extracting: generic questions, greetings, bot commands, music requests, casual banter with no personal content.",
-      "Write it in ≤15 words starting with 'mentioned' or 'said they' — e.g. 'mentioned they got into university' or 'said they failed their driving test'.",
-      "If nothing noteworthy exists, output exactly NULL.",
+      "Extract a single memorable personal detail from this Discord message, if one exists.",
+      "",
+      "CATEGORIES — pick exactly one:",
+      "  event      — a specific life thing that happened or will happen (exam result, job interview, breakup, illness, trip, achievement, loss)",
+      "  preference — something they like, love, hate, or always/never do (music taste, food, hobbies, media)",
+      "  opinion    — a strong stance or belief they've stated",
+      "  relationship — something about a specific person in their life (friend, partner, family, pet)",
+      "  goal       — something they're working toward or planning",
+      "  lifestyle  — how they live (diet, sleep, fitness, job, city, identity, mental health)",
+      "",
+      "PROBE — output true if Fred should naturally check in on this later (ongoing events, active goals, recent struggles, pending outcomes).",
+      "        output false for established preferences, opinions, or completed events.",
+      "",
+      "TOPIC — 1-3 word tag for the subject area (e.g. 'university', 'relationship', 'music', 'health', 'career', 'gaming')",
+      "",
+      "NOT worth extracting: generic questions, greetings, bot commands, casual banter with no personal content.",
+      "",
+      "Output format — EXACTLY this, one line, pipe-separated:",
+      "category|probe|topic|text",
+      "",
+      "Rules for text: ≤20 words, start with 'mentioned' or 'said they'. Example:",
+      "event|true|university|mentioned they have a final exam on thursday and are panicking",
+      "",
+      "If nothing noteworthy, output exactly: NULL",
       "",
       `Message: "${content.slice(0, 400)}"`,
       "",
-      "Output (one line only):",
+      "Output:",
     ].join("\n");
+
     const result = await model.generateContent(prompt);
-    const text = result?.response?.text()?.trim() ?? "";
-    if (!text || /^null\.?$/i.test(text)) return null;
-    return text.slice(0, MAX_EPISODE_CHARS);
+    const raw = result?.response?.text()?.trim() ?? "";
+    if (!raw || /^null\.?$/i.test(raw)) return null;
+
+    const parts = raw.split("|");
+    if (parts.length < 4) return null;
+
+    const [category, probeStr, topic, ...textParts] = parts;
+    const text = textParts.join("|").trim().slice(0, MAX_EPISODE_CHARS);
+    if (!text || /^null$/i.test(text)) return null;
+
+    const validCategories = ["event", "preference", "opinion", "relationship", "goal", "lifestyle"];
+    const safeCategory = validCategories.includes(category?.trim() ?? "") ? category.trim() : "event";
+    const probe = probeStr?.trim().toLowerCase() === "true";
+    const safeTopic = (topic?.trim() ?? "").slice(0, 40);
+
+    return { text, category: safeCategory, probe, topic: safeTopic };
   } catch (err: any) {
     log(`[EpisodicMemory] Extraction failed: ${err.message}`, "memory");
     return null;
@@ -101,10 +156,10 @@ export function queueEpisodeExtraction(userId: string, guildId: string, content:
       if (!episode) return;
       const label = humanDateLabel();
       await db.execute(sql`
-        INSERT INTO user_episodes (user_id, guild_id, episode, event_label)
-        VALUES (${userId}, ${guildId}, ${episode}, ${label})
+        INSERT INTO user_episodes (user_id, guild_id, episode, event_label, category, probe, topic)
+        VALUES (${userId}, ${guildId}, ${episode.text}, ${label}, ${episode.category}, ${episode.probe}, ${episode.topic})
       `);
-      // Prune oldest if over the per-user-per-guild limit.
+      // Prune oldest beyond the per-user-per-guild limit.
       await db.execute(sql`
         DELETE FROM user_episodes
         WHERE user_id = ${userId} AND guild_id = ${guildId}
@@ -115,7 +170,7 @@ export function queueEpisodeExtraction(userId: string, guildId: string, content:
             LIMIT ${MAX_EPISODES}
           )
       `);
-      log(`[EpisodicMemory] Stored for ${userId}: ${episode}`, "memory");
+      log(`[EpisodicMemory] Stored for ${userId} [${episode.category}${episode.probe ? "/probe" : ""}]: ${episode.text}`, "memory");
     } catch (err: any) {
       log(`[EpisodicMemory] Failed to store episode: ${err.message}`, "memory");
     }
@@ -127,25 +182,59 @@ export function queueEpisodeExtraction(userId: string, guildId: string, content:
 export async function getEpisodicContext(userId: string, guildId: string): Promise<string | null> {
   try {
     const result: any = await db.execute(sql`
-      SELECT episode, event_label, created_at
+      SELECT episode, event_label, category, probe, topic, created_at
       FROM user_episodes
       WHERE user_id = ${userId} AND guild_id = ${guildId}
       ORDER BY created_at DESC
-      LIMIT 5
+      LIMIT 30
     `);
     const rows = (result?.rows ?? result) as Array<{
       episode: string;
       event_label: string;
+      category: string;
+      probe: boolean;
+      topic: string;
       created_at: string;
     }>;
     if (!rows || rows.length === 0) return null;
 
-    const lines = [...rows]
-      .reverse() // chronological order for narrative flow
-      .map((r) => `- ${r.event_label}: ${r.episode}`)
-      .join("\n");
+    const now = Date.now();
 
-    return `things fred remembers about this person:\n${lines}`;
+    // Split into: things to check in on naturally vs established background context
+    const checkOn: string[] = [];
+    const established: string[] = [];
+    const seen = new Set<string>();
+
+    for (const r of rows) {
+      // Deduplicate by topic+category to avoid repeating the same thing
+      const dedupeKey = `${r.category}:${r.topic}`;
+      if (seen.has(dedupeKey) && r.category !== "event") continue;
+      seen.add(dedupeKey);
+
+      const ageMs = now - new Date(r.created_at).getTime();
+      const isRecent = ageMs < PROBE_RECENCY_MS;
+      const isProbe = r.probe === true || (r.probe as any) === "t" || (r.probe as any) === 1;
+
+      if ((isProbe && isRecent) || (isRecent && r.category === "event")) {
+        checkOn.push(`${r.event_label}: ${r.episode}`);
+      } else {
+        established.push(r.episode);
+      }
+
+      if (checkOn.length >= 5 && established.length >= 8) break;
+    }
+
+    const parts: string[] = ["fred's memory of this person:"];
+
+    if (established.length > 0) {
+      parts.push(`background (use freely as context): ${established.slice(0, 8).join(". ")}.`);
+    }
+
+    if (checkOn.length > 0) {
+      parts.push(`check in on naturally — weave these in as questions or callbacks, don't announce you remember them:\n${checkOn.slice(0, 5).map((e) => `  - ${e}`).join("\n")}`);
+    }
+
+    return parts.join("\n");
   } catch {
     return null;
   }
