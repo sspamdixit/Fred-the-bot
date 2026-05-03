@@ -55,6 +55,7 @@ interface PlaylistTrack { title: string; artist: string; }
 let cachedPlaylistTracks: PlaylistTrack[] | null = null;
 let playlistCacheTime = 0;
 let playlistSource: "spotify" | "youtube" | "genre_seeds" = "genre_seeds";
+let playlistFetchBackoffUntil = 0; // epoch ms — skip re-fetching until this time after a failed fetch
 
 async function getSpotifyToken(): Promise<string | null> {
   const clientId = process.env.SPOTIFY_CLIENT_ID?.trim();
@@ -80,6 +81,12 @@ async function fetchPlaylistTracks(): Promise<PlaylistTrack[]> {
   const now = Date.now();
   if (cachedPlaylistTracks && now - playlistCacheTime < PLAYLIST_CACHE_TTL) {
     return cachedPlaylistTracks;
+  }
+
+  // Back off from re-fetching for a few minutes after a failed attempt so the
+  // broadcast loop doesn't hammer Spotify/YouTube on every iteration.
+  if (now < playlistFetchBackoffUntil) {
+    return cachedPlaylistTracks ?? [];
   }
 
   // --- Spotify path ---
@@ -115,6 +122,7 @@ async function fetchPlaylistTracks(): Promise<PlaylistTrack[]> {
       return tracks;
     }
     log(`[Radio] Spotify playlist fetch returned 0 tracks`, "radio");
+    playlistFetchBackoffUntil = now + 5 * 60 * 1000;
   }
 
   // --- YouTube playlist path (no Spotify creds needed) ---
@@ -142,6 +150,7 @@ async function fetchPlaylistTracks(): Promise<PlaylistTrack[]> {
   if (!token && !FRED_FM_YT_PLAYLIST) {
     log("[Radio] No playlist configured (SPOTIFY_CLIENT_ID/SECRET or FRED_FM_YT_PLAYLIST) — using genre seeds", "radio");
   }
+  playlistFetchBackoffUntil = Date.now() + 5 * 60 * 1000;
   playlistSource = "genre_seeds";
   return [];
 }
@@ -159,13 +168,13 @@ const stationNowPlaying = new Map<string, RadioNowPlaying>();
 // the `RADIO_YT_SEEDS` env var (comma-separated). Each round picks one and
 // queries Lavalink for matches.
 const DEFAULT_YT_SEEDS = [
-  "lo-fi hip hop", "indie rock 2024", "synthwave", "classic rock hits",
-  "80s pop", "90s alternative", "house music", "drum and bass",
-  "j-pop hits", "k-pop hits", "afrobeats", "reggae classics",
+  "house music", "drum and bass", "uk garage classics", "grime classics",
+  "amsterdam techno", "dutch electronic music", "deep house music", "acid house",
+  "lo-fi hip hop", "synthwave", "90s alternative", "indie rock",
   "jazz standards", "ambient electronic", "shoegaze", "post-punk",
-  "soul classics", "funk grooves", "blues guitar", "folk acoustic",
-  "metal anthems", "punk rock", "trip hop", "dream pop",
-  "italo disco", "city pop japan", "trap beats", "hyperpop",
+  "soul classics", "funk grooves", "electro funk", "trip hop",
+  "italo disco", "breakbeat mix", "dream pop", "indie dance",
+  "classic hip hop", "r&b classics", "80s pop", "new wave",
 ];
 
 // Time-of-day seed pools. Rotated in based on UTC hour so the station
@@ -294,7 +303,7 @@ interface RadioStation {
   player: Player;
   pinnedNode: any;                      // Lavalink node hosting the player; HTTP-capable
   recentMusic: string[];               // local file paths
-  recentYTUris: string[];              // youtube URIs already played
+  recentYTUris: string[];              // youtube URIs already played this session
   recentAssets: string[];
   active: boolean;
   lastNewsHour: number;                 // UTC hour of last news segment (-1 = never)

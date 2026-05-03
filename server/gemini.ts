@@ -27,8 +27,6 @@ const MODELS_TO_TRY = [
   "gemini-2.5-flash",
   "gemini-2.0-flash-lite",
   "gemini-2.0-flash",
-  "gemini-3.1-flash-lite-preview",
-  "gemini-3-flash-preview",
 ];
 
 const GROQ_MODEL = "llama-3.3-70b-versatile";
@@ -105,10 +103,21 @@ const recentChannelContext = new Map<string, ChannelMessage[]>();
 const lastPassiveReplyAt = new Map<string, number>();
 const PASSIVE_REPLY_COOLDOWN_MS = 120_000;
 
+// Size caps for Maps that grow with each unique user/channel and are never explicitly cleared.
+// Eviction is LRU-approximated via insertion order (Map preserves insertion order in V8).
+const MAX_SEEN_AT_CACHE      = 1_000;
+const MAX_PASSIVE_CACHE      = 500;
+const MAX_CANDIDATE_CACHE    = 500;
+
 const userLastSeenAt = new Map<string, number>();
 
 export function recordUserActivity(userId: string): void {
-  if (userId) userLastSeenAt.set(userId, Date.now());
+  if (!userId) return;
+  if (userLastSeenAt.size >= MAX_SEEN_AT_CACHE) {
+    const oldest = userLastSeenAt.keys().next().value;
+    if (oldest) userLastSeenAt.delete(oldest);
+  }
+  userLastSeenAt.set(userId, Date.now());
 }
 
 function getLastSeenLabel(userId: string | undefined): string | null {
@@ -284,6 +293,12 @@ async function handlePassiveWatch(context: PassiveWatchContext): Promise<void> {
   log(`[Passive:${type}] Jumping in on ${context.authorName}'s message in channel ${context.channelId}`, "gemini");
   try {
     await context.sendReply(reply);
+    if (lastPassiveReplyAt.size >= MAX_PASSIVE_CACHE) {
+      const expireBefore = Date.now() - PASSIVE_REPLY_COOLDOWN_MS * 10;
+      for (const [k, v] of lastPassiveReplyAt) {
+        if (v < expireBefore) lastPassiveReplyAt.delete(k);
+      }
+    }
     lastPassiveReplyAt.set(context.channelId, Date.now());
     pushChannelMessage(context.channelId, "fred", reply, true);
   } catch (err: any) {
@@ -428,7 +443,7 @@ function recordUserSessionExchange(userId: string, userContent: string, assistan
   userSessionHistories.set(userId, history);
 }
 
-function sanitizeDossier(raw: string): string {
+function sanitizeDossier(raw: string, maxWords = 200): string {
   const cleaned = raw
     .toLowerCase()
     .replace(/\r/g, "")
@@ -440,7 +455,7 @@ function sanitizeDossier(raw: string): string {
     .replace(/\s+/g, " ")
     .trim();
 
-  return cleaned.split(/\s+/).filter(Boolean).slice(0, 200).join(" ");
+  return cleaned.split(/\s+/).filter(Boolean).slice(0, maxWords).join(" ");
 }
 
 function isSubstantialMemoryMessage(content: string): boolean {
@@ -497,6 +512,10 @@ export function triggerUserMemoryUpdate(userId: string): void {
     return;
   }
 
+  if (processedMemoryCandidates.size >= MAX_CANDIDATE_CACHE) {
+    const oldest = processedMemoryCandidates.keys().next().value;
+    if (oldest) processedMemoryCandidates.delete(oldest);
+  }
   processedMemoryCandidates.set(userId, substantialSnippet);
   pendingMemoryUpdates.add(userId);
   void (async () => {
@@ -560,7 +579,7 @@ export function triggerUserMemoryUpdate(userId: string): void {
       const suretiesMatch = raw.match(/SURETIES:\s*([\s\S]*)$/i);
 
       const newPossibilities = sanitizeDossier(possibilitiesMatch?.[1]?.trim() ?? "");
-      const newSureties = sanitizeDossier(suretiesMatch?.[1]?.trim() ?? "");
+      const newSureties = sanitizeDossier(suretiesMatch?.[1]?.trim() ?? "", 80);
 
       const possibilitiesChanged = newPossibilities && newPossibilities !== sanitizeDossier(existing.possibilities);
       const suretiesChanged = newSureties !== sanitizeDossier(existing.sureties || "");
@@ -661,7 +680,24 @@ function buildTimeString(): string {
   const ampm = hours >= 12 ? "pm" : "am";
   if (hours === 0) hours = 12;
   else if (hours > 12) hours -= 12;
-  return `${day}, ${hours}:${minutes} ${ampm} utc`;
+  const utcStr = `${day}, ${hours}:${minutes} ${ampm} utc`;
+
+  // Include Amsterdam local time so time-of-day personality reflects Fred's home timezone (CET/CEST).
+  try {
+    const amsTime = now.toLocaleTimeString("en-GB", {
+      timeZone: "Europe/Amsterdam",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    const amsDay = now.toLocaleDateString("en-GB", {
+      timeZone: "Europe/Amsterdam",
+      weekday: "long",
+    }).toLowerCase();
+    return `${utcStr} (${amsDay} ${amsTime} amsterdam)`;
+  } catch {
+    return utcStr;
+  }
 }
 
 function buildUserPrompt(
@@ -1045,7 +1081,7 @@ export async function askGemini(userMessage: string, authorName: string, channel
       pushHistory(channelId, "user", prompt);
       pushHistory(channelId, "assistant", reply);
       recordUserSessionExchange(userId, prompt, reply);
-      if (context.userId && context.guildId && userMessage.trim().length >= 10) {
+      if (context.userId && context.guildId && isSubstantialMemoryMessage(userMessage)) {
         queueEpisodeExtraction(context.userId, context.guildId, userMessage);
       }
       return reply;
@@ -1120,7 +1156,7 @@ export async function askGemini(userMessage: string, authorName: string, channel
       pushHistory(channelId, "user", prompt);
       pushHistory(channelId, "assistant", hackReply);
       recordUserSessionExchange(userId, prompt, hackReply);
-      if (context.userId && context.guildId && userMessage.trim().length >= 10) {
+      if (context.userId && context.guildId && isSubstantialMemoryMessage(userMessage)) {
         queueEpisodeExtraction(context.userId, context.guildId, userMessage);
       }
       return hackReply;

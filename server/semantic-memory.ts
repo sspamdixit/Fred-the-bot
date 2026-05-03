@@ -5,7 +5,7 @@ import { log } from "./index";
 
 const EMBEDDING_DIMS = 768;
 const HYPOCRISY_COOLDOWN_MS = 2 * 60 * 1000;
-const HYPOCRISY_DISTANCE_THRESHOLD = 0.15;
+const HYPOCRISY_DISTANCE_THRESHOLD = 0.30;
 const RAM_SOFT_LIMIT_MB = 480;
 const QUEUE_DELAY_MS = 120;
 const MIN_INGEST_LENGTH = 8;
@@ -236,6 +236,13 @@ export async function runHypocrisyEngine(ctx: HypocrisyContext): Promise<string 
 
   const last = hypocrisyCooldowns.get(ctx.userId);
   if (last && Date.now() - last < HYPOCRISY_COOLDOWN_MS) return null;
+  // Prune expired cooldown entries to prevent unbounded Map growth over long uptimes.
+  if (hypocrisyCooldowns.size > 500) {
+    const expireBefore = Date.now() - HYPOCRISY_COOLDOWN_MS;
+    for (const [k, v] of hypocrisyCooldowns) {
+      if (v < expireBefore) hypocrisyCooldowns.delete(k);
+    }
+  }
   hypocrisyCooldowns.set(ctx.userId, Date.now());
 
   if (isMemoryHigh()) return null;
