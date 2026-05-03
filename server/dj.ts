@@ -16,12 +16,44 @@ export interface DjSession {
 
 export const djSessions = new Map<string, DjSession>();
 
-// Per-guild timers for scheduled fade-outs and in-progress fade intervals
 const fadeOutTimers   = new Map<string, ReturnType<typeof setTimeout>>();
 const fadeIntervals   = new Map<string, ReturnType<typeof setInterval>>();
 
-export function getDjStatus(): Array<{ guildId: string; genre: string }> {
-  return [...djSessions.entries()].map(([guildId, s]) => ({ guildId, genre: s.genre }));
+export interface DjTrackInfo {
+  title: string;
+  author: string;
+  artworkUrl: string | null;
+  duration: number;
+  position: number;
+}
+
+export interface DjSessionStatus {
+  guildId: string;
+  genre: string;
+  currentTrack: DjTrackInfo | null;
+  queueLength: number;
+}
+
+export function getDjStatus(): DjSessionStatus[] {
+  return [...djSessions.entries()].map(([guildId, s]) => {
+    const q = getQueue(guildId);
+    let currentTrack: DjTrackInfo | null = null;
+    if (q?.current) {
+      currentTrack = {
+        title: q.current.title,
+        author: q.current.author,
+        artworkUrl: q.current.artworkUrl ?? null,
+        duration: q.current.duration,
+        position: Math.max(0, Number(q.player.position) || 0),
+      };
+    }
+    return {
+      guildId,
+      genre: s.genre,
+      currentTrack,
+      queueLength: q?.tracks.length ?? 0,
+    };
+  });
 }
 
 function extractYouTubeVideoId(uri: string): string | null {
@@ -36,6 +68,10 @@ function cancelFades(guildId: string): void {
   if (t) { clearTimeout(t); fadeOutTimers.delete(guildId); }
   const iv = fadeIntervals.get(guildId);
   if (iv) { clearInterval(iv); fadeIntervals.delete(guildId); }
+}
+
+export function cancelDjFades(guildId: string): void {
+  cancelFades(guildId);
 }
 
 function runFade(
@@ -79,26 +115,22 @@ export function onDjTrackStart(
   const session = djSessions.get(guildId);
   if (!session) return;
 
-  // Keep a rolling window of recent URIs to avoid replaying the same songs
   session.lastTrackUri = track.uri;
   if (!session.recentUris.includes(track.uri)) {
     session.recentUris.push(track.uri);
     if (session.recentUris.length > 60) session.recentUris.shift();
   }
 
-  const targetV = targetVolume * 10; // queue.volume is 0-100, setGlobalVolume is 0-1000
+  const targetV = targetVolume * 10;
 
-  // ── Fade in ──────────────────────────────────────────────────────────────
   player.setGlobalVolume(8).catch(() => {});
   runFade(player, 8, targetV, FADE_IN_MS, guildId, false);
 
-  // ── Schedule fade-out near end ────────────────────────────────────────────
   const minDuration = FADE_IN_MS + FADE_OUT_MS + 5_000;
   if (!track.isStream && track.duration > minDuration) {
     const delay = track.duration - FADE_OUT_MS - 1_200;
     const timer = setTimeout(() => {
       fadeOutTimers.delete(guildId);
-      // Verify we're still on the same track before fading
       const q = getQueue(guildId);
       if (q?.current?.encoded === track.encoded) {
         runFade(player, targetV, 0, FADE_OUT_MS, guildId, true);
@@ -112,8 +144,6 @@ export function onDjStop(guildId: string): void {
   cancelFades(guildId);
   djSessions.delete(guildId);
 }
-
-// ── Smart queue refill ────────────────────────────────────────────────────
 
 const GENRE_QUERY_VARIANTS = (genre: string): string[] => [
   `${genre} music`,
@@ -146,9 +176,6 @@ export async function refillDjQueue(guildId: string, session: DjSession): Promis
     const fresh = (r: any) => r?.encoded && r.info && !r.info.isStream && !session.recentUris.includes(r.info.uri);
     let tracks: QueueTrack[] = [];
 
-    // ── Strategy 1: YouTube radio-mix from last played track ─────────────────
-    // YouTube's RD playlist groups tracks by energy, tempo, and mood —
-    // the closest proxy to BPM matching without audio analysis.
     if (session.lastTrackUri) {
       const videoId = extractYouTubeVideoId(session.lastTrackUri);
       if (videoId) {
@@ -159,15 +186,14 @@ export async function refillDjQueue(guildId: string, session: DjSession): Promis
             const raws: any[] = (result.data as any).tracks ?? [];
             tracks = raws
               .filter(fresh)
-              .slice(1, 20) // skip first — it's the seed track itself
+              .slice(1, 20)
               .map((r) => toQueueTrack(r, reqBy));
             log(`[DJ] RD-mix for "${session.genre}": ${tracks.length} fresh tracks`, "discord");
           }
-        } catch { /* fall through to genre search */ }
+        } catch { /* fall through */ }
       }
     }
 
-    // ── Strategy 2: Genre search top-up (or sole source if no seed yet) ──────
     if (tracks.length < 6) {
       const variants = GENRE_QUERY_VARIANTS(session.genre);
       const query = variants[Math.floor(Math.random() * variants.length)];
@@ -187,7 +213,6 @@ export async function refillDjQueue(guildId: string, session: DjSession): Promis
       return;
     }
 
-    // Light shuffle so playback order is never identical across refills
     for (let i = tracks.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
