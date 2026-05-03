@@ -78,6 +78,18 @@ export async function ensureSemanticMemoryTable(): Promise<void> {
       CREATE INDEX IF NOT EXISTS user_memories_user_guild_idx
         ON user_memories(user_id, guild_id)
     `);
+    // HNSW index for fast approximate nearest-neighbour vector search.
+    // m=16 / ef_construction=64 is the standard balanced default.
+    // Falls back gracefully if the index already exists.
+    try {
+      await db.execute(sql`
+        CREATE INDEX IF NOT EXISTS user_memories_hnsw_idx
+          ON user_memories USING hnsw (embedding vector_cosine_ops)
+          WITH (m = 16, ef_construction = 64)
+      `);
+    } catch (hErr: any) {
+      log(`[SemanticMemory] HNSW index creation skipped (${hErr.message}) — falling back to sequential scan.`, "memory");
+    }
     tableReady = true;
     log("[SemanticMemory] user_memories table ready (pgvector enabled).", "memory");
   } catch (err: any) {

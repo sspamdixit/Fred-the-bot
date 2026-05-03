@@ -34,7 +34,9 @@ export async function ensureEpisodesTable(): Promise<void> {
         category TEXT NOT NULL DEFAULT 'event',
         probe BOOLEAN NOT NULL DEFAULT FALSE,
         topic TEXT NOT NULL DEFAULT '',
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        confidence INT NOT NULL DEFAULT 1,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
     await db.execute(sql`
@@ -45,6 +47,8 @@ export async function ensureEpisodesTable(): Promise<void> {
     await db.execute(sql`ALTER TABLE user_episodes ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'event'`);
     await db.execute(sql`ALTER TABLE user_episodes ADD COLUMN IF NOT EXISTS probe BOOLEAN NOT NULL DEFAULT FALSE`);
     await db.execute(sql`ALTER TABLE user_episodes ADD COLUMN IF NOT EXISTS topic TEXT NOT NULL DEFAULT ''`);
+    await db.execute(sql`ALTER TABLE user_episodes ADD COLUMN IF NOT EXISTS confidence INT NOT NULL DEFAULT 1`);
+    await db.execute(sql`ALTER TABLE user_episodes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`);
     tableReady = true;
     log("[EpisodicMemory] user_episodes table ready.", "memory");
   } catch (err: any) {
@@ -156,9 +160,42 @@ export function queueEpisodeExtraction(userId: string, guildId: string, content:
       const episode = await extractEpisodeText(content);
       if (!episode) return;
       const label = humanDateLabel();
+
+      // Deduplication: for stable categories (not one-off events), check if we already
+      // have an entry with the same topic+category. If so, update it and bump confidence
+      // (max 3) rather than creating a duplicate row.
+      const isStable = episode.category !== "event";
+      if (isStable && episode.topic) {
+        const existing: any = await db.execute(sql`
+          SELECT id, confidence FROM user_episodes
+          WHERE user_id = ${userId} AND guild_id = ${guildId}
+            AND category = ${episode.category}
+            AND topic = ${episode.topic}
+          ORDER BY updated_at DESC
+          LIMIT 1
+        `);
+        const rows = (existing?.rows ?? existing) as Array<{ id: number; confidence: number }> | undefined;
+        if (rows && rows.length > 0) {
+          const existingId = Number(rows[0].id);
+          const newConfidence = Math.min(Number(rows[0].confidence ?? 1) + 1, 3);
+          await db.execute(sql`
+            UPDATE user_episodes
+            SET episode = ${episode.text},
+                event_label = ${label},
+                probe = ${episode.probe},
+                confidence = ${newConfidence},
+                updated_at = now()
+            WHERE id = ${existingId}
+          `);
+          log(`[EpisodicMemory] Updated for ${userId} [${episode.category}/conf${newConfidence}]: ${episode.text}`, "memory");
+          return;
+        }
+      }
+
+      // New episode — insert fresh.
       await db.execute(sql`
-        INSERT INTO user_episodes (user_id, guild_id, episode, event_label, category, probe, topic)
-        VALUES (${userId}, ${guildId}, ${episode.text}, ${label}, ${episode.category}, ${episode.probe}, ${episode.topic})
+        INSERT INTO user_episodes (user_id, guild_id, episode, event_label, category, probe, topic, confidence)
+        VALUES (${userId}, ${guildId}, ${episode.text}, ${label}, ${episode.category}, ${episode.probe}, ${episode.topic}, 1)
       `);
       // Prune oldest beyond the per-user-per-guild limit.
       await db.execute(sql`
@@ -167,7 +204,7 @@ export function queueEpisodeExtraction(userId: string, guildId: string, content:
           AND id NOT IN (
             SELECT id FROM user_episodes
             WHERE user_id = ${userId} AND guild_id = ${guildId}
-            ORDER BY created_at DESC
+            ORDER BY updated_at DESC
             LIMIT ${MAX_EPISODES}
           )
       `);
@@ -183,10 +220,10 @@ export function queueEpisodeExtraction(userId: string, guildId: string, content:
 export async function getEpisodicContext(userId: string, guildId: string): Promise<string | null> {
   try {
     const result: any = await db.execute(sql`
-      SELECT episode, event_label, category, probe, topic, created_at
+      SELECT episode, event_label, category, probe, topic, confidence, created_at, updated_at
       FROM user_episodes
       WHERE user_id = ${userId} AND guild_id = ${guildId}
-      ORDER BY created_at DESC
+      ORDER BY updated_at DESC
       LIMIT 30
     `);
     const rows = (result?.rows ?? result) as Array<{
@@ -195,28 +232,37 @@ export async function getEpisodicContext(userId: string, guildId: string): Promi
       category: string;
       probe: boolean;
       topic: string;
+      confidence: number;
       created_at: string;
+      updated_at: string;
     }>;
     if (!rows || rows.length === 0) return null;
 
     const now = Date.now();
 
-    // Split into: things to check in on naturally vs established background context
+    // Split into: things to check in on naturally vs established background context.
+    // Low confidence (1) items are treated as tentative — kept in background only,
+    // never surfaced as check-ins, to reduce inaccurate probing.
     const checkOn: string[] = [];
     const established: string[] = [];
+    const tentative: string[] = [];
     const seen = new Set<string>();
 
     for (const r of rows) {
-      // Deduplicate by topic+category to avoid repeating the same thing
+      // Rows are already deduped at write-time for stable categories, but guard anyway
       const dedupeKey = `${r.category}:${r.topic}`;
       if (seen.has(dedupeKey) && r.category !== "event") continue;
       seen.add(dedupeKey);
 
-      const ageMs = now - new Date(r.created_at).getTime();
+      const confidence = Number(r.confidence ?? 1);
+      const ageMs = now - new Date(r.updated_at ?? r.created_at).getTime();
       const isRecent = ageMs < PROBE_RECENCY_MS;
       const isProbe = r.probe === true || (r.probe as any) === "t" || (r.probe as any) === 1;
 
-      if ((isProbe && isRecent) || (isRecent && r.category === "event")) {
+      if (confidence === 1) {
+        // Single-mention — tentative; use as soft background only, don't probe
+        tentative.push(r.episode);
+      } else if ((isProbe && isRecent) || (isRecent && r.category === "event")) {
         checkOn.push(`${r.event_label}: ${r.episode}`);
       } else {
         established.push(r.episode);
@@ -228,7 +274,11 @@ export async function getEpisodicContext(userId: string, guildId: string): Promi
     const parts: string[] = ["fred's memory of this person:"];
 
     if (established.length > 0) {
-      parts.push(`background (use freely as context): ${established.slice(0, 8).join(". ")}.`);
+      parts.push(`confirmed background (use freely): ${established.slice(0, 8).join(". ")}.`);
+    }
+
+    if (tentative.length > 0) {
+      parts.push(`tentative (mentioned once — treat carefully, don't assert): ${tentative.slice(0, 4).join(". ")}.`);
     }
 
     if (checkOn.length > 0) {

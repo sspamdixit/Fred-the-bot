@@ -526,6 +526,8 @@ export function triggerUserMemoryUpdate(userId: string): void {
         "- Do not store: usernames, Discord roles/IDs, server names, generic tech specs, throwaway chatter, bot commands, jokes, or assistant opinions.",
         "- NEVER store references to 'fred', 'the bot', or 'the assistant' as a person in the user's life. The messages are addressed TO fred — fred is not a human in their social circle. If a message says 'i love talking to fred' that is about the bot, not a relationship worth storing.",
         "- Never invent facts not present in the messages.",
+        "- Be skeptical of single-mention signals. Only add something to Possibilities if it reads as genuine personal context — not a one-off joke, a hypothetical, or something said in passing.",
+        "- When the user explicitly contradicts something already in Possibilities ('no, i don't actually', 'that was a joke', 'i used to but not anymore', 'you've got that wrong'), REMOVE that item entirely. Do not soften it or hedge it — delete it. Accuracy beats completeness.",
         "- If nothing has changed in a tier, return the existing content for that tier unchanged.",
         "- If a tier has no content, output an empty string for it.",
         "",
