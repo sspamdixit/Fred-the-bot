@@ -1490,6 +1490,33 @@ const SLASH_COMMANDS = [
     .setName("debate")
     .setDescription("fred picks a side and argues it")
     .addStringOption((o) => o.setName("topic").setDescription("topic to debate").setRequired(true)),
+  new SlashCommandBuilder()
+    .setName("ping")
+    .setDescription("check if fred is alive and measure latency"),
+  new SlashCommandBuilder()
+    .setName("status")
+    .setDescription("show current uptime, ai model, and token usage"),
+  new SlashCommandBuilder()
+    .setName("help")
+    .setDescription("show available commands"),
+  new SlashCommandBuilder()
+    .setName("search")
+    .setDescription("search the web and get an answer")
+    .addStringOption((o) =>
+      o.setName("query").setDescription("what to search for").setRequired(true),
+    ),
+  new SlashCommandBuilder()
+    .setName("lore")
+    .setDescription("search or view this server's collective memory and lore")
+    .addStringOption((o) =>
+      o.setName("query").setDescription("what to look up (leave blank for the full lore summary)").setRequired(false),
+    ),
+  new SlashCommandBuilder()
+    .setName("dossier")
+    .setDescription("get fred's full psychological profile on a server member")
+    .addUserOption((o) =>
+      o.setName("user").setDescription("who to profile (defaults to you)").setRequired(false),
+    ),
 
   // ── mod accessible ───────────────────────────────────────────────────────
   new SlashCommandBuilder()
@@ -3163,8 +3190,10 @@ export async function startBot() {
         "`/roast <target>` — roast a person, thing, or idea",
         "`/explain <topic>` — explain something in depth",
         "`/translate <language> <text>` — translate text",
-        "`?search <query>` — search the web and get an answer",
+        "`/search <query>` — search the web and get an answer",
         "`/fred <message>` — talk to the ai",
+        "`/lore [query]` — search this server's collective memory",
+        "`/dossier [@user]` — fred's psych profile on someone",
         `or just ping <@${client?.user?.id}> with your message`,
         "or attach an image/video to any message to get a description",
       ];
@@ -3222,6 +3251,55 @@ export async function startBot() {
         content: slashHelpLines.join("\n"),
         allowedMentions: { parse: [] },
       });
+      return;
+    }
+
+    // search
+    if (commandName === "search") {
+      const query = interaction.options.getString("query", true).trim();
+      await interaction.deferReply();
+      try {
+        const searchResult = await searchWeb(query);
+        let taskPrompt: string;
+        if (searchResult && (searchResult.answer || searchResult.abstract || searchResult.results.length > 0 || searchResult.topics.length > 0)) {
+          const searchContext = formatSearchResultsForAI(searchResult);
+          taskPrompt = `the user asked you to search the web for: "${query}"\n\nthe following is LIVE data fetched right now — not your training data. use these results and ignore anything your training says about this topic:\n\n${searchContext}\n\nsummarize what you found in your voice. be accurate and specific with numbers/data. cite sources when available. stay in character.`;
+        } else {
+          taskPrompt = `the user asked: "${query}". you searched the web but got nothing useful back. answer from your own knowledge if you actually know — be specific and accurate. if you genuinely don't know, say so plainly.`;
+        }
+        const reply = await askGemini(taskPrompt, authorDisplayName, interaction.channelId, authorContext);
+        if (reply) {
+          await interaction.editReply({ content: reply, allowedMentions: { parse: [] } });
+          pushChannelMessage(interaction.channelId, "fred", reply, true);
+          triggerUserMemoryUpdate(interaction.user.id);
+        } else {
+          await interaction.editReply({ content: "search returned nothing useful.", allowedMentions: { parse: [] } });
+        }
+      } catch (err: any) {
+        log(`[Slash:search] Failed: ${err.message}`, "discord");
+        try { await interaction.editReply({ content: "search blew up. try again.", allowedMentions: { parse: [] } }); } catch {}
+      }
+      return;
+    }
+
+    // lore
+    if (commandName === "lore") {
+      if (!interaction.guildId) {
+        await replyEph("lore only works in servers. dms have no lore, just regret.");
+        return;
+      }
+      const query = interaction.options.getString("query", false)?.trim() ?? "";
+      await interaction.deferReply();
+      try {
+        const summary = await searchServerLore(interaction.guildId, query);
+        await interaction.editReply({
+          content: summary ?? "lore engine is offline. try again later.",
+          allowedMentions: { parse: [] },
+        });
+      } catch (err: any) {
+        log(`[Slash:lore] Failed: ${err.message}`, "discord");
+        try { await interaction.editReply({ content: "lore lookup broke. blame the embeddings.", allowedMentions: { parse: [] } }); } catch {}
+      }
       return;
     }
 
@@ -3794,6 +3872,29 @@ export async function startBot() {
       } catch (err: any) {
         log(`[Slash:dossier] Command failed: ${err.message}`, "discord");
         await replyEph(`dossier command failed: ${err.message}`);
+      }
+      return;
+    }
+
+    // dossier profile
+    if (commandName === "dossier") {
+      if (!interaction.guildId) {
+        await replyEph("dossier only works in servers.");
+        return;
+      }
+      const target = interaction.options.getUser("user", false) ?? interaction.user;
+      const targetMember = interaction.guild?.members.cache.get(target.id);
+      const targetName = targetMember?.displayName ?? target.username;
+      await interaction.deferReply();
+      try {
+        const profile = await buildUserDossier(target.id, interaction.guildId, targetName);
+        await interaction.editReply({
+          content: profile ?? "dossier engine is offline. try again later.",
+          allowedMentions: { parse: [] },
+        });
+      } catch (err: any) {
+        log(`[Slash:dossier] Failed: ${err.message}`, "discord");
+        try { await interaction.editReply({ content: "dossier build broke. somehow.", allowedMentions: { parse: [] } }); } catch {}
       }
       return;
     }
