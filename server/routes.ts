@@ -13,9 +13,9 @@ import {
 } from "./bot";
 import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled, getHackclubEnabled, setHackclubEnabled, askGemini, NEWS_FEEDS, fetchRssHeadlines, generateBotStatus } from "./gemini";
 import { triggerQotdNow, getQotdStatus } from "./qotd";
-import { getRadioAllStationsStatus, getPlaylistSource, getCachedPlaylistTrackCount } from "./radio";
 import { getMoodProfile } from "./fred-state";
 import { isLavalinkAvailable, getLavalinkNodeCount } from "./music";
+import { getDjStatus } from "./bot";
 import { z } from "zod";
 import { DASHBOARD_AUTH_HEADER, issueAuthToken, isAuthTokenValid } from "./auth";
 
@@ -81,18 +81,6 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // Public CDN for radio audio so Lavalink nodes can fetch the assets over
-  // HTTP. These directories must remain public — Lavalink doesn't carry auth
-  // headers when resolving track URLs.
-  const audioStaticOpts = {
-    fallthrough: false,
-    maxAge: "1h",
-    etag: true,
-    immutable: false,
-  } as const;
-  app.use("/radio-cdn/assets", express.static(path.resolve("radio_assets"), audioStaticOpts));
-  app.use("/radio-cdn/music", express.static(path.resolve("music_library"), audioStaticOpts));
-
   app.use("/api", apiRateLimiter);
 
   app.post("/api/auth", authRateLimiter, (req, res) => {
@@ -211,26 +199,10 @@ export async function registerRoutes(
     return res.json({ ok: true, type: result.type });
   });
 
-  app.get("/api/radio/status", async (_req, res) => {
-    const stationStatuses = getRadioAllStationsStatus();
-    const stationsWithMood = await Promise.all(
-      stationStatuses.map(async (s) => {
-        let mood: { mood: string; promptModifier: string } | null = null;
-        try { mood = await getMoodProfile(s.guildId); } catch { /* non-fatal */ }
-        return { ...s, mood };
-      })
-    );
+  app.get("/api/dj/status", (_req, res) => {
     return res.json({
-      stations: stationsWithMood,
-      lavalink: {
-        available: isLavalinkAvailable(),
-        nodeCount: getLavalinkNodeCount(),
-      },
-      playlist: {
-        source: getPlaylistSource(),
-        trackCount: getCachedPlaylistTrackCount(),
-        ytPlaylistUrl: process.env.FRED_FM_YT_PLAYLIST ?? null,
-      },
+      sessions: getDjStatus(),
+      lavalink: { available: isLavalinkAvailable(), nodeCount: getLavalinkNodeCount() },
       updatedAt: Date.now(),
     });
   });
