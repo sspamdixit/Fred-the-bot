@@ -9,8 +9,6 @@ import {
 } from "discord.js";
 import type { Player } from "shoukaku";
 import { log } from "./index";
-import { getMoodSeeds } from "./mood-engine";
-import { getMoodProfile, type FredMoodName } from "./fred-state";
 import {
   addListenerRequest,
   consumeNextRequest,
@@ -48,13 +46,11 @@ const FADE_OUT_MS = 900;
 const MIN_SONGS_BETWEEN_ADVERTS = 4;
 const MIN_SONGS_BETWEEN_SELFTALK = 2;
 const FRED_FM_PLAYLIST_ID = "0u1nVS6XR1CFjbSmkFDYyL";
-const FRED_FM_YT_PLAYLIST = process.env.FRED_FM_YT_PLAYLIST?.trim() ?? null;
 const PLAYLIST_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 interface PlaylistTrack { title: string; artist: string; }
 let cachedPlaylistTracks: PlaylistTrack[] | null = null;
 let playlistCacheTime = 0;
-let playlistSource: "spotify" | "youtube" | "genre_seeds" = "genre_seeds";
 let playlistFetchBackoffUntil = 0; // epoch ms — skip re-fetching until this time after a failed fetch
 
 async function getSpotifyToken(): Promise<string | null> {
@@ -83,78 +79,50 @@ async function fetchPlaylistTracks(): Promise<PlaylistTrack[]> {
     return cachedPlaylistTracks;
   }
 
-  // Back off from re-fetching for a few minutes after a failed attempt so the
-  // broadcast loop doesn't hammer Spotify/YouTube on every iteration.
   if (now < playlistFetchBackoffUntil) {
     return cachedPlaylistTracks ?? [];
   }
 
-  // --- Spotify path ---
   const token = await getSpotifyToken();
-  if (token) {
-    const tracks: PlaylistTrack[] = [];
-    let url: string | null = `https://api.spotify.com/v1/playlists/${FRED_FM_PLAYLIST_ID}/tracks?limit=100&fields=next,items(track(name,artists(name)))`;
-    while (url) {
-      try {
-        const res = await fetch(url, {
-          headers: { "Authorization": `Bearer ${token}` },
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!res.ok) break;
-        const data = await res.json() as {
-          next: string | null;
-          items: Array<{ track: { name: string; artists: Array<{ name: string }> } | null }>;
-        };
-        for (const item of data.items) {
-          if (!item.track) continue;
-          tracks.push({ artist: item.track.artists[0]?.name ?? "Unknown", title: item.track.name });
-        }
-        url = data.next ?? null;
-      } catch {
-        break;
-      }
-    }
-    if (tracks.length > 0) {
-      // Shuffle immediately so the in-memory order is random and every station
-      // that draws from this cache starts from a different position.
-      cachedPlaylistTracks = shuffleArray(tracks);
-      playlistCacheTime = now;
-      playlistSource = "spotify";
-      log(`[Radio] Spotify playlist loaded: ${tracks.length} tracks from ${FRED_FM_PLAYLIST_ID} (shuffled)`, "radio");
-      return cachedPlaylistTracks;
-    }
-    log(`[Radio] Spotify playlist fetch returned 0 tracks`, "radio");
+  if (!token) {
+    log("[Radio] No Spotify credentials (SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET) — station cannot play", "radio");
     playlistFetchBackoffUntil = now + 5 * 60 * 1000;
+    return cachedPlaylistTracks ?? [];
   }
 
-  // --- YouTube playlist path (no Spotify creds needed) ---
-  if (FRED_FM_YT_PLAYLIST) {
+  const tracks: PlaylistTrack[] = [];
+  let url: string | null = `https://api.spotify.com/v1/playlists/${FRED_FM_PLAYLIST_ID}/tracks?limit=100&fields=next,items(track(name,artists(name)))`;
+  while (url) {
     try {
-      log(`[Radio] Loading YouTube playlist: ${FRED_FM_YT_PLAYLIST}`, "radio");
-      const ytTracks = await radioResolveYouTube(FRED_FM_YT_PLAYLIST, 500);
-      if (ytTracks.length > 0) {
-        const tracks: PlaylistTrack[] = ytTracks.map((t) => ({
-          artist: t.author,
-          title: t.title,
-        }));
-        cachedPlaylistTracks = tracks;
-        playlistCacheTime = now;
-        playlistSource = "youtube";
-        log(`[Radio] YouTube playlist loaded: ${tracks.length} tracks`, "radio");
-        return tracks;
+      const res = await fetch(url, {
+        headers: { "Authorization": `Bearer ${token}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) break;
+      const data = await res.json() as {
+        next: string | null;
+        items: Array<{ track: { name: string; artists: Array<{ name: string }> } | null }>;
+      };
+      for (const item of data.items) {
+        if (!item.track) continue;
+        tracks.push({ artist: item.track.artists[0]?.name ?? "Unknown", title: item.track.name });
       }
-      log(`[Radio] YouTube playlist resolved 0 tracks — using genre seeds`, "radio");
-    } catch (err: any) {
-      log(`[Radio] YouTube playlist load error: ${err.message} — using genre seeds`, "radio");
+      url = data.next ?? null;
+    } catch {
+      break;
     }
   }
 
-  if (!token && !FRED_FM_YT_PLAYLIST) {
-    log("[Radio] No playlist configured (SPOTIFY_CLIENT_ID/SECRET or FRED_FM_YT_PLAYLIST) — using genre seeds", "radio");
+  if (tracks.length > 0) {
+    cachedPlaylistTracks = shuffleArray(tracks);
+    playlistCacheTime = now;
+    log(`[Radio] Spotify playlist loaded: ${tracks.length} tracks from ${FRED_FM_PLAYLIST_ID} (shuffled)`, "radio");
+    return cachedPlaylistTracks;
   }
-  playlistFetchBackoffUntil = Date.now() + 5 * 60 * 1000;
-  playlistSource = "genre_seeds";
-  return [];
+
+  log("[Radio] Spotify playlist fetch returned 0 tracks — will retry shortly", "radio");
+  playlistFetchBackoffUntil = now + 5 * 60 * 1000;
+  return cachedPlaylistTracks ?? [];
 }
 
 export interface RadioNowPlaying {
@@ -166,97 +134,6 @@ export interface RadioNowPlaying {
 
 const stationNowPlaying = new Map<string, RadioNowPlaying>();
 
-// Default search seeds for the YouTube-via-Lavalink rotation. Override with
-// the `RADIO_YT_SEEDS` env var (comma-separated). Each round picks one and
-// queries Lavalink for matches.
-const DEFAULT_YT_SEEDS = [
-  "house music", "drum and bass", "uk garage classics", "grime classics",
-  "amsterdam techno", "dutch electronic music", "deep house music", "acid house",
-  "lo-fi hip hop", "synthwave", "90s alternative", "indie rock",
-  "jazz standards", "ambient electronic", "shoegaze", "post-punk",
-  "soul classics", "funk grooves", "electro funk", "trip hop",
-  "italo disco", "breakbeat mix", "dream pop", "indie dance",
-  "classic hip hop", "r&b classics", "80s pop", "new wave",
-];
-
-// Time-of-day seed pools. Rotated in based on UTC hour so the station
-// feels curated rather than random — mornings bright, nights darker.
-const TIME_OF_DAY_SEEDS: Record<"morning" | "daytime" | "evening" | "late_night", string[]> = {
-  morning: [
-    "morning coffee music", "upbeat morning playlist", "feel good pop",
-    "energetic morning songs", "sunrise vibes", "positive indie pop",
-    "happy acoustic songs", "morning run playlist", "bright pop 2024",
-    "feel good funk", "upbeat soul hits",
-  ],
-  daytime: [
-    "indie rock 2024", "pop hits 2024", "upbeat electronic",
-    "feel good summer songs", "energetic pop playlist", "bright indie pop",
-    "sunny day playlist", "feel good funk", "dance pop hits",
-    "high energy house music", "classic rock hits",
-  ],
-  evening: [
-    "evening chill playlist", "sunset vibes music", "after work chill",
-    "smooth evening r&b", "evening jazz playlist", "mellow evening songs",
-    "wind down playlist", "sophisticated lounge music", "neo soul evening",
-    "chilled drum and bass", "city pop japan",
-  ],
-  late_night: [
-    "late night drive playlist", "1am music vibes", "night drive electronic",
-    "midnight playlist chill", "late night r&b playlist", "after dark electronic",
-    "late night lo-fi", "dark ambient music", "slow tempo r&b",
-    "melancholy songs late night", "trip hop midnight",
-  ],
-};
-
-// Per-mood seed modifiers. Blended with the time-of-day pool to bias the
-// broadcast toward Fred's current internal state.
-const MOOD_SEED_MODIFIERS: Partial<Record<FredMoodName, string[]>> = {
-  caffeinated:       ["high energy electronic", "upbeat indie 2024", "fast tempo pop", "energetic bangers"],
-  post_banger:       ["best bangers 2024", "certified hits playlist", "essential tracks mix", "top songs right now"],
-  philosophical:     ["post-rock instrumental", "ambient meditative music", "art rock essentials", "experimental electronic"],
-  tired:             ["sleepy ambient", "slow tempo r&b", "mellow acoustic", "late night lo-fi"],
-  warm:              ["soul classics", "warm r&b playlist", "feel good classics", "gezellig music mix"],
-  nostalgic:         ["90s classics", "2000s throwback playlist", "classic rock hits", "nostalgic pop songs"],
-  grumpy:            ["post-punk essentials", "dark indie rock", "aggressive electronic", "brooding playlist"],
-  distracted:        ["focus ambient music", "instrumental background", "lo-fi concentration", "mindless electronic"],
-  unimpressed:       ["obscure indie gems", "underrated artists playlist", "deep cuts music", "niche electronic"],
-  genuinely_invested:["critically acclaimed music", "best albums playlist", "legendary tracks mix", "essential music"],
-  entertained:       ["party hits mix", "fun upbeat songs", "crowd pleasers playlist", "banger playlist 2024"],
-};
-
-function getTimeSlot(): "morning" | "daytime" | "evening" | "late_night" {
-  const h = new Date().getUTCHours();
-  if (h >= 23 || h <= 4) return "late_night";
-  if (h >= 5 && h <= 8) return "morning";
-  if (h >= 9 && h <= 16) return "daytime";
-  return "evening";
-}
-
-// Returns the seed pool, biased by time-of-day and optionally by Fred's mood.
-// Env override (RADIO_YT_SEEDS) always takes priority and bypasses all biasing.
-function getYTSeeds(moodName?: FredMoodName): string[] {
-  const raw = process.env.RADIO_YT_SEEDS?.trim();
-  if (raw) {
-    const seeds = raw.split(",").map((s) => s.trim()).filter(Boolean);
-    if (seeds.length > 0) return seeds;
-  }
-
-  const timeSeeds = TIME_OF_DAY_SEEDS[getTimeSlot()];
-  const moodSeeds = moodName ? (MOOD_SEED_MODIFIERS[moodName] ?? []) : [];
-
-  // Mood seeds come first so they're over-represented in random picks,
-  // then time-of-day seeds, then the always-available default pool.
-  return [...moodSeeds, ...timeSeeds, ...DEFAULT_YT_SEEDS];
-}
-
-function getYouTubeMixRatio(): number {
-  // Probability that a music slot pulls from YouTube (0..1). Default 0.5.
-  const raw = process.env.RADIO_YT_RATIO;
-  if (!raw) return 0.5;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return 0.5;
-  return Math.min(1, Math.max(0, n));
-}
 
 // Public base URL of this bot's HTTP server. Lavalink fetches the local mp3
 // assets via this URL when resolving them as tracks. Required for radio to
@@ -421,143 +298,43 @@ function cleanTitle(raw: string): string {
   return raw.replace(/\s*\(.*?\)/g, "").replace(/\s*\[.*?\]/g, "").trim();
 }
 
+// Picks the next track from the Spotify playlist queue.
+// The queue is a shuffled drain-and-refill: every track plays exactly once
+// before any repeats, and the order is re-randomised on each refill so the
+// station never sounds the same twice.
 async function pickYouTubeTrack(station: RadioStation): Promise<RadioYTTrack | null> {
   const playlistTracks = await fetchPlaylistTracks();
 
-  // Fetch Fred's current mood profile to bias seed selection.
-  const fredMood = await (async (): Promise<FredMoodName | undefined> => {
-    try {
-      const profile = await getMoodProfile(station.guildId);
-      return profile.mood;
-    } catch {
-      return undefined;
-    }
-  })();
-
-  let seedsToTry: string[];
-
-  if (playlistTracks.length > 0) {
-    const r = Math.random();
-
-    if (r < 0.70) {
-      // 70%: play a specific track directly from the Spotify playlist.
-      // Use a per-station drain-and-refill queue so every track gets played
-      // exactly once before any are repeated — true shuffle, no early repeats.
-      if (station.playlistQueue.length === 0) {
-        station.playlistQueue = shuffleArray(playlistTracks);
-        log(`[Radio] playlist queue refilled with ${station.playlistQueue.length} tracks (reshuffled)`, "radio");
-      }
-      const nextTrack = station.playlistQueue.shift()!;
-      seedsToTry = [`${nextTrack.artist} ${nextTrack.title}`];
-
-    } else if (r < 0.88) {
-      // 18%: artist-level discovery — radiate outward from a playlist artist.
-      const base = playlistTracks[Math.floor(Math.random() * playlistTracks.length)];
-      const artist = cleanArtist(base.artist);
-      seedsToTry = [
-        `${artist} radio mix`,
-        `${artist} similar artists mix`,
-        `best of ${artist}`,
-        `${artist} top songs`,
-        `songs like ${artist}`,
-        `${artist} type music`,
-        `music similar to ${artist}`,
-        `fans of ${artist} playlist`,
-        `${artist} deep cuts`,
-        `${artist} b-sides`,
-      ];
-
-    } else if (r < 0.96) {
-      // 8%: track-level discovery — radiate outward from a specific playlist song.
-      const base = playlistTracks[Math.floor(Math.random() * playlistTracks.length)];
-      const artist = cleanArtist(base.artist);
-      const title = cleanTitle(base.title);
-      seedsToTry = [
-        `songs like ${artist} ${title}`,
-        `music like ${title} ${artist}`,
-        `${artist} ${title} similar`,
-        `if you like ${title} by ${artist}`,
-        `${title} ${artist} type songs`,
-        `${artist} discography mix`,
-      ];
-
-    } else {
-      // 4%: cross-playlist discovery — find music at the intersection of two
-      // random playlist artists so the radio develops a coherent blend.
-      const shuffled = shuffleArray(playlistTracks);
-      const artistA = cleanArtist(shuffled[0]?.artist ?? "");
-      const artistB = cleanArtist(shuffled[1]?.artist ?? "");
-      if (artistA && artistB && artistA !== artistB) {
-        seedsToTry = [
-          `${artistA} ${artistB} mix`,
-          `fans of ${artistA} and ${artistB}`,
-          `${artistA} meets ${artistB} playlist`,
-          `${artistA} x ${artistB}`,
-        ];
-      } else {
-        // Not enough distinct artists — fall back to next queued playlist track
-        if (station.playlistQueue.length === 0) station.playlistQueue = shuffleArray(playlistTracks);
-        const fallbackTrack = station.playlistQueue.shift()!;
-        seedsToTry = [`${fallbackTrack.artist} ${fallbackTrack.title}`];
-      }
-    }
-
-    // Inject extra discovery seeds (≈20% chance) to keep the rotation fresh.
-    // When a playlist is configured we derive seeds from playlist artists so the
-    // station stays in-genre. Generic time/mood seeds (which include k-pop, j-pop,
-    // afrobeats, etc.) are only used when there is NO configured playlist.
-    if (Math.random() < 0.20) {
-      const boostTrack = playlistTracks[Math.floor(Math.random() * playlistTracks.length)];
-      const boostArtist = cleanArtist(boostTrack.artist);
-      const playlistGenreBoost = [
-        `${boostArtist} similar artists`,
-        `music similar to ${boostArtist}`,
-        `${boostArtist} style mix`,
-        `fans of ${boostArtist}`,
-        `${boostArtist} influences`,
-        `${boostArtist} essential tracks`,
-      ];
-      seedsToTry = [...playlistGenreBoost, ...seedsToTry];
-    }
-
-  } else {
-    // No Spotify credentials or fetch failed — mood-aware seeds keep the
-    // broadcast alive without any Spotify dependency.
-    const channelMoodSeeds = (() => {
-      try {
-        return getMoodSeeds(station.guildId, station.textChannel.id);
-      } catch {
-        return null;
-      }
-    })();
-    // Blend channel mood seeds with Fred's internal mood + time-of-day seeds.
-    const fredSeeds = getYTSeeds(fredMood);
-    seedsToTry = channelMoodSeeds
-      ? [...channelMoodSeeds, ...fredSeeds]
-      : fredSeeds;
+  if (playlistTracks.length === 0) {
+    log("[Radio] Spotify playlist unavailable — waiting for next retry", "radio");
+    return null;
   }
 
-  // Try up to 5 different seeds before giving up.
-  // Request 30 results so the >12-min filter leaves a large enough pool for
-  // genuine variety (with only 12 results, compilations/mixes often eat most
-  // slots leaving 1-2 tracks that always win the random pick).
-  for (let i = 0; i < 5; i++) {
-    const seed = seedsToTry[Math.floor(Math.random() * seedsToTry.length)];
-    const tracks = await radioResolveYouTube(seed, 30);
+  // Drain-and-refill: reshuffled on every cycle so order is always different.
+  if (station.playlistQueue.length === 0) {
+    station.playlistQueue = shuffleArray(playlistTracks);
+    log(`[Radio] playlist queue refilled with ${station.playlistQueue.length} tracks (reshuffled)`, "radio");
+  }
+  const nextTrack = station.playlistQueue.shift()!;
+
+  // Try the exact track first, then a slightly looser query as fallback.
+  const queries = [
+    `${nextTrack.artist} - ${nextTrack.title}`,
+    `${nextTrack.artist} ${nextTrack.title}`,
+  ];
+
+  for (const query of queries) {
+    const tracks = await radioResolveYouTube(query, 5);
     if (!tracks.length) continue;
-    // Filter against both per-session and cross-session recent-play lists so
-    // restarting the station doesn't replay the same opening tracks.
     const fresh = tracks.filter(
       (t) => !station.recentYTUris.includes(t.uri) && !globalRecentYTUris.includes(t.uri),
     );
-    // Fallback chain: globally-fresh → session-fresh → anything
-    const fallback = fresh.length > 0
-      ? fresh
-      : tracks.filter((t) => !station.recentYTUris.includes(t.uri));
-    const finalPool = fallback.length > 0 ? fallback : tracks;
-    const pick = finalPool[Math.floor(Math.random() * finalPool.length)];
+    const pool = fresh.length > 0 ? fresh : tracks;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
     if (pick) return pick;
   }
+
+  log(`[Radio] could not resolve "${nextTrack.artist} — ${nextTrack.title}" on YouTube — skipping`, "radio");
   return null;
 }
 
@@ -723,21 +500,9 @@ async function playLocalMusic(station: RadioStation, resolver: TrackResolver, mu
 }
 
 async function broadcastLoop(station: RadioStation): Promise<void> {
-  const ytRatio = getYouTubeMixRatio();
   const playlistSize = cachedPlaylistTracks?.length ?? 0;
-
-  // Log the active mood profile so the director log shows Fred's state at start.
-  const startMood = await (async (): Promise<string> => {
-    try {
-      const profile = await getMoodProfile(station.guildId);
-      return `${profile.mood} (${getTimeSlot()})`;
-    } catch {
-      return `unknown (${getTimeSlot()})`;
-    }
-  })();
-
   log(
-    `[Radio] director config: yt-available=${isLavalinkAvailable()} yt-ratio=${ytRatio.toFixed(2)} playlist=${playlistSize > 0 ? `${playlistSize} tracks` : FRED_FM_YT_PLAYLIST ? "yt-playlist (loading...)" : "genre seeds (no playlist configured)"} mood=${startMood}`,
+    `[Radio] director config: lavalink=${isLavalinkAvailable()} playlist=${playlistSize > 0 ? `${playlistSize} tracks` : "loading..."}`,
     "radio",
   );
 
@@ -749,21 +514,20 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
     // Re-evaluate sources every loop so a Lavalink node coming online (or
     // going offline) mid-broadcast is picked up without restarting the radio.
     const ytAvailable = isLavalinkAvailable();
-    const musicFiles = await listAudio(MUSIC_DIR);
     const assetCache = new Map<AssetKind, string[]>();
     for (const k of ASSET_KINDS) {
       assetCache.set(k, await listAudio(path.join(ASSETS_DIR, k)));
     }
 
-    if (!ytAvailable && musicFiles.length === 0) {
+    if (!ytAvailable) {
       try {
         await station.textChannel.send({
-          content: "lavalink is offline and there are no local music files. broadcast over.",
+          content: "lavalink is offline. broadcast paused — will resume when it comes back.",
           allowedMentions: { parse: [] },
         });
       } catch { /* ignore */ }
-      stopStation(station.guildId, "no music sources");
-      return;
+      await sleep(30_000);
+      continue;
     }
 
     // Top-of-hour: post a news bulletin as a text message (no audio — Lukas stays on air).
@@ -808,12 +572,6 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
     // Check for listener requests — play next request if available.
     const request = consumeNextRequest(station.guildId);
 
-    // Pick this slot's music source.
-    let pickYT: boolean;
-    if (musicFiles.length === 0) pickYT = true;
-    else if (!ytAvailable) pickYT = false;
-    else pickYT = Math.random() < ytRatio;
-
     if (request) {
       // Listener request: text announcement to channel, then play via YouTube.
       // Audio is ALWAYS Lukas assets — no generated TTS voice.
@@ -847,16 +605,13 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
       } catch (err: any) {
         log(`[Radio] · listener request error: ${err.message}`, "radio");
       }
-    } else if (pickYT) {
+    } else {
+      // Always pull from the Spotify playlist — no seeds, no discovery, no fallback sources.
       const track = await pickYouTubeTrack(station);
       if (!track) {
-        log(`[Radio] YT pick failed — falling back to local file`, "radio");
-        if (musicFiles.length > 0) {
-          await playLocalMusic(station, resolver, musicFiles);
-        } else {
-          await sleep(5_000);
-          continue;
-        }
+        // Playlist temporarily unavailable (Spotify fetch in backoff). Wait and retry.
+        await sleep(15_000);
+        continue;
       } else {
         // Post Fred's text commentary about the track (non-blocking, non-audio).
         // Capture commentary context snapshot before firing so the async closure
@@ -881,8 +636,6 @@ async function broadcastLoop(station: RadioStation): Promise<void> {
         station.recentCommentaryTracks.push({ artist: track.author, title: track.title });
         if (station.recentCommentaryTracks.length > 2) station.recentCommentaryTracks.shift();
       }
-    } else {
-      await playLocalMusic(station, resolver, musicFiles);
     }
     if (!station.active) return;
 
@@ -1074,8 +827,8 @@ export function getRadioAllStationsStatus(): RadioStationStatus[] {
   }));
 }
 
-export function getPlaylistSource(): "spotify" | "youtube" | "genre_seeds" {
-  return playlistSource;
+export function getPlaylistSource(): "spotify" {
+  return "spotify";
 }
 
 export function getCachedPlaylistTrackCount(): number {
