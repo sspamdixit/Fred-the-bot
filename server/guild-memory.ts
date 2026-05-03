@@ -85,7 +85,7 @@ async function extractGuildLore(guildId: string, recentMessages: string): Promis
     const prompt = [
       `Update the "server lore" record for a Discord community. Server lore is a compact, living summary of what makes this specific group of people unique.`,
       ``,
-      `Capture: inside jokes, recurring memes or references, nicknames, notable dynamics or ongoing beefs between members, running gags, shared obsessions, events or drama that defined the community, topics that always come up, things people here clearly care about deeply.`,
+      `Capture: inside jokes, recurring memes or references, nicknames, running gags, shared obsessions, events or drama that defined the community, topics that always come up, things people here clearly care about deeply. Pay special attention to relationships between specific named users — who's close with who, long-running beefs or rivalries, who always agrees with or defends who, bromances, inside tensions, who tends to trigger reactions in who. Name names when you have them.`,
       ``,
       `Do NOT include: generic greetings, bot commands, music requests, basic factual statements with no community character.`,
       ``,
