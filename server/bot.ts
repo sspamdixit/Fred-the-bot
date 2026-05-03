@@ -1594,16 +1594,16 @@ const SLASH_COMMANDS = [
       o.setName("text").setDescription("what fred should say").setRequired(true).setMaxLength(450),
     ),
 
-  // ── dj ────────────────────────────────────────────────────────────────────
+  // ── rave ──────────────────────────────────────────────────────────────────
   new SlashCommandBuilder()
-    .setName("dj")
+    .setName("rave")
     .setDescription("start infinite genre-based playback in your voice channel")
     .addStringOption((o) =>
       o.setName("genre").setDescription("genre to play — e.g. afrobeats, jazz, hiphop, lofi, rnb, pop").setRequired(true),
     ),
   new SlashCommandBuilder()
-    .setName("djstop")
-    .setDescription("stop the dj session and disconnect"),
+    .setName("ravestop")
+    .setDescription("stop the rave and disconnect"),
 
   // ── owner only ───────────────────────────────────────────────────────────
   new SlashCommandBuilder()
@@ -3218,9 +3218,9 @@ export async function startBot() {
           "`/lyrics [artist - title]` — fetch lyrics for current/specified song",
           "`/history` — show recently played tracks",
           "",
-          "**dj mode**",
-          "`/dj <genre>` — play a genre infinitely (e.g. afrobeats, jazz, lofi)",
-          "`/djstop` — stop dj mode",
+          "**rave mode**",
+          "`/rave <genre>` — play a genre infinitely (e.g. afrobeats, jazz, lofi)",
+          "`/ravestop` — stop the rave",
           "",
           "**fun**",
           "`/rate <thing>` — fred rates anything out of 10",
@@ -3837,19 +3837,19 @@ export async function startBot() {
       return;
     }
 
-    // /dj and /djstop
-    if (commandName === "dj" || commandName === "djstop") {
+    // /rave and /ravestop
+    if (commandName === "rave" || commandName === "ravestop") {
       const guildId = interaction.guildId;
       if (!guildId || !interaction.guild) {
-        await replyEph("dj only works in servers.");
+        await replyEph("rave only works in servers.");
         return;
       }
 
-      if (commandName === "djstop") {
+      if (commandName === "ravestop") {
         onDjStop(guildId);
         const stopped = await stopMusic(guildId);
         await interaction.reply({
-          content: stopped ? "dj stopped." : "dj wasn't running.",
+          content: stopped ? "rave stopped." : "rave wasn't running.",
           allowedMentions: { parse: [] },
         });
         return;
@@ -3865,7 +3865,7 @@ export async function startBot() {
 
       await interaction.deferReply();
       try {
-        const tracks = await resolveSearchResults(`${genre} music`, `dj:${genre}`, 10);
+        const tracks = await resolveSearchResults(`${genre} music`, `rave:${genre}`, 10);
         if (!tracks.length) {
           await interaction.editReply({ content: `couldn't find any tracks for **${genre}**. try a different genre.`, allowedMentions: { parse: [] } });
           return;
@@ -3878,12 +3878,12 @@ export async function startBot() {
         djSessions.set(guildId, { genre, vcId: voiceChannel.id, tcId, lastTrackUri: null, recentUris: [] });
         await joinAndPlayMultiple(guildId, voiceChannel.id, tcId, tracks, interaction.guild.shardId ?? 0);
         await interaction.editReply({
-          content: `🎧 **DJ mode** · playing **${genre}** · auto-refills when queue runs low`,
+          content: `🎧 **rave** · playing **${genre}** · auto-refills when queue runs low`,
           allowedMentions: { parse: [] },
         });
       } catch (err: any) {
         onDjStop(guildId);
-        log(`[Slash:dj] failed: ${err.message}`, "discord");
+        log(`[Slash:rave] failed: ${err.message}`, "discord");
         await interaction.editReply({ content: `couldn't start dj: ${err.message}`, allowedMentions: { parse: [] } }).catch(() => {});
       }
       return;
