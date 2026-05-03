@@ -508,6 +508,12 @@ export function buildMusicButtons(paused: boolean): ActionRowBuilder<ButtonBuild
 // Vote-skip system
 const skipVotes = new Map<string, Set<string>>();
 
+// Per-channel last human message timestamp — used by conversation starter checker
+const channelLastHumanMessageAt = new Map<string, number>();
+
+// Per-channel cooldown for passive (unprompted) image reactions
+const passiveImageCooldowns = new Map<string, number>();
+
 function clearSkipVotes(guildId: string): void {
   skipVotes.delete(guildId);
 }
@@ -1255,6 +1261,100 @@ async function startDeadChatChecker(readyClient: Client) {
   log("[DeadChat] Dead chat checker started — fires every 30 minutes.", "discord");
 }
 
+// ─── Conversation starter — fires after 2 h of quiet during Amsterdam peak hours ───
+
+const CONVO_STARTER_CHANNEL_ID = DEAD_CHAT_CHANNEL_ID;
+const CONVO_STARTER_QUIET_MS = 2 * 60 * 60 * 1000; // 2 hours
+const CONVO_STARTER_CHECK_MS = 20 * 60 * 1000;      // check every 20 min
+
+const convoStarterState = {
+  mutedUntilActivity: false,
+  lastStarterAt: null as number | null,
+};
+
+function isAmsterdamPeakHour(): boolean {
+  try {
+    const hour = parseInt(
+      new Intl.DateTimeFormat("nl-NL", {
+        timeZone: "Europe/Amsterdam",
+        hour: "numeric",
+        hour12: false,
+      }).format(new Date()),
+      10,
+    );
+    return hour >= 8 && hour < 23;
+  } catch {
+    return false;
+  }
+}
+
+async function startConversationStarterChecker(readyClient: Client): Promise<void> {
+  const runCheck = async () => {
+    try {
+      if (!isAmsterdamPeakHour()) return;
+
+      // Reset mute once human activity has come in after the last starter
+      if (convoStarterState.mutedUntilActivity) {
+        const lastHuman = channelLastHumanMessageAt.get(CONVO_STARTER_CHANNEL_ID);
+        if (lastHuman && (!convoStarterState.lastStarterAt || lastHuman > convoStarterState.lastStarterAt)) {
+          convoStarterState.mutedUntilActivity = false;
+          convoStarterState.lastStarterAt = null;
+          log("[ConvoStarter] Human activity detected — mute reset.", "discord");
+        } else {
+          return;
+        }
+      }
+
+      // Use in-memory tracking first; verify against Discord if we have no data
+      const localLast = channelLastHumanMessageAt.get(CONVO_STARTER_CHANNEL_ID);
+      if (localLast && Date.now() - localLast < CONVO_STARTER_QUIET_MS) return;
+
+      const channel = await readyClient.channels.fetch(CONVO_STARTER_CHANNEL_ID).catch(() => null);
+      if (!channel || channel.type !== ChannelType.GuildText) return;
+      const textCh = channel as TextChannel;
+
+      // If we have no local data, double-check via Discord API
+      if (!localLast) {
+        const fetched = await textCh.messages.fetch({ limit: 15 }).catch(() => null);
+        if (!fetched) return;
+        const last = fetched.filter((m) => !m.author.bot).sort((a, b) => b.createdTimestamp - a.createdTimestamp).first();
+        if (last && Date.now() - last.createdTimestamp < CONVO_STARTER_QUIET_MS) return;
+      }
+
+      // Build and send an AI-generated conversation starter
+      const recentCtx = getChannelContextText(CONVO_STARTER_CHANNEL_ID);
+      const prompt = [
+        `The server chat has been quiet for over 2 hours. It's currently peak Amsterdam time.`,
+        `Generate ONE sharp, natural conversation opener in fred's voice — a question, hot take, observation, or topic drop that would actually get people talking.`,
+        `Be specific and interesting, not generic. No "hey what's up". Lowercase, conversational, no padding.`,
+        recentCtx ? `\nRecent channel context for inspiration (don't just repeat it):\n${recentCtx.slice(0, 500)}` : "",
+        `\nRespond with only the conversation opener. Nothing else.`,
+      ].filter(Boolean).join("\n");
+
+      const starter = await askGemini(prompt, "system", CONVO_STARTER_CHANNEL_ID, {
+        userId: "system",
+        roles: [],
+        sortedRoles: [],
+        isOwner: false,
+        guildName: textCh.guild?.name ?? "",
+        guildId: textCh.guildId ?? undefined,
+        channelName: textCh.name,
+      });
+      if (!starter) return;
+
+      const sent = await textCh.send({ content: starter, allowedMentions: { parse: [] } });
+      convoStarterState.lastStarterAt = sent.createdTimestamp;
+      convoStarterState.mutedUntilActivity = true;
+      log(`[ConvoStarter] Sent: "${starter.slice(0, 80)}"`, "discord");
+    } catch (err: any) {
+      log(`[ConvoStarter] Error: ${err.message}`, "discord");
+    }
+  };
+
+  trackBackgroundTimer(setInterval(runCheck, CONVO_STARTER_CHECK_MS));
+  log("[ConvoStarter] Conversation starter checker started — fires every 20 minutes.", "discord");
+}
+
 const SLASH_COMMANDS = [
   // ── user accessible ──────────────────────────────────────────────────────
   new SlashCommandBuilder()
@@ -1537,6 +1637,7 @@ export async function startBot() {
 
     startQotd(readyClient);
     startDeadChatChecker(readyClient);
+    void startConversationStarterChecker(readyClient);
     startStatusShuffle(readyClient);
     initMusic(readyClient);
     void ensureGuildMemoryTable().catch(() => {});
@@ -1603,6 +1704,9 @@ export async function startBot() {
   client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
     if (await enforceSlurTimeout(message)) return;
+
+    // Track last human message timestamp for every channel (conversation starter + other logic)
+    channelLastHumanMessageAt.set(message.channelId, message.createdTimestamp);
 
     if (message.channelId === DEAD_CHAT_CHANNEL_ID) {
       deadChatState.lastDeadMessageTimestamp = null;
@@ -1779,6 +1883,59 @@ export async function startBot() {
           }
         },
       });
+    }
+
+    // Passive image reaction: Fred reacts to images posted without @mention
+    if (!isMentioned && !isPrefixed && !isDirectedAtBot && !isAnyCommand && message.guildId && message.attachments.size > 0) {
+      const PASSIVE_IMG_MIME: Record<string, string> = {
+        ".gif": "image/gif", ".png": "image/png", ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg", ".webp": "image/webp",
+      };
+      const PASSIVE_IMG_EXTS = new Set(Object.keys(PASSIVE_IMG_MIME));
+      const imgAttachments = message.attachments.filter((att) => {
+        const ct = att.contentType?.split(";")[0].trim().toLowerCase() ?? "";
+        const ext = att.name ? att.name.slice(att.name.lastIndexOf(".")).toLowerCase() : "";
+        return ct.startsWith("image/") || PASSIVE_IMG_EXTS.has(ext);
+      });
+
+      if (imgAttachments.size > 0) {
+        const now = Date.now();
+        const lastReact = passiveImageCooldowns.get(message.channelId) ?? 0;
+        const PASSIVE_IMG_COOLDOWN_MS = 5 * 60 * 1000;
+
+        if (now - lastReact > PASSIVE_IMG_COOLDOWN_MS && Math.random() < 0.35) {
+          passiveImageCooldowns.set(message.channelId, now);
+          void (async () => {
+            try {
+              const MAX_INLINE_BYTES = 20 * 1024 * 1024;
+              const mediaDataArray: ImageData[] = [];
+              for (const att of imgAttachments.values()) {
+                if ((att.size ?? 0) > MAX_INLINE_BYTES) continue;
+                try {
+                  const fetchUrl = att.proxyURL || att.url;
+                  const res = await fetch(fetchUrl, { headers: { "Authorization": `Bot ${process.env.TOKEN}` } });
+                  if (!res.ok) continue;
+                  const buffer = await res.arrayBuffer();
+                  const base64 = Buffer.from(buffer).toString("base64");
+                  const ext = att.name ? att.name.slice(att.name.lastIndexOf(".")).toLowerCase() : "";
+                  const mimeType = att.contentType?.split(";")[0].trim() || PASSIVE_IMG_MIME[ext] || "image/jpeg";
+                  mediaDataArray.push({ mimeType, data: base64 });
+                } catch { continue; }
+              }
+              if (mediaDataArray.length === 0) return;
+              await (message.channel as TextChannel).sendTyping();
+              const reply = await askGeminiWithImage("", authorDisplayName, message.channelId, mediaDataArray, authorContext);
+              if (reply) {
+                await message.reply({ content: reply, allowedMentions: { parse: [], repliedUser: false } });
+                pushChannelMessage(message.channelId, "fred", reply, true);
+                triggerUserMemoryUpdate(message.author.id);
+              }
+            } catch (err: any) {
+              log(`[PassiveImage] Failed: ${err.message}`, "discord");
+            }
+          })();
+        }
+      }
     }
 
     const sendPrivate = async (content: string) => {
@@ -3920,6 +4077,61 @@ export async function startBot() {
       }, 2 * 60 * 1000);
       timer.unref?.();
       aloneDisconnectTimers.set(guildId, timer);
+    }
+  });
+
+  // ─── New member greeting ───────────────────────────────────────────────────
+  client.on("guildMemberAdd", async (member) => {
+    if (member.user.bot) return;
+    const guild = member.guild;
+
+    // Find the best welcome channel: prefer a channel named "general", then system channel
+    const generalChannel = (
+      guild.channels.cache.find(
+        (ch) =>
+          ch.type === ChannelType.GuildText &&
+          (ch.name.toLowerCase() === "general" ||
+            ch.name.toLowerCase() === "general-chat" ||
+            ch.name.toLowerCase() === "general-discussion"),
+      ) ??
+      guild.systemChannel ??
+      null
+    ) as TextChannel | null;
+
+    if (!generalChannel) return;
+
+    const displayName = member.displayName;
+    try {
+      const greeting = await askGemini(
+        `A new member named "${displayName}" just joined the server. Welcome them in your voice — warm but dry, not sappy, not cringe. Include their @mention: <@${member.user.id}>. Optionally drop one natural Dutch word or phrase if it fits. 1-2 sentences max.`,
+        "system",
+        generalChannel.id,
+        {
+          userId: "system",
+          roles: [],
+          sortedRoles: [],
+          isOwner: false,
+          guildName: guild.name,
+          guildId: guild.id,
+          channelName: generalChannel.name,
+        },
+      );
+
+      const fallbacks = [
+        `welkom, <@${member.user.id}>. glad you made it.`,
+        `<@${member.user.id}> is here. finally.`,
+        `oh look, <@${member.user.id}> decided to show up. welkom.`,
+        `<@${member.user.id}> just walked in. respect the vibe.`,
+      ];
+      const msg = greeting ?? fallbacks[Math.floor(Math.random() * fallbacks.length)];
+
+      await generalChannel.send({
+        content: msg,
+        allowedMentions: { users: [member.user.id], parse: [] },
+      });
+      log(`[Welcome] Greeted ${displayName} in #${generalChannel.name}`, "discord");
+    } catch (err: any) {
+      log(`[Welcome] Failed to greet ${displayName}: ${err.message}`, "discord");
     }
   });
 
