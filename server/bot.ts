@@ -60,39 +60,10 @@ import {
   type QueueTrack,
   type GuildQueue,
 } from "./music";
+import { djSessions, getDjStatus, onDjTrackStart, onDjStop, refillDjQueue, type DjSession } from "./dj";
 
-// ── DJ mode state ─────────────────────────────────────────────────────────
-interface DjSession { genre: string; vcId: string; tcId: string }
-const djSessions = new Map<string, DjSession>();
-
-export function getDjStatus(): Array<{ guildId: string; genre: string }> {
-  return [...djSessions.entries()].map(([guildId, s]) => ({ guildId, genre: s.genre }));
-}
-
-const DJ_REFILL_QUERIES = (genre: string) => [
-  `${genre} music`,
-  `${genre} hits`,
-  `${genre} mix`,
-  `best ${genre} songs`,
-  `${genre} playlist`,
-];
-
-async function refillDjQueue(guildId: string, session: DjSession): Promise<void> {
-  try {
-    const queries = DJ_REFILL_QUERIES(session.genre);
-    const query = queries[Math.floor(Math.random() * queries.length)];
-    const tracks = await resolveSearchResults(query, `dj:${session.genre}`, 10);
-    if (!tracks.length) return;
-    // Shuffle so we don't always get the same top results
-    for (let i = tracks.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
-    }
-    await joinAndPlayMultiple(guildId, session.vcId, session.tcId, tracks);
-  } catch (err: any) {
-    log(`[DJ] queue refill failed for "${session.genre}": ${err.message}`, "discord");
-  }
-}
+// ── DJ mode — state + helpers live in server/dj.ts ────────────────────────
+export { getDjStatus } from "./dj";
 
 export interface BotStatus {
   online: boolean;
@@ -1704,10 +1675,11 @@ export async function startBot() {
     setNowPlayingCallback((guildId, track, queue) => {
       // New track is now playing — reset any pending skip votes from the previous one.
       clearSkipVotes(guildId);
-      // DJ mode: refill queue when it's running low so playback never stops.
+      // DJ mode: crossfade + smart refill
       const djSession = djSessions.get(guildId);
-      if (djSession && queue.tracks.length <= 3) {
-        void refillDjQueue(guildId, djSession);
+      if (djSession) {
+        onDjTrackStart(guildId, track, queue.volume, queue.player);
+        if (queue.tracks.length <= 3) void refillDjQueue(guildId, djSession);
       }
       // Record to per-guild play history
       const hist = trackHistory.get(guildId) ?? [];
@@ -2518,7 +2490,7 @@ export async function startBot() {
 
       if (musicCmd === "stop") {
         try {
-          djSessions.delete(guildId);
+          onDjStop(guildId);
           const stopped = await stopMusic(guildId);
           await message.reply({
             content: stopped ? "stopped and disconnected." : "i wasn't even playing anything.",
@@ -3459,7 +3431,7 @@ export async function startBot() {
 
       if (commandName === "stop") {
         try {
-          djSessions.delete(guildId);
+          onDjStop(guildId);
           const stopped = await stopMusic(guildId);
           await interaction.reply({
             content: stopped ? "stopped and disconnected." : "i wasn't even playing anything.",
@@ -3710,7 +3682,7 @@ export async function startBot() {
       }
 
       if (commandName === "djstop") {
-        djSessions.delete(guildId);
+        onDjStop(guildId);
         const stopped = await stopMusic(guildId);
         await interaction.reply({
           content: stopped ? "dj stopped." : "dj wasn't running.",
@@ -3739,14 +3711,14 @@ export async function startBot() {
           [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
         }
         const tcId = interaction.channelId ?? voiceChannel.id;
-        djSessions.set(guildId, { genre, vcId: voiceChannel.id, tcId });
+        djSessions.set(guildId, { genre, vcId: voiceChannel.id, tcId, lastTrackUri: null, recentUris: [] });
         await joinAndPlayMultiple(guildId, voiceChannel.id, tcId, tracks, interaction.guild.shardId ?? 0);
         await interaction.editReply({
           content: `🎧 **DJ mode** · playing **${genre}** · auto-refills when queue runs low`,
           allowedMentions: { parse: [] },
         });
       } catch (err: any) {
-        djSessions.delete(guildId);
+        onDjStop(guildId);
         log(`[Slash:dj] failed: ${err.message}`, "discord");
         await interaction.editReply({ content: `couldn't start dj: ${err.message}`, allowedMentions: { parse: [] } }).catch(() => {});
       }
