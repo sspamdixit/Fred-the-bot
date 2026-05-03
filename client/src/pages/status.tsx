@@ -114,7 +114,7 @@ function StatusDashboard() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-white leading-none" data-testid="text-status-title">
-                DJ Status
+                Rave Status
               </h1>
               <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.45)" }}>
                 {secondsSince !== null
@@ -149,9 +149,9 @@ function StatusDashboard() {
             {!data?.sessions || data.sessions.length === 0 ? (
               <div className="glass-panel p-10 flex flex-col items-center gap-3 text-center">
                 <Disc3 className="w-9 h-9" style={{ color: "rgba(255,255,255,0.18)" }} />
-                <p className="text-sm font-semibold text-white">no active dj sessions</p>
+                <p className="text-sm font-semibold text-white">no active rave sessions</p>
                 <p className="text-xs max-w-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
-                  use /dj &lt;genre&gt; in a server to start
+                  use /rave &lt;genre&gt; in a server to start
                 </p>
               </div>
             ) : (
