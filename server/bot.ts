@@ -20,6 +20,7 @@ import { log } from "./index";
 import { getIO, getLiveViewerCount } from "./socket";
 import { askGemini, askGeminiWithImage, clearUserMemorySession, clearAllHistory, getAIStats, triggerUserMemoryUpdate, generateBotStatus, queuePassiveWatch, isPassiveWatchCandidate, pushChannelMessage, recordUserActivity, getChannelContextText, type ImageData } from "./gemini";
 import { ensureGuildMemoryTable, tickGuildMessageCounter } from "./guild-memory";
+import { getGuildSettings } from "./guild-settings";
 import { speakInVoice } from "./tts";
 import { updateUserEmotionalSignal } from "./emotional-state";
 import { queueMemoryIngestion, runHypocrisyEngine, searchServerLore, buildUserDossier } from "./semantic-memory";
@@ -1198,8 +1199,6 @@ async function clearModeTheme(guildId: string): Promise<void> {
   }
 }
 
-const DEAD_CHAT_CHANNEL_ID = "1484056100654551133";
-const DEAD_CHAT_INTERVAL_MS = 1_800_000;
 const DEAD_CHAT_MESSAGES = [
   "the chat is extremely dead.",
   "anyone home? genuinely asking.",
@@ -1223,167 +1222,98 @@ const DEAD_CHAT_MESSAGES = [
   "congratulations on successfully saying nothing.",
 ];
 
-const deadChatState = {
-  mutedUntilHumanActivity: false,
-  lastDeadMessageTimestamp: null as number | null,
-};
+interface GuildProactivityState {
+  mutedUntilHumanActivity: boolean;
+  lastMessageAt: number | null;
+}
+const guildProactivityState = new Map<string, GuildProactivityState>();
 
-function getRandomDeadChatMessage(): string {
-  return DEAD_CHAT_MESSAGES[Math.floor(Math.random() * DEAD_CHAT_MESSAGES.length)];
+function getGuildProactivityState(guildId: string): GuildProactivityState {
+  if (!guildProactivityState.has(guildId)) {
+    guildProactivityState.set(guildId, { mutedUntilHumanActivity: false, lastMessageAt: null });
+  }
+  return guildProactivityState.get(guildId)!;
 }
 
-async function startDeadChatChecker(readyClient: Client) {
-  const runCheck = async () => {
-    try {
-      const channel = await readyClient.channels.fetch(DEAD_CHAT_CHANNEL_ID);
-      if (
-        !channel ||
-        (channel.type !== ChannelType.GuildText &&
-          channel.type !== ChannelType.GuildAnnouncement)
-      ) {
-        log("[DeadChat] Could not fetch lounge channel.", "discord");
-        return;
-      }
-
-      const textChannel = channel as TextChannel;
-      const fetched = await textChannel.messages.fetch({ limit: 20 });
-      const humanMessages = fetched.filter((m) => !m.author.bot);
-      const latestHumanMessage = humanMessages.sort((a, b) => b.createdTimestamp - a.createdTimestamp).first();
-
-      if (deadChatState.mutedUntilHumanActivity) {
-        if (
-          latestHumanMessage &&
-          (!deadChatState.lastDeadMessageTimestamp ||
-            latestHumanMessage.createdTimestamp > deadChatState.lastDeadMessageTimestamp)
-        ) {
-          deadChatState.mutedUntilHumanActivity = false;
-          deadChatState.lastDeadMessageTimestamp = null;
-          log("[DeadChat] Human activity resumed — dead chat checker unmuted.", "discord");
-        } else {
-          log("[DeadChat] Still no activity — staying muted.", "discord");
-        }
-        return;
-      }
-
-      const cutoff = Date.now() - DEAD_CHAT_INTERVAL_MS;
-      const recentHumanMessage = latestHumanMessage && latestHumanMessage.createdTimestamp > cutoff;
-
-      if (recentHumanMessage) {
-        log("[DeadChat] Chat is active — no dead-chat message needed.", "discord");
-        return;
-      }
-
-      const msg = getRandomDeadChatMessage();
-      const sentMessage = await textChannel.send({
-        content: msg,
-        allowedMentions: { parse: [] },
-      });
-
-      deadChatState.lastDeadMessageTimestamp = sentMessage.createdTimestamp;
-      deadChatState.mutedUntilHumanActivity = true;
-      log(`[DeadChat] Dead-chat message sent: "${msg}"`, "discord");
-    } catch (err: any) {
-      log(`[DeadChat] Error: ${err.message}`, "discord");
-    }
+function getProactivityThresholdMs(proactivity: number): number {
+  if (proactivity <= 0) return Infinity;
+  const table: Record<number, number> = {
+    1: 120 * 60_000, 2: 90 * 60_000, 3: 60 * 60_000, 4: 45 * 60_000,
+    5: 30 * 60_000,  6: 20 * 60_000, 7: 15 * 60_000, 8: 10 * 60_000,
+    9:  7 * 60_000, 10:  5 * 60_000,
   };
-
-  trackBackgroundTimer(setInterval(runCheck, DEAD_CHAT_INTERVAL_MS));
-  log("[DeadChat] Dead chat checker started — fires every 30 minutes.", "discord");
+  return table[proactivity] ?? 30 * 60_000;
 }
 
-// ─── Conversation starter — fires after 2 h of quiet during Amsterdam peak hours ───
-
-const CONVO_STARTER_CHANNEL_ID = DEAD_CHAT_CHANNEL_ID;
-const CONVO_STARTER_QUIET_MS = 2 * 60 * 60 * 1000; // 2 hours
-const CONVO_STARTER_CHECK_MS = 20 * 60 * 1000;      // check every 20 min
-
-const convoStarterState = {
-  mutedUntilActivity: false,
-  lastStarterAt: null as number | null,
-};
-
-function isAmsterdamPeakHour(): boolean {
+async function runGuildProactivityCheck(guildId: string, readyClient: Client): Promise<void> {
   try {
-    const hour = parseInt(
-      new Intl.DateTimeFormat("nl-NL", {
-        timeZone: "Europe/Amsterdam",
-        hour: "numeric",
-        hour12: false,
-      }).format(new Date()),
-      10,
-    );
-    return hour >= 8 && hour < 23;
-  } catch {
-    return false;
+    const settings = await getGuildSettings(guildId);
+    if (!settings.deadChatChannelId || settings.proactivity <= 0) return;
+
+    const channelId = settings.deadChatChannelId;
+    const threshold = getProactivityThresholdMs(settings.proactivity);
+    const state = getGuildProactivityState(guildId);
+
+    if (state.mutedUntilHumanActivity) {
+      const lastHuman = channelLastHumanMessageAt.get(channelId);
+      if (lastHuman && (!state.lastMessageAt || lastHuman > state.lastMessageAt)) {
+        state.mutedUntilHumanActivity = false;
+        state.lastMessageAt = null;
+        log(`[Proactivity:${guildId}] Human activity resumed — unmuted.`, "discord");
+      }
+      return;
+    }
+
+    const localLast = channelLastHumanMessageAt.get(channelId);
+    if (localLast && Date.now() - localLast < threshold) return;
+
+    const channel = await readyClient.channels.fetch(channelId).catch(() => null);
+    if (!channel || channel.type !== ChannelType.GuildText) return;
+    const textCh = channel as TextChannel;
+
+    if (!localLast) {
+      const fetched = await textCh.messages.fetch({ limit: 15 }).catch(() => null);
+      if (!fetched) return;
+      const lastHuman = fetched.filter((m) => !m.author.bot).sort((a, b) => b.createdTimestamp - a.createdTimestamp).first();
+      if (lastHuman && Date.now() - lastHuman.createdTimestamp < threshold) return;
+    }
+
+    const recentCtx = getChannelContextText(channelId);
+    const prompt = [
+      `The server chat has been quiet. You're fred — generate ONE sharp, natural conversation opener in your voice.`,
+      `A question, hot take, observation, or topic drop that would actually get people talking.`,
+      `Be specific and interesting. No "hey what's up". Lowercase, conversational, no padding.`,
+      recentCtx ? `\nRecent context for inspiration (don't repeat it):\n${recentCtx.slice(0, 400)}` : "",
+      `\nRespond with only the conversation opener. Nothing else.`,
+    ].filter(Boolean).join("\n");
+
+    const starter = await askGemini(prompt, "system", channelId, {
+      userId: "system", roles: [], sortedRoles: [], isOwner: false,
+      guildName: textCh.guild?.name ?? "", guildId, channelName: textCh.name,
+    }).catch(() => null);
+
+    const content = starter ?? DEAD_CHAT_MESSAGES[Math.floor(Math.random() * DEAD_CHAT_MESSAGES.length)];
+    const sent = await textCh.send({ content, allowedMentions: { parse: [] } });
+    state.lastMessageAt = sent.createdTimestamp;
+    state.mutedUntilHumanActivity = true;
+    log(`[Proactivity:${guildId}] Sent: "${content.slice(0, 80)}"`, "discord");
+  } catch (err: any) {
+    log(`[Proactivity:${guildId}] Error: ${err.message}`, "discord");
   }
 }
 
-async function startConversationStarterChecker(readyClient: Client): Promise<void> {
+const PROACTIVITY_CHECK_INTERVAL_MS = 3 * 60_000;
+
+function startProactivityChecker(readyClient: Client): void {
   const runCheck = async () => {
-    try {
-      if (!isAmsterdamPeakHour()) return;
-
-      // Reset mute once human activity has come in after the last starter
-      if (convoStarterState.mutedUntilActivity) {
-        const lastHuman = channelLastHumanMessageAt.get(CONVO_STARTER_CHANNEL_ID);
-        if (lastHuman && (!convoStarterState.lastStarterAt || lastHuman > convoStarterState.lastStarterAt)) {
-          convoStarterState.mutedUntilActivity = false;
-          convoStarterState.lastStarterAt = null;
-          log("[ConvoStarter] Human activity detected — mute reset.", "discord");
-        } else {
-          return;
-        }
-      }
-
-      // Use in-memory tracking first; verify against Discord if we have no data
-      const localLast = channelLastHumanMessageAt.get(CONVO_STARTER_CHANNEL_ID);
-      if (localLast && Date.now() - localLast < CONVO_STARTER_QUIET_MS) return;
-
-      const channel = await readyClient.channels.fetch(CONVO_STARTER_CHANNEL_ID).catch(() => null);
-      if (!channel || channel.type !== ChannelType.GuildText) return;
-      const textCh = channel as TextChannel;
-
-      // If we have no local data, double-check via Discord API
-      if (!localLast) {
-        const fetched = await textCh.messages.fetch({ limit: 15 }).catch(() => null);
-        if (!fetched) return;
-        const last = fetched.filter((m) => !m.author.bot).sort((a, b) => b.createdTimestamp - a.createdTimestamp).first();
-        if (last && Date.now() - last.createdTimestamp < CONVO_STARTER_QUIET_MS) return;
-      }
-
-      // Build and send an AI-generated conversation starter
-      const recentCtx = getChannelContextText(CONVO_STARTER_CHANNEL_ID);
-      const prompt = [
-        `The server chat has been quiet for over 2 hours. It's currently peak Amsterdam time.`,
-        `Generate ONE sharp, natural conversation opener in fred's voice — a question, hot take, observation, or topic drop that would actually get people talking.`,
-        `Be specific and interesting, not generic. No "hey what's up". Lowercase, conversational, no padding.`,
-        recentCtx ? `\nRecent channel context for inspiration (don't just repeat it):\n${recentCtx.slice(0, 500)}` : "",
-        `\nRespond with only the conversation opener. Nothing else.`,
-      ].filter(Boolean).join("\n");
-
-      const starter = await askGemini(prompt, "system", CONVO_STARTER_CHANNEL_ID, {
-        userId: "system",
-        roles: [],
-        sortedRoles: [],
-        isOwner: false,
-        guildName: textCh.guild?.name ?? "",
-        guildId: textCh.guildId ?? undefined,
-        channelName: textCh.name,
-      });
-      if (!starter) return;
-
-      const sent = await textCh.send({ content: starter, allowedMentions: { parse: [] } });
-      convoStarterState.lastStarterAt = sent.createdTimestamp;
-      convoStarterState.mutedUntilActivity = true;
-      log(`[ConvoStarter] Sent: "${starter.slice(0, 80)}"`, "discord");
-    } catch (err: any) {
-      log(`[ConvoStarter] Error: ${err.message}`, "discord");
+    for (const [guildId] of readyClient.guilds.cache) {
+      void runGuildProactivityCheck(guildId, readyClient);
     }
   };
-
-  trackBackgroundTimer(setInterval(runCheck, CONVO_STARTER_CHECK_MS));
-  log("[ConvoStarter] Conversation starter checker started — fires every 20 minutes.", "discord");
+  trackBackgroundTimer(setInterval(runCheck, PROACTIVITY_CHECK_INTERVAL_MS));
+  log("[Proactivity] Per-guild proactivity checker started — fires every 3 minutes.", "discord");
 }
+
 
 const SLASH_COMMANDS = [
   // ── user accessible ──────────────────────────────────────────────────────
@@ -1714,8 +1644,7 @@ export async function startBot() {
     };
 
     startQotd(readyClient);
-    startDeadChatChecker(readyClient);
-    void startConversationStarterChecker(readyClient);
+    startProactivityChecker(readyClient);
     startStatusShuffle(readyClient);
     initMusic(readyClient);
     void ensureGuildMemoryTable().catch(() => {});
@@ -1793,10 +1722,12 @@ export async function startBot() {
     // Track last human message timestamp for every channel (conversation starter + other logic)
     channelLastHumanMessageAt.set(message.channelId, message.createdTimestamp);
 
-    if (message.channelId === DEAD_CHAT_CHANNEL_ID) {
-      deadChatState.lastDeadMessageTimestamp = null;
-      deadChatState.mutedUntilHumanActivity = false;
-      log("[DeadChat] Human activity detected in lounge — dead-chat mute reset.", "discord");
+    if (message.guildId) {
+      const proactState = guildProactivityState.get(message.guildId);
+      if (proactState?.mutedUntilHumanActivity) {
+        proactState.mutedUntilHumanActivity = false;
+        proactState.lastMessageAt = null;
+      }
     }
 
     const io = getIO();
@@ -1946,29 +1877,39 @@ export async function startBot() {
     const isDirectedAtBot = isNamedFred || isReplyToBot;
 
     if (!isMentioned && !isPrefixed && !isDirectedAtBot && !isAnyCommand && message.guildId) {
-      queuePassiveWatch({
-        messageId: message.id,
-        channelId: message.channelId,
-        guildId: message.guildId,
-        authorId: message.author.id,
-        authorName: authorDisplayName,
-        content: message.content,
-        isControversial: isPassiveWatchCandidate(message.content),
-        hasInsult: /\b(fuck|shit|ass|bitch|idiot|moron|stupid|cringe|lame|slur|racist|sexist|nazi|fascist)\b/i.test(message.content),
-        modeInstruction: activeModeInstruction,
-        recentContext: replyTo ? `${replyTo}` : undefined,
-        sendReply: async (text: string) => {
-          try {
-            await (message.channel as TextChannel).sendTyping();
-            await message.reply({
-              content: text,
-              allowedMentions: { parse: [], repliedUser: false },
-            });
-          } catch (err: any) {
-            log(`[Passive] sendReply failed: ${err.message}`, "discord");
-          }
-        },
-      });
+      void (async () => {
+        const guildCfg = await getGuildSettings(message.guildId!).catch(() => null);
+        const chattiness = guildCfg?.chattiness ?? 5;
+        if (chattiness === 0) return;
+        if (guildCfg?.allowedChannels) {
+          const allowed = guildCfg.allowedChannels.split(",").map((id) => id.trim()).filter(Boolean);
+          if (allowed.length > 0 && !allowed.includes(message.channelId)) return;
+        }
+        queuePassiveWatch({
+          messageId: message.id,
+          channelId: message.channelId,
+          guildId: message.guildId,
+          authorId: message.author.id,
+          authorName: authorDisplayName,
+          content: message.content,
+          isControversial: isPassiveWatchCandidate(message.content),
+          hasInsult: /\b(fuck|shit|ass|bitch|idiot|moron|stupid|cringe|lame|slur|racist|sexist|nazi|fascist)\b/i.test(message.content),
+          modeInstruction: activeModeInstruction,
+          recentContext: replyTo ? `${replyTo}` : undefined,
+          chattiness,
+          sendReply: async (text: string) => {
+            try {
+              await (message.channel as TextChannel).sendTyping();
+              await message.reply({
+                content: text,
+                allowedMentions: { parse: [], repliedUser: false },
+              });
+            } catch (err: any) {
+              log(`[Passive] sendReply failed: ${err.message}`, "discord");
+            }
+          },
+        });
+      })();
     }
 
     // Passive image reaction: Fred reacts to images posted without @mention
@@ -1989,7 +1930,10 @@ export async function startBot() {
         const lastReact = passiveImageCooldowns.get(message.channelId) ?? 0;
         const PASSIVE_IMG_COOLDOWN_MS = 5 * 60 * 1000;
 
-        if (now - lastReact > PASSIVE_IMG_COOLDOWN_MS && Math.random() < 0.35) {
+        const guildCfgImg = await getGuildSettings(message.guildId!).catch(() => null);
+        const imgChattiness = guildCfgImg?.chattiness ?? 5;
+        const imgRoll = Math.min(0.35 * (imgChattiness / 5), 0.85);
+        if (now - lastReact > PASSIVE_IMG_COOLDOWN_MS && imgChattiness > 0 && Math.random() < imgRoll) {
           passiveImageCooldowns.set(message.channelId, now);
           void (async () => {
             try {

@@ -91,6 +91,7 @@ export interface PassiveWatchContext {
   hasInsult?: boolean;
   modeInstruction?: string;
   recentContext?: string;
+  chattiness?: number;
   sendReply: (text: string) => Promise<void>;
 }
 
@@ -102,6 +103,20 @@ const passiveWatchQueue = new Map<string, NodeJS.Timeout>();
 const recentChannelContext = new Map<string, ChannelMessage[]>();
 const lastPassiveReplyAt = new Map<string, number>();
 const PASSIVE_REPLY_COOLDOWN_MS = 120_000;
+
+function getChattinessMultiplier(chattiness: number): number {
+  if (chattiness <= 0) return 0;
+  if (chattiness <= 5) return chattiness / 5;
+  return 1 + (chattiness - 5) * 0.4;
+}
+
+function getChattinessCooldownMs(chattiness: number): number {
+  const table: Record<number, number> = {
+    0: Infinity, 1: 600_000, 2: 420_000, 3: 300_000, 4: 180_000,
+    5: 120_000, 6: 90_000, 7: 60_000, 8: 45_000, 9: 30_000, 10: 15_000,
+  };
+  return table[chattiness] ?? PASSIVE_REPLY_COOLDOWN_MS;
+}
 
 // Size caps for Maps that grow with each unique user/channel and are never explicitly cleared.
 // Eviction is LRU-approximated via insertion order (Map preserves insertion order in V8).
@@ -191,8 +206,12 @@ export function queuePassiveWatch(context: PassiveWatchContext): void {
   const key = context.messageId;
   if (passiveWatchQueue.has(key)) return;
 
+  const chattiness = context.chattiness ?? 5;
+  if (chattiness === 0) return;
+
+  const cooldown = getChattinessCooldownMs(chattiness);
   const lastReply = lastPassiveReplyAt.get(context.channelId);
-  if (lastReply && Date.now() - lastReply < PASSIVE_REPLY_COOLDOWN_MS) return;
+  if (lastReply && Date.now() - lastReply < cooldown) return;
 
   const timer = setTimeout(() => {
     passiveWatchQueue.delete(key);
@@ -213,9 +232,13 @@ async function handlePassiveWatch(context: PassiveWatchContext): Promise<void> {
   const recentCtxRaw = getFormattedChannelContext(context.channelId, 1);
   const { type, intensity } = categorizePassiveMessage(context.content, recentCtxRaw);
 
+  const chattiness = context.chattiness ?? 5;
+  if (chattiness === 0) return;
+  const multiplier = getChattinessMultiplier(chattiness);
+
   const hasInsultBoost = context.hasInsult ? 0.1 : 0;
   const controversialBoost = context.isControversial ? 0.1 : 0;
-  const effectiveRoll = Math.min(intensity + hasInsultBoost + controversialBoost, 0.96);
+  const effectiveRoll = Math.min((intensity + hasInsultBoost + controversialBoost) * multiplier, 0.96);
 
   if (Math.random() > effectiveRoll) return;
 

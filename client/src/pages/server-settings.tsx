@@ -16,6 +16,8 @@ interface GuildSettings {
   memoryEnabled: boolean;
   responseLength: number;
   language: string;
+  deadChatChannelId: string | null;
+  allowedChannels: string | null;
 }
 
 const DEFAULTS: GuildSettings = {
@@ -26,6 +28,8 @@ const DEFAULTS: GuildSettings = {
   memoryEnabled: true,
   responseLength: 3,
   language: "auto",
+  deadChatChannelId: "",
+  allowedChannels: "",
 };
 
 function NumericBar({
@@ -165,6 +169,8 @@ export default function ServerSettingsPage() {
             memoryEnabled: guildSettings.memoryEnabled ?? true,
             responseLength: guildSettings.responseLength ?? 3,
             language: guildSettings.language ?? "auto",
+            deadChatChannelId: guildSettings.deadChatChannelId ?? "",
+            allowedChannels: guildSettings.allowedChannels ?? "",
           };
           setSettings(s);
           setSaved(s);
@@ -197,6 +203,8 @@ export default function ServerSettingsPage() {
         memoryEnabled: updated.memoryEnabled ?? true,
         responseLength: updated.responseLength ?? 3,
         language: updated.language ?? "auto",
+        deadChatChannelId: updated.deadChatChannelId ?? "",
+        allowedChannels: updated.allowedChannels ?? "",
       };
       setSettings(s);
       setSaved(s);
@@ -430,6 +438,32 @@ export default function ServerSettingsPage() {
                 </button>
               ))}
             </div>
+          </Row>
+
+          <Row
+            label="Dead-chat channel"
+            hint="Channel ID where Fred will break the silence when proactivity is on. Right-click a channel in Discord (Developer Mode) → Copy Channel ID."
+          >
+            <input
+              type="text"
+              className="w-full bg-white/[0.04] border border-white/[0.1] rounded-md px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30"
+              placeholder="e.g. 1234567890123456789"
+              value={settings.deadChatChannelId ?? ""}
+              onChange={(e) => update("deadChatChannelId", e.target.value)}
+            />
+          </Row>
+
+          <Row
+            label="Allowed channels"
+            hint="Comma-separated channel IDs where Fred can passively chime in unprompted. Leave empty to allow all channels. Get IDs via Discord Developer Mode → right-click channel → Copy Channel ID."
+          >
+            <textarea
+              className="w-full bg-white/[0.04] border border-white/[0.1] rounded-md px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30 resize-none"
+              rows={3}
+              placeholder={"1234567890123456789,\n9876543210987654321"}
+              value={settings.allowedChannels ?? ""}
+              onChange={(e) => update("allowedChannels", e.target.value)}
+            />
           </Row>
 
         </div>

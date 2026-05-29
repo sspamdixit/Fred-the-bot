@@ -91,6 +91,8 @@ export const guildSettings = pgTable("guild_settings", {
   memoryEnabled: boolean("memory_enabled").notNull().default(true),
   responseLength: integer("response_length").notNull().default(3),
   language: text("language").notNull().default("auto"),
+  deadChatChannelId: text("dead_chat_channel_id"),
+  allowedChannels: text("allowed_channels"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   updatedBy: text("updated_by"),
 });
@@ -106,6 +108,8 @@ export const guildSettingsSchema = z.object({
   memoryEnabled: z.boolean().optional(),
   responseLength: z.number().int().min(1).max(5).optional(),
   language: z.enum(["auto", "en", "nl"]).optional(),
+  deadChatChannelId: z.string().max(30).nullable().optional(),
+  allowedChannels: z.string().max(500).nullable().optional(),
 });
 
 export type GuildSettingsUpdate = z.infer<typeof guildSettingsSchema>;
