@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -56,8 +56,6 @@ export const guildMemory = pgTable("guild_memory", {
 export type GuildMemoryRow = typeof guildMemory.$inferSelect;
 export type BotMetaRow = typeof botMeta.$inferSelect;
 
-// ── Saved playlists ───────────────────────────────────────────────────────────
-
 export const savedPlaylists = pgTable("saved_playlists", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull(),
@@ -81,3 +79,33 @@ export const playlistTracks = pgTable("playlist_tracks", {
 });
 
 export type PlaylistTrack = typeof playlistTracks.$inferSelect;
+
+// ── Per-guild settings ────────────────────────────────────────────────────────
+
+export const guildSettings = pgTable("guild_settings", {
+  guildId: text("guild_id").primaryKey(),
+  personaOverride: text("persona_override"),
+  temperature: integer("temperature").notNull().default(7),
+  chattiness: integer("chattiness").notNull().default(5),
+  proactivity: integer("proactivity").notNull().default(3),
+  memoryEnabled: boolean("memory_enabled").notNull().default(true),
+  responseLength: integer("response_length").notNull().default(3),
+  language: text("language").notNull().default("auto"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: text("updated_by"),
+});
+
+export type GuildSettings = typeof guildSettings.$inferSelect;
+export type InsertGuildSettings = typeof guildSettings.$inferInsert;
+
+export const guildSettingsSchema = z.object({
+  personaOverride: z.string().max(1000).nullable().optional(),
+  temperature: z.number().int().min(1).max(10).optional(),
+  chattiness: z.number().int().min(0).max(10).optional(),
+  proactivity: z.number().int().min(0).max(10).optional(),
+  memoryEnabled: z.boolean().optional(),
+  responseLength: z.number().int().min(1).max(5).optional(),
+  language: z.enum(["auto", "en", "nl"]).optional(),
+});
+
+export type GuildSettingsUpdate = z.infer<typeof guildSettingsSchema>;

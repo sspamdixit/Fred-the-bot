@@ -7,12 +7,18 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 import StatusPage from "@/pages/status";
+import LandingPage from "@/pages/landing";
+import ServersPage from "@/pages/servers";
+import ServerSettingsPage from "@/pages/server-settings";
 
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Home} />
-      <Route path="/status" component={StatusPage} />
+      <Route path="/" component={LandingPage} />
+      <Route path="/servers" component={ServersPage} />
+      <Route path="/servers/:guildId" component={ServerSettingsPage} />
+      <Route path="/admin" component={Home} />
+      <Route path="/admin/status" component={StatusPage} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -1,6 +1,5 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { type Server } from "http";
-import path from "path";
 import { createHash, timingSafeEqual } from "crypto";
 import rateLimit from "express-rate-limit";
 import {
@@ -18,6 +17,31 @@ import { isLavalinkAvailable, getLavalinkNodeCount } from "./music";
 import { getDjStatus } from "./bot";
 import { z } from "zod";
 import { DASHBOARD_AUTH_HEADER, issueAuthToken, isAuthTokenValid } from "./auth";
+import {
+  getOAuthUrl,
+  exchangeCode,
+  fetchDiscordUser,
+  fetchDiscordGuilds,
+  getBotInviteUrl,
+  getAvatarUrl,
+  getGuildIconUrl,
+  hasManageGuild,
+  type DiscordGuild,
+} from "./discord-oauth";
+import { getGuildSettings, upsertGuildSettings } from "./guild-settings";
+import { getGuildsWithChannels as getBotGuilds } from "./bot";
+import { guildSettingsSchema } from "@shared/schema";
+
+declare module "express-session" {
+  interface SessionData {
+    discordUserId?: string;
+    discordUsername?: string;
+    discordGlobalName?: string | null;
+    discordAvatar?: string | null;
+    discordAvatarUrl?: string;
+    accessToken?: string;
+  }
+}
 
 const PROCESS_START_TIME = Date.now();
 
@@ -68,12 +92,17 @@ function ensureApiAuthorized(req: Request, res: Response, next: NextFunction) {
   if (req.path === "/auth") {
     return next();
   }
-
   const providedToken = req.get(DASHBOARD_AUTH_HEADER);
   if (!providedToken || !isAuthTokenValid(providedToken)) {
     return res.status(401).json({ error: "Unauthorized." });
   }
+  return next();
+}
 
+function ensureDiscordAuth(req: Request, res: Response, next: NextFunction) {
+  if (!req.session?.discordUserId) {
+    return res.status(401).json({ error: "Discord login required." });
+  }
   return next();
 }
 
@@ -83,23 +112,178 @@ export async function registerRoutes(
 ): Promise<Server> {
   app.use("/api", apiRateLimiter);
 
+  // ── Discord OAuth ─────────────────────────────────────────────────────────
+
+  app.get("/api/oauth/discord", (req, res) => {
+    try {
+      const url = getOAuthUrl(req);
+      res.redirect(url);
+    } catch (err: any) {
+      res.status(503).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/oauth/discord/callback", async (req, res) => {
+    const code = req.query.code as string | undefined;
+    if (!code) {
+      return res.redirect("/?error=no_code");
+    }
+    const accessToken = await exchangeCode(code, req);
+    if (!accessToken) {
+      return res.redirect("/?error=token_exchange");
+    }
+    const user = await fetchDiscordUser(accessToken);
+    if (!user) {
+      return res.redirect("/?error=user_fetch");
+    }
+    req.session.discordUserId = user.id;
+    req.session.discordUsername = user.username;
+    req.session.discordGlobalName = user.global_name;
+    req.session.discordAvatar = user.avatar;
+    req.session.discordAvatarUrl = getAvatarUrl(user);
+    req.session.accessToken = accessToken;
+    return res.redirect("/servers");
+  });
+
+  app.get("/api/oauth/me", (req, res) => {
+    if (!req.session?.discordUserId) {
+      return res.status(401).json({ error: "Not logged in." });
+    }
+    return res.json({
+      id: req.session.discordUserId,
+      username: req.session.discordUsername,
+      global_name: req.session.discordGlobalName,
+      avatar: req.session.discordAvatar,
+      avatarUrl: req.session.discordAvatarUrl,
+    });
+  });
+
+  app.post("/api/oauth/logout", (req, res) => {
+    req.session.destroy(() => {});
+    res.json({ ok: true });
+  });
+
+  // ── Public guild routes (requires Discord OAuth) ──────────────────────────
+
+  app.get("/api/public/guilds", ensureDiscordAuth, async (req, res) => {
+    const accessToken = req.session.accessToken;
+    if (!accessToken) {
+      return res.status(401).json({ error: "No access token." });
+    }
+    const discordGuilds = await fetchDiscordGuilds(accessToken);
+    const managed = discordGuilds.filter((g) => hasManageGuild(g.permissions));
+
+    // Get guilds where bot is actually present
+    const botGuildList = getBotGuilds();
+    const botGuildIds = new Set(botGuildList.map((g) => g.id));
+
+    const guilds = managed.map((g) => ({
+      id: g.id,
+      name: g.name,
+      icon: g.icon,
+      iconUrl: getGuildIconUrl(g),
+      owner: g.owner,
+      permissions: g.permissions,
+      hasFred: botGuildIds.has(g.id),
+    }));
+
+    // Sort: servers with Fred first, then alphabetically
+    guilds.sort((a, b) => {
+      if (a.hasFred && !b.hasFred) return -1;
+      if (!a.hasFred && b.hasFred) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    return res.json({ guilds });
+  });
+
+  app.get("/api/public/guilds/:guildId/info", ensureDiscordAuth, async (req, res) => {
+    const { guildId } = req.params;
+    const accessToken = req.session.accessToken;
+    if (!accessToken) {
+      return res.status(401).json({ error: "No access token." });
+    }
+    const discordGuilds = await fetchDiscordGuilds(accessToken);
+    const guild = discordGuilds.find((g) => g.id === guildId);
+    if (!guild || !hasManageGuild(guild.permissions)) {
+      return res.status(403).json({ error: "Access denied." });
+    }
+    const botGuildList = getBotGuilds();
+    const hasFred = botGuildList.some((g) => g.id === guildId);
+    return res.json({
+      id: guild.id,
+      name: guild.name,
+      icon: guild.icon,
+      iconUrl: getGuildIconUrl(guild),
+      owner: guild.owner,
+      hasFred,
+    });
+  });
+
+  app.get("/api/public/guilds/:guildId/settings", ensureDiscordAuth, async (req, res) => {
+    const { guildId } = req.params;
+    const accessToken = req.session.accessToken;
+    if (!accessToken) {
+      return res.status(401).json({ error: "No access token." });
+    }
+    // Verify user manages this guild
+    const discordGuilds = await fetchDiscordGuilds(accessToken);
+    const guild = discordGuilds.find((g) => g.id === guildId);
+    if (!guild || !hasManageGuild(guild.permissions)) {
+      return res.status(403).json({ error: "Access denied." });
+    }
+    const settings = await getGuildSettings(guildId);
+    return res.json(settings);
+  });
+
+  app.put("/api/public/guilds/:guildId/settings", ensureDiscordAuth, async (req, res) => {
+    const { guildId } = req.params;
+    const accessToken = req.session.accessToken;
+    if (!accessToken) {
+      return res.status(401).json({ error: "No access token." });
+    }
+    // Verify user manages this guild
+    const discordGuilds = await fetchDiscordGuilds(accessToken);
+    const guild = discordGuilds.find((g) => g.id === guildId);
+    if (!guild || !hasManageGuild(guild.permissions)) {
+      return res.status(403).json({ error: "Access denied." });
+    }
+    const parsed = guildSettingsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid settings.", details: parsed.error.flatten() });
+    }
+    const updated = await upsertGuildSettings(guildId, parsed.data, req.session.discordUserId);
+    return res.json(updated);
+  });
+
+  app.get("/api/public/invite-url", (req, res) => {
+    const guildId = req.query.guild_id as string | undefined;
+    try {
+      const url = getBotInviteUrl(guildId);
+      if (req.query.guild_id) {
+        return res.redirect(url);
+      }
+      return res.json({ url });
+    } catch (err: any) {
+      return res.status(503).json({ error: err.message });
+    }
+  });
+
+  // ── Admin dashboard auth (password-based, unchanged) ──────────────────────
+
   app.post("/api/auth", authRateLimiter, (req, res) => {
     const parsed = authSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: "Password required." });
     }
-
     const dashboardPassword = process.env.DASHBOARD_PASSWORD;
     if (!dashboardPassword) {
       return res.status(503).json({ error: "DASHBOARD_PASSWORD is not configured on the server." });
     }
-
     if (!safePasswordEquals(parsed.data.password, dashboardPassword)) {
       return res.status(401).json({ error: "Incorrect password." });
     }
-
     const token = issueAuthToken();
-
     return res.json({ ok: true, token });
   });
 
@@ -217,8 +401,6 @@ export async function registerRoutes(
 
   app.post("/api/diagnostics/run", async (_req, res) => {
     const checkedAt = Date.now();
-
-    // Bot check
     const botInfo = getBotStatus();
     const botCheck = {
       status: botInfo.online ? "pass" : "fail" as "pass" | "fail" | "warn",
@@ -228,15 +410,11 @@ export async function registerRoutes(
       uptimeStart: botInfo.uptimeStart,
       lastError: botInfo.lastError,
     };
-
-    // AI provider checks
     const aiChecks: Record<string, { status: "pass" | "fail" | "warn" | "skip"; hasKey: boolean; enabled: boolean; latencyMs?: number; error?: string }> = {
       gemini: { status: "skip", hasKey: !!process.env.GEMINI_API_KEY, enabled: getGeminiEnabled() },
       groq: { status: "skip", hasKey: !!process.env.GROQ_API_KEY, enabled: getGroqEnabled() },
       hackclub: { status: "skip", hasKey: !!process.env.HACKCLUB_API_KEY, enabled: getHackclubEnabled() },
     };
-
-    // Quick AI ping via Gemini (if key exists)
     if (process.env.GEMINI_API_KEY) {
       try {
         const t0 = Date.now();
@@ -249,20 +427,16 @@ export async function registerRoutes(
     } else {
       aiChecks.gemini = { ...aiChecks.gemini, status: "fail", error: "No GEMINI_API_KEY set" };
     }
-
     if (process.env.GROQ_API_KEY) {
       aiChecks.groq = { ...aiChecks.groq, status: aiChecks.groq.enabled ? "pass" : "warn" };
     } else {
       aiChecks.groq = { ...aiChecks.groq, status: "fail", error: "No GROQ_API_KEY set" };
     }
-
     if (process.env.HACKCLUB_API_KEY) {
       aiChecks.hackclub = { ...aiChecks.hackclub, status: aiChecks.hackclub.enabled ? "pass" : "warn" };
     } else {
       aiChecks.hackclub = { ...aiChecks.hackclub, status: "warn", error: "No HACKCLUB_API_KEY set" };
     }
-
-    // News feed checks
     const feedResults: Array<{ category: string; url: string; status: "pass" | "fail"; headlineCount: number; sample?: string }> = [];
     for (const [category, urls] of Object.entries(NEWS_FEEDS)) {
       for (const url of urls) {
@@ -274,8 +448,6 @@ export async function registerRoutes(
         }
       }
     }
-
-    // Bot status generation check
     let botStatusCheck: { status: "pass" | "fail" | "skip"; generated?: string; error?: string } = { status: "skip" };
     if (process.env.GROQ_API_KEY) {
       try {
@@ -287,8 +459,6 @@ export async function registerRoutes(
     } else {
       botStatusCheck = { status: "fail", error: "No GROQ_API_KEY set" };
     }
-
-    // QOTD check
     const qotdInfo = getQotdStatus();
     const qotdCheck = {
       status: "pass" as "pass" | "warn",
@@ -296,13 +466,10 @@ export async function registerRoutes(
       nextAt: qotdInfo.nextAt,
       last: qotdInfo.last,
     };
-
-    // Service check
     const serviceCheck = {
       processUptimeMs: Date.now() - PROCESS_START_TIME,
       keepAliveEnabled: !!process.env.RENDER_EXTERNAL_URL,
     };
-
     return res.json({ checkedAt, bot: botCheck, ai: aiChecks, newsFeeds: feedResults, botStatus: botStatusCheck, qotd: qotdCheck, service: serviceCheck });
   });
 

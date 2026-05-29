@@ -6,6 +6,11 @@ import { startBot, getBotStatus } from "./bot";
 import { initSocket } from "./socket";
 import { ensureUserMemoryTable } from "./storage";
 import { ensureSemanticMemoryTable } from "./semantic-memory";
+import { ensureGuildSettingsTable } from "./guild-settings";
+import session from "express-session";
+import createMemoryStore from "memorystore";
+
+const MemoryStore = createMemoryStore(session);
 
 const app = express();
 const httpServer = createServer(app);
@@ -37,6 +42,24 @@ app.use((req, res, next) => {
 
   next();
 });
+
+// Session middleware (must come before routes)
+const sessionSecret = process.env.SESSION_SECRET ?? "fred-dev-secret-change-in-prod";
+app.use(
+  session({
+    secret: sessionSecret,
+    store: new MemoryStore({ checkPeriod: 86400000 }),
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    },
+    name: "fred.sid",
+  }),
+);
 
 initSocket(httpServer);
 
@@ -109,7 +132,7 @@ function startKeepAlive() {
   ).trim().replace(/\/$/, "");
 
   if (!serviceUrl) {
-    log("No RENDER_EXTERNAL_URL or SERVICE_URL set — keep-alive disabled. On Render free tier this means the service will spin down after 15 min of inactivity and disconnect the bot. Set RENDER_EXTERNAL_URL to your Render app URL to prevent this.", "keep-alive");
+    log("No RENDER_EXTERNAL_URL or SERVICE_URL set — keep-alive disabled.", "keep-alive");
     return;
   }
 
@@ -121,8 +144,6 @@ function startKeepAlive() {
   const keepAliveTimer = setInterval(async () => {
     try {
       const res = await fetch(pingUrl, { signal: AbortSignal.timeout(15_000) });
-      // Only log non-2xx responses — successful pings every 10 min would just
-      // burn through the limited log storage on free hosting tiers.
       if (!res.ok) log(`Keep-alive ping returned ${res.status}`, "keep-alive");
     } catch (err: any) {
       log(`Keep-alive ping failed: ${err.message}`, "keep-alive");
@@ -136,13 +157,20 @@ function startKeepAlive() {
     await ensureUserMemoryTable();
     log("user_memory table ready.", "memory");
   } catch (err: any) {
-    log(`user_memory table check failed; continuing without blocking bot startup: ${err.message}`, "memory");
+    log(`user_memory table check failed; continuing: ${err.message}`, "memory");
   }
 
   try {
     await ensureSemanticMemoryTable();
   } catch (err: any) {
-    log(`semantic memory init failed; continuing without it: ${err.message}`, "memory");
+    log(`semantic memory init failed; continuing: ${err.message}`, "memory");
+  }
+
+  try {
+    await ensureGuildSettingsTable();
+    log("guild_settings table ready.", "memory");
+  } catch (err: any) {
+    log(`guild_settings table check failed; continuing: ${err.message}`, "memory");
   }
 
   await registerRoutes(httpServer, app);
@@ -179,7 +207,7 @@ function startKeepAlive() {
       if (process.env.ENABLE_BOT === "true") {
         startBot();
       } else {
-        log("Bot auto-start disabled. Set ENABLE_BOT=true to start the bot on this instance.", "discord");
+        log("Bot auto-start disabled. Set ENABLE_BOT=true to start.", "discord");
       }
       if (process.env.NODE_ENV === "production") {
         startKeepAlive();

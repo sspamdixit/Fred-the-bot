@@ -245,12 +245,37 @@ export async function getBotAiSettings(): Promise<BotAiSettings> {
   return DEFAULT_SETTINGS;
 }
 
-export async function buildSharedSystemPrompt(): Promise<string> {
+export interface GuildPromptOverrides {
+  personaOverride?: string | null;
+  responseLength?: number;
+  language?: string;
+  temperature?: number;
+}
+
+function getResponseLengthInstruction(level: number): string {
+  switch (level) {
+    case 1: return "response length override: be extremely brief — one to two sentences maximum for almost everything. only go longer if absolutely forced by the task (e.g. a poem or code block).";
+    case 2: return "response length override: keep responses short — two to three sentences for most things. longer only when the task genuinely requires it.";
+    case 3: return "";
+    case 4: return "response length override: you can be more generous with length when the topic calls for it. don't pad, but don't truncate when depth helps.";
+    case 5: return "response length override: be thorough — give detail when it's relevant. still not an essay for every message, but don't cut off explanations prematurely.";
+    default: return "";
+  }
+}
+
+function getLanguageInstruction(lang: string): string {
+  if (lang === "en") return "server language override: always respond in english regardless of what language the user writes in. do not mirror other languages.";
+  if (lang === "nl") return "server language override: always respond primarily in dutch. add an english translation on the next line prefixed with -# only if the user appears to not speak dutch.";
+  return "";
+}
+
+export async function buildSharedSystemPrompt(guildOverrides?: GuildPromptOverrides): Promise<string> {
   const settings = await getBotAiSettings();
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
-  return [
+
+  const sections: string[] = [
     `current date and time: ${dateStr}, ${timeStr}. this is real. your training cutoff is irrelevant — do not assume it is any earlier year. for anything time-sensitive (prices, news, sports, weather, current events), rely on web search results provided in the prompt, not your training data.`,
     "",
     settings.systemInstructions.trim(),
@@ -260,7 +285,23 @@ export async function buildSharedSystemPrompt(): Promise<string> {
     "",
     "bot profile — weaknesses and limits:",
     settings.weaknesses.trim(),
-  ].join("\n");
+  ];
+
+  if (guildOverrides?.personaOverride?.trim()) {
+    sections.push("", `server-specific persona notes (configured by this server's admins — follow these as additional context and flavour on top of your base character):\n${guildOverrides.personaOverride.trim()}`);
+  }
+
+  if (guildOverrides?.responseLength != null && guildOverrides.responseLength !== 3) {
+    const instruction = getResponseLengthInstruction(guildOverrides.responseLength);
+    if (instruction) sections.push("", instruction);
+  }
+
+  if (guildOverrides?.language && guildOverrides.language !== "auto") {
+    const instruction = getLanguageInstruction(guildOverrides.language);
+    if (instruction) sections.push("", instruction);
+  }
+
+  return sections.join("\n");
 }
 
 export async function buildBotProfileMessage(): Promise<string> {
