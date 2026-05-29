@@ -12,10 +12,10 @@ interface LavalinkNodeConfig {
 
 const DEFAULT_LAVALINK_NODES: LavalinkNodeConfig[] = [
   {
-    name: "heavencloud",
-    url: "89.106.84.59:4000",
-    auth: "heavencloud.in",
-    secure: false,
+    name: "jirayu-ssl",
+    url: "lavalink.jirayu.net:443",
+    auth: "youshallnotpass",
+    secure: true,
   },
   {
     name: "jirayu",
@@ -24,20 +24,20 @@ const DEFAULT_LAVALINK_NODES: LavalinkNodeConfig[] = [
     secure: false,
   },
   {
-    name: "jirayu-ssl",
-    url: "lavalink.jirayu.net:443",
-    auth: "youshallnotpass",
-    secure: true,
-  },
-  {
     name: "serenetia-v4",
     url: "lavalinkv4.serenetia.com:443",
-    auth: "https://dsc.gg/ajidevserver",
+    auth: "https://seretia.link/discord",
     secure: true,
   },
   {
     name: "serenetia-universal",
     url: "lavalink.serenetia.com:443",
+    auth: "https://seretia.link/discord",
+    secure: true,
+  },
+  {
+    name: "ajieblogs",
+    url: "lava-v4.ajieblogs.eu.org:443",
     auth: "https://dsc.gg/ajidevserver",
     secure: true,
   },
@@ -48,10 +48,28 @@ const DEFAULT_LAVALINK_NODES: LavalinkNodeConfig[] = [
     secure: true,
   },
   {
-    name: "ajieblogs",
-    url: "lava-v4.ajieblogs.eu.org:443",
-    auth: "https://dsc.gg/ajidevserver",
+    name: "triniumhost-ssl",
+    url: "lavalink-v4.triniumhost.com:443",
+    auth: "free",
     secure: true,
+  },
+  {
+    name: "triniumhost",
+    url: "lavalink.triniumhost.com:4333",
+    auth: "free",
+    secure: false,
+  },
+  {
+    name: "nyxbot-sg1",
+    url: "sg1-nodelink.nyxbot.app:3000",
+    auth: "nyxbot.app/support",
+    secure: false,
+  },
+  {
+    name: "nyxbot-sg2",
+    url: "sg2-nodelink.nyxbot.app:3000",
+    auth: "nyxbot.app/support",
+    secure: false,
   },
 ];
 
