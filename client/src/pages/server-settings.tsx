@@ -323,12 +323,12 @@ export default function ServerSettingsPage() {
 
           <Row
             label="Custom persona"
-            hint="Appended to Fred's base character — server context, focus areas, or tone adjustments."
+            hint="Fully replaces Fred's default personality for this server. Write a complete character description. Leave blank to keep the default."
           >
             <textarea
               value={settings.personaOverride ?? ""}
               onChange={(e) => update("personaOverride", e.target.value)}
-              placeholder="e.g. this is a music production server. lean into DAW knowledge, sample culture, and production techniques when relevant."
+              placeholder="e.g. you are a no-nonsense assistant for a game dev server. you know unity, unreal, and godot inside out. you are concise, technical, and mildly sarcastic about scope creep."
               rows={4}
               maxLength={1000}
               className="w-full bg-white/[0.04] border border-white/[0.1] focus:border-white/25 focus:outline-none rounded-lg px-4 py-3 text-sm text-white placeholder-white/20 resize-none transition-colors"

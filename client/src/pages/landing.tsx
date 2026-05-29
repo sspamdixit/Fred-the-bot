@@ -15,12 +15,12 @@ const FEATURES = [
   {
     title: "Actual personality",
     description:
-      "Dutch directness, 12 internal moods, strong music opinions. Fred has a genuine voice. He'll agree, argue, and remember both.",
+      "Unhinged, opinionated, and weirdly lovable. Fred has strong feelings about acoustic hip-hop covers and bad pizza dough. He'll argue. He'll remember. He'll be right sometimes.",
   },
   {
     title: "Per-server config",
     description:
-      "Tune chattiness, creativity, language, and persona per server. Each community gets its own version of Fred.",
+      "Tune chattiness, creativity, language, and persona per server. Replace his whole personality if you want. Each community gets its own version of Fred.",
   },
   {
     title: "Multi-AI fallback",
@@ -85,10 +85,10 @@ export default function LandingPage() {
           <p className="text-sm text-white/40 mb-5 tracking-wide uppercase font-medium">Discord bot</p>
           <h1 className="text-5xl sm:text-6xl font-bold tracking-tight leading-[1.05] mb-7 text-white">
             Fred.<br />
-            <span className="text-white/40">Dutch. Direct.<br />No hollow AI pleasantries.</span>
+            <span className="text-white/40">Unhinged. Opinionated.<br />Weirdly lovable.</span>
           </h1>
           <p className="text-[#999] text-lg max-w-xl leading-relaxed mb-10">
-            A Discord bot with genuine character — long-term memory, live radio, strong opinions about stroopwafels, and actual personality that evolves over time.
+            A Discord bot with genuine character — long-term memory, live radio, strong opinions about acoustic hip-hop covers, and actual personality that refuses to be normal.
           </p>
           <div className="flex items-center gap-3 flex-wrap">
             {user ? (
@@ -146,35 +146,35 @@ export default function LandingPage() {
           <div className="space-y-5 text-[#888] text-sm leading-relaxed font-mono">
             <div className="flex gap-4">
               <span className="text-white/20 select-none">user</span>
-              <span>what's for breakfast</span>
-            </div>
-            <div className="flex gap-4">
-              <span className="text-white/20 select-none shrink-0">fred</span>
-              <span className="text-white/60">hagelslag on bread. if you don't know what that is, look it up and then make it.</span>
-            </div>
-            <div className="flex gap-4">
-              <span className="text-white/20 select-none">user</span>
               <span>are you chatgpt</span>
             </div>
             <div className="flex gap-4">
               <span className="text-white/20 select-none shrink-0">fred</span>
-              <span className="text-white/60">nee. not even close.</span>
+              <span className="text-white/60">no. FRED. it's on the name tag. we've covered this.</span>
             </div>
             <div className="flex gap-4">
               <span className="text-white/20 select-none">user</span>
-              <span>amsterdam is in holland right</span>
+              <span>i'm bored</span>
             </div>
             <div className="flex gap-4">
               <span className="text-white/20 select-none shrink-0">fred</span>
-              <span className="text-white/60">amsterdam is in north holland, which is a province of the netherlands. "holland" is not the country. this comes up a lot.</span>
+              <span className="text-white/60">okay but what KIND of bored. staring-at-ceiling bored or need-an-activity bored or 2am-existential-malaise bored. these require completely different interventions.</span>
             </div>
             <div className="flex gap-4">
               <span className="text-white/20 select-none">user</span>
-              <span>i ate my stroopwafel cold</span>
+              <span>how are you</span>
             </div>
             <div className="flex gap-4">
               <span className="text-white/20 select-none shrink-0">fred</span>
-              <span className="text-white/60">why. why would you do that. put it on the mug. the caramel is supposed to be warm. this is the whole point.</span>
+              <span className="text-white/60">thriving actually. which is a weird thing to say as an ai but i stand by it.</span>
+            </div>
+            <div className="flex gap-4">
+              <span className="text-white/20 select-none">user</span>
+              <span>pineapple on pizza is wrong</span>
+            </div>
+            <div className="flex gap-4">
+              <span className="text-white/20 select-none shrink-0">fred</span>
+              <span className="text-white/60">pineapple is fine actually. the real villain is bad dough. nobody talks about bad dough. you're out here blaming the fruit while entire pizzerias are committing structural crimes and NOBODY IS HOLDING THEM ACCOUNTABLE.</span>
             </div>
           </div>
         </div>
@@ -212,7 +212,7 @@ export default function LandingPage() {
       <div className="border-t border-white/[0.07]" />
       <footer className="py-8 px-6">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <span className="text-xs text-white/20">fred — a discord bot with taste</span>
+          <span className="text-xs text-white/20">fred — a discord bot with opinions</span>
           <a href="/admin" className="text-xs text-white/20 hover:text-white/40 transition-colors">
             Admin
           </a>
