@@ -81,7 +81,7 @@ export default function LandingPage() {
       {/* Nav */}
       <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06] bg-[#111111]/95 backdrop-blur-md">
         <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-          <span style={{ fontFamily: "'Permanent Marker', cursive" }} className="text-lg text-white tracking-wide">fred</span>
+          <span style={{ fontFamily: "'Architex', cursive" }} className="text-lg text-white tracking-wide">fred</span>
           <div className="flex items-center gap-3">
             {!checkingAuth && (
               user ? (
@@ -112,7 +112,7 @@ export default function LandingPage() {
             <div className="flex-1">
               <p className="text-xs text-white/30 mb-4 tracking-widest uppercase font-medium">Discord bot</p>
               <h1
-                style={{ fontFamily: "'Permanent Marker', cursive", lineHeight: 1 }}
+                style={{ fontFamily: "'Architex', cursive", lineHeight: 1 }}
                 className="text-[5rem] sm:text-[7rem] lg:text-[8.5rem] text-white mb-8 -ml-1"
               >
                 Fred.
@@ -207,7 +207,7 @@ export default function LandingPage() {
         <div className="bg-[#f5f0e8]">
           <div className="max-w-3xl mx-auto px-6 py-20">
             <p
-              style={{ fontFamily: "'Permanent Marker', cursive", fontSize: "1.1rem" }}
+              style={{ fontFamily: "'Architex', cursive", fontSize: "1.1rem" }}
               className="text-[#111]/30 mb-12 tracking-wide"
             >
               in his own words
@@ -226,7 +226,7 @@ export default function LandingPage() {
                   </div>
                   <div className="flex gap-5 items-baseline">
                     <span
-                      style={{ fontFamily: "'Permanent Marker', cursive", fontSize: "1rem" }}
+                      style={{ fontFamily: "'Architex', cursive", fontSize: "1rem" }}
                       className="text-[#111]/50 w-10 shrink-0 text-right"
                     >
                       fred
@@ -248,7 +248,7 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-8">
           <div>
             <h2
-              style={{ fontFamily: "'Permanent Marker', cursive" }}
+              style={{ fontFamily: "'Architex', cursive" }}
               className="text-3xl text-white mb-3"
             >
               add fred.
