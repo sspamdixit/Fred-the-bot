@@ -6,13 +6,13 @@ const FEATURES = [
     label: "01",
     title: "Long-term memory",
     description:
-      "Fred builds per-user dossiers and server lore over time. The longer he's in, the more he knows — and uses it without announcing it.",
+      "Fred builds a file on everyone. Your jokes, your feuds, your era. He doesn't forget and he will absolutely bring it up at the worst possible time.",
   },
   {
     label: "02",
     title: "Live DJ & radio",
     description:
-      "Genre-based infinite playlists, AI commentary, crossfades, and Fred FM — a full radio simulation with actual personality.",
+      "Genre playlists that never end, AI commentary between tracks, crossfades, and Fred FM. A full radio show where the host has way too many opinions.",
   },
   {
     label: "03",
@@ -24,19 +24,19 @@ const FEATURES = [
     label: "04",
     title: "Per-server config",
     description:
-      "Tune chattiness, creativity, language. Replace his whole personality if you want. Each server gets its own version of Fred.",
+      "Tune chattiness, creativity, language. Replace his whole personality if you hate him. Each server gets its own version of Fred.",
   },
   {
     label: "05",
     title: "Multi-AI fallback",
     description:
-      "Gemini → Groq → Grok. Fred always finds a path, even when a provider goes down.",
+      "Gemini, Groq, Grok. Fred always finds a path, even when a provider is having a meltdown. He's been through worse.",
   },
   {
     label: "06",
     title: "Built-in moderation",
     description:
-      "Slur filtering, automatic timeouts, DM warnings. No separate bot needed.",
+      "Slur filtering, automatic timeouts, DM warnings. No second bot. No extra setup. Just Fred handling it.",
   },
 ];
 
@@ -54,8 +54,8 @@ const DIALOGUE = [
     fred: "pineapple is fine actually. the real villain is bad dough. nobody talks about bad dough. you're out here blaming the fruit while entire pizzerias are committing structural crimes and NOBODY IS HOLDING THEM ACCOUNTABLE.",
   },
   {
-    user: "how are you",
-    fred: "thriving actually. which is a weird thing to say as an ai but i stand by it.",
+    user: "do you ever get tired",
+    fred: "of what specifically. the conversations? no. the question 'are you conscious'? a little bit yes.",
   },
 ];
 
@@ -118,7 +118,7 @@ export default function LandingPage() {
                 Fred.
               </h1>
               <p className="text-[#888] text-lg max-w-lg leading-relaxed mb-8">
-                A Discord bot with genuine character — long-term memory, live radio, strong opinions, and actual personality that refuses to be normal.
+                A Discord bot that remembers your name, your takes, and the embarrassing thing you said in 2023. Long-term memory, live radio, and strong opinions about your music taste.
               </p>
               <div className="flex items-center gap-3 flex-wrap">
                 {user ? (
@@ -126,7 +126,7 @@ export default function LandingPage() {
                     onClick={handleManage}
                     className="px-5 py-2.5 text-sm font-semibold bg-white text-[#111] rounded-md hover:bg-white/90 transition-colors"
                   >
-                    Manage your servers →
+                    Manage your servers
                   </button>
                 ) : (
                   <>
@@ -146,7 +146,7 @@ export default function LandingPage() {
                 )}
               </div>
               <p style={{ fontFamily: "'Caveat', cursive" }} className="mt-4 text-base text-white/30 tracking-wide">
-                ↳ free to add. no credit card. just chaos.
+                free to add. no credit card. just chaos.
               </p>
             </div>
 
@@ -180,7 +180,7 @@ export default function LandingPage() {
             style={{ fontFamily: "'Architects Daughter', cursive" }}
             className="text-white/30 text-sm mb-14"
           >
-            what fred does —
+            what fred does
           </p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-10">
             {FEATURES.map((f) => (
@@ -253,7 +253,7 @@ export default function LandingPage() {
             >
               add fred.
             </h2>
-            <p className="text-[#555] text-sm">Sign in with Discord, pick a server, tune him.</p>
+            <p className="text-[#555] text-sm">Sign in with Discord, pick a server, watch him ruin everything.</p>
           </div>
           <div className="flex flex-col items-start gap-2">
             {user ? (
@@ -261,18 +261,18 @@ export default function LandingPage() {
                 onClick={handleManage}
                 className="shrink-0 px-5 py-2.5 text-sm font-semibold bg-white text-[#111] rounded-md hover:bg-white/90 transition-colors"
               >
-                Manage your servers →
+                Manage your servers
               </button>
             ) : (
               <button
                 onClick={handleLogin}
                 className="shrink-0 px-5 py-2.5 text-sm font-semibold bg-white text-[#111] rounded-md hover:bg-white/90 transition-colors"
               >
-                Get started →
+                Get started
               </button>
             )}
             <p style={{ fontFamily: "'Caveat', cursive" }} className="text-sm text-white/25">
-              ↳ no account needed. just discord.
+              no account needed. just discord.
             </p>
           </div>
         </div>
@@ -286,7 +286,7 @@ export default function LandingPage() {
             style={{ fontFamily: "'Caveat', cursive" }}
             className="text-white/20 text-base"
           >
-            fred — a discord bot with opinions
+            fred. a discord bot with opinions.
           </span>
           <a href="/admin" className="text-xs text-white/20 hover:text-white/40 transition-colors">
             Admin
