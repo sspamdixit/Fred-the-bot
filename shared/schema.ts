@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, timestamp, integer, boolean, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -38,7 +38,6 @@ export const userMemory = pgTable("user_memory", {
 });
 
 export const insertUserMemorySchema = createInsertSchema(userMemory);
-
 export type InsertUserMemory = z.infer<typeof insertUserMemorySchema>;
 export type UserMemory = typeof userMemory.$inferSelect;
 
@@ -55,32 +54,6 @@ export const guildMemory = pgTable("guild_memory", {
 
 export type GuildMemoryRow = typeof guildMemory.$inferSelect;
 export type BotMetaRow = typeof botMeta.$inferSelect;
-
-export const savedPlaylists = pgTable("saved_playlists", {
-  id: serial("id").primaryKey(),
-  userId: text("user_id").notNull(),
-  guildId: text("guild_id").notNull(),
-  name: text("name").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export type SavedPlaylist = typeof savedPlaylists.$inferSelect;
-
-export const playlistTracks = pgTable("playlist_tracks", {
-  id: serial("id").primaryKey(),
-  playlistId: integer("playlist_id").notNull(),
-  position: integer("position").notNull(),
-  encoded: text("encoded").notNull(),
-  title: text("title").notNull(),
-  author: text("author").notNull(),
-  uri: text("uri").notNull(),
-  duration: integer("duration").notNull(),
-  artworkUrl: text("artwork_url"),
-});
-
-export type PlaylistTrack = typeof playlistTracks.$inferSelect;
-
-// ── Per-guild settings ────────────────────────────────────────────────────────
 
 export const guildSettings = pgTable("guild_settings", {
   guildId: text("guild_id").primaryKey(),
@@ -113,3 +86,50 @@ export const guildSettingsSchema = z.object({
 });
 
 export type GuildSettingsUpdate = z.infer<typeof guildSettingsSchema>;
+
+// ── Economy: Gems & Gold ──────────────────────────────────────────────────────
+
+export const gemBalances = pgTable("gem_balances", {
+  userId: text("user_id").primaryKey(),
+  freeGems: integer("free_gems").notNull().default(20),
+  paidGems: integer("paid_gems").notNull().default(0),
+  gold: integer("gold").notNull().default(0),
+  lastDailyAt: timestamp("last_daily_at", { withTimezone: true }),
+  lastVoteAt: timestamp("last_vote_at", { withTimezone: true }),
+  totalPulls: integer("total_pulls").notNull().default(0),
+  totalMessagesSent: integer("total_messages_sent").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type GemBalance = typeof gemBalances.$inferSelect;
+
+// ── Gacha: Waifu Collection ───────────────────────────────────────────────────
+
+export const waifuCollection = pgTable("waifu_collection", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  guildId: text("guild_id"),
+  characterId: integer("character_id").notNull(),
+  characterName: text("character_name").notNull(),
+  seriesName: text("series_name"),
+  imageUrl: text("image_url"),
+  rarity: text("rarity").notNull(),
+  rarityStars: integer("rarity_stars").notNull(),
+  isFavorite: boolean("is_favorite").notNull().default(false),
+  obtainedAt: timestamp("obtained_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type WaifuCard = typeof waifuCollection.$inferSelect;
+
+// ── Voting Log ────────────────────────────────────────────────────────────────
+
+export const votingLog = pgTable("voting_log", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  platform: text("platform").notNull().default("topgg"),
+  votedAt: timestamp("voted_at", { withTimezone: true }).notNull().defaultNow(),
+  gemsAwarded: integer("gems_awarded").notNull().default(10),
+});
+
+export type VotingEntry = typeof votingLog.$inferSelect;

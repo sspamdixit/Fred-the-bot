@@ -10,11 +10,15 @@ import StatusPage from "@/pages/status";
 import LandingPage from "@/pages/landing";
 import ServersPage from "@/pages/servers";
 import ServerSettingsPage from "@/pages/server-settings";
+import PrivacyPolicy from "@/pages/privacy-policy";
+import TermsOfService from "@/pages/terms";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={LandingPage} />
+      <Route path="/privacy" component={PrivacyPolicy} />
+      <Route path="/terms" component={TermsOfService} />
       <Route path="/servers" component={ServersPage} />
       <Route path="/servers/:guildId" component={ServerSettingsPage} />
       <Route path="/admin" component={Home} />

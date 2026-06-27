@@ -1,0 +1,2 @@
+- [Kira bot transformation](kira-transform.md) — Fred fully rebranded to Kira waifu AI; music/dj/tts/radio all deleted; gem/gold/gacha added
+- [Kira economy system](kira-economy.md) — gems/gold tables, daily reset, AniList gacha, top.gg voting hook (inactive by flag)
