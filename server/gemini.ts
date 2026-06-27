@@ -851,11 +851,9 @@ async function tryGroq(prompt: string, history: HistoryEntry[], systemPrompt: st
 }
 
 async function tryHackclub(prompt: string, history: HistoryEntry[], systemPrompt: string): Promise<string | null> {
-  const key = process.env.HACKCLUB_API_KEY;
-  if (!key) {
-    log("[Hackclub] HACKCLUB_API_KEY not set — skipping.", "gemini");
-    return null;
-  }
+  // ai.hackclub.com is a free open endpoint — no key required.
+  // Use HACKCLUB_API_KEY if set, otherwise send an empty bearer (still accepted).
+  const key = process.env.HACKCLUB_API_KEY ?? "";
 
   try {
     log(`[Hackclub] Trying model: ${HACKCLUB_MODEL}`, "gemini");
@@ -869,7 +867,7 @@ async function tryHackclub(prompt: string, history: HistoryEntry[], systemPrompt
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${key}`,
+        ...(key ? { "Authorization": `Bearer ${key}` } : {}),
       },
       body: JSON.stringify({
         model: HACKCLUB_MODEL,
