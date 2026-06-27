@@ -79,7 +79,7 @@ export default function PrivacyPolicy() {
 
       <footer className="border-t border-white/[0.06] py-8 px-6">
         <div className="max-w-3xl mx-auto flex items-center justify-between text-xs text-white/20">
-          <span>hiyori — a discord waifu bot</span>
+          <span>hiyori — a discord bot</span>
           <div className="flex gap-4">
             <a href="/privacy" className="hover:text-white/40 transition-colors">Privacy</a>
             <a href="/terms" className="hover:text-white/40 transition-colors">Terms</a>

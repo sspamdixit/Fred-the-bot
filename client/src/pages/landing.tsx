@@ -117,7 +117,7 @@ export default function LandingPage() {
                 hiyori.
               </h1>
               <p className="text-[#777] text-lg max-w-lg leading-relaxed mb-2">
-                a waifu AI bot with gacha, a gem economy, and a memory. she collects characters — and she's quietly collecting you too~ ♡
+                an AI discord bot with gacha, a gem economy, and a memory. she collects characters — and she's quietly collecting you too~ ♡
               </p>
               <p className="text-[#D4A1FF] text-sm mb-8">pull waifus · chat with AI · earn gems · build your collection</p>
               <div className="flex items-center gap-3 flex-wrap">
@@ -153,7 +153,7 @@ export default function LandingPage() {
             {/* Hiyori card */}
             <div className="lg:mb-8 shrink-0" style={{ transform: "rotate(-2deg)" }}>
               <div className="bg-[#1a0a2e] border border-[#D4A1FF]/20 text-white px-6 py-5 max-w-[280px] shadow-2xl rounded-sm">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#D4A1FF]/40 mb-3">hiyori · waifu bot</p>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#D4A1FF]/40 mb-3">hiyori · discord bot</p>
                 <p className="text-base leading-snug text-white/80 italic">
                   "you're all so interesting to me, darling~ don't disappoint me now. ♡"
                 </p>
@@ -272,7 +272,7 @@ export default function LandingPage() {
       <div className="border-t border-white/[0.06]" />
       <footer className="py-8 px-6">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <span className="text-white/20 text-sm">hiyori · a discord waifu bot ♡</span>
+          <span className="text-white/20 text-sm">hiyori · a discord bot ♡</span>
           <div className="flex gap-4 text-xs text-white/20">
             <a href="/privacy" className="hover:text-white/40 transition-colors">privacy</a>
             <a href="/terms" className="hover:text-white/40 transition-colors">terms</a>
