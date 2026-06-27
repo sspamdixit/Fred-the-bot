@@ -16,7 +16,7 @@ const FEATURES = [
   },
   {
     label: "03",
-    title: "kira remembers you",
+    title: "hiyori remembers you",
     description:
       "she builds a file on everyone. your questions, your moods, your recurring topics. she knows, and she'll bring it up at exactly the right moment.",
   },
@@ -24,38 +24,38 @@ const FEATURES = [
     label: "04",
     title: "real AI personality",
     description:
-      "not a chatbot that apologizes constantly. kira has opinions, warmth, and edge. she teases because she cares. she notices things.",
+      "not a chatbot that apologizes constantly. hiyori has opinions, warmth, and edge. she teases because she cares. she notices things.",
   },
   {
     label: "05",
     title: "per-server config",
     description:
-      "tune her chattiness, creativity, and language. each server gets their own kira. she adapts, but she's always herself.",
+      "tune her chattiness, creativity, and language. each server gets their own hiyori. she adapts, but she's always herself.",
   },
   {
     label: "06",
     title: "multi-AI fallback",
     description:
-      "gemini, groq, grok. kira always finds a way to respond, even when providers have moments. she's resilient like that~",
+      "gemini, groq, grok. hiyori always finds a way to respond, even when providers have moments. she's resilient like that~",
   },
 ];
 
 const DIALOGUE = [
   {
     user: "are you a bot",
-    kira: "i'm kira. it's right there in the name, darling~",
+    hiyori: "i'm hiyori. it's right there in the name, darling~",
   },
   {
     user: "i have no gems",
-    kira: "claim your /daily or vote on top.gg~ i'll be here waiting. ♡",
+    hiyori: "claim your /daily or vote on top.gg~ i'll be here waiting. ♡",
   },
   {
     user: "i got a UR pull!!",
-    kira: "*pauses* ...okay. that's actually impressive. what did you get?",
+    hiyori: "*pauses* ...okay. that's actually impressive. what did you get?",
   },
   {
     user: "rate my day",
-    kira: "need more details. give me something to work with, precious~",
+    hiyori: "need more details. give me something to work with, precious~",
   },
 ];
 
@@ -81,7 +81,7 @@ export default function LandingPage() {
       {/* Nav */}
       <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06] bg-[#0d0d0d]/95 backdrop-blur-md">
         <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-          <span className="text-lg text-white tracking-wide font-bold">kira</span>
+          <span className="text-lg text-white tracking-wide font-bold">hiyori</span>
           <div className="flex items-center gap-3">
             <a href="/privacy" className="text-xs text-white/30 hover:text-white/50 transition-colors">privacy</a>
             <a href="/terms" className="text-xs text-white/30 hover:text-white/50 transition-colors">terms</a>
@@ -114,7 +114,7 @@ export default function LandingPage() {
             <div className="flex-1">
               <p className="text-xs text-white/30 mb-4 tracking-widest uppercase font-medium">Discord bot</p>
               <h1 className="text-[5rem] sm:text-[7rem] lg:text-[9rem] text-white font-bold mb-4 -ml-1 leading-none">
-                kira.
+                hiyori.
               </h1>
               <p className="text-[#777] text-lg max-w-lg leading-relaxed mb-2">
                 a waifu AI bot with gacha, a gem economy, and a memory. she collects characters — and she's quietly collecting you too~ ♡
@@ -134,7 +134,7 @@ export default function LandingPage() {
                       onClick={handleLogin}
                       className="px-5 py-2.5 text-sm font-semibold bg-[#D4A1FF] text-[#111] rounded-md hover:bg-[#C084FC] transition-colors"
                     >
-                      add kira to your server
+                      add hiyori to your server
                     </button>
                     <button
                       onClick={handleLogin}
@@ -150,10 +150,10 @@ export default function LandingPage() {
               </p>
             </div>
 
-            {/* Kira card */}
+            {/* Hiyori card */}
             <div className="lg:mb-8 shrink-0" style={{ transform: "rotate(-2deg)" }}>
               <div className="bg-[#1a0a2e] border border-[#D4A1FF]/20 text-white px-6 py-5 max-w-[280px] shadow-2xl rounded-sm">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#D4A1FF]/40 mb-3">kira · waifu bot</p>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#D4A1FF]/40 mb-3">hiyori · waifu bot</p>
                 <p className="text-base leading-snug text-white/80 italic">
                   "you're all so interesting to me, darling~ don't disappoint me now. ♡"
                 </p>
@@ -200,7 +200,7 @@ export default function LandingPage() {
       {/* Features */}
       <section className="py-24 px-6">
         <div className="max-w-5xl mx-auto">
-          <p className="text-white/30 text-sm mb-14">what kira does~</p>
+          <p className="text-white/30 text-sm mb-14">what hiyori does~</p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-10">
             {FEATURES.map((f) => (
               <div key={f.title}>
@@ -228,8 +228,8 @@ export default function LandingPage() {
                     <span className="text-[#333] text-sm leading-relaxed">{d.user}</span>
                   </div>
                   <div className="flex gap-5 items-baseline">
-                    <span className="text-[#9333ea]/60 w-10 shrink-0 text-right text-sm font-bold">kira</span>
-                    <span className="text-[#111] text-sm leading-relaxed font-medium">{d.kira}</span>
+                    <span className="text-[#9333ea]/60 w-10 shrink-0 text-right text-sm font-bold">hiyori</span>
+                    <span className="text-[#111] text-sm leading-relaxed font-medium">{d.hiyori}</span>
                   </div>
                 </div>
               ))}
@@ -244,7 +244,7 @@ export default function LandingPage() {
       <section className="py-24 px-6">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-8">
           <div>
-            <h2 className="text-3xl text-white font-bold mb-3">add kira.</h2>
+            <h2 className="text-3xl text-white font-bold mb-3">add hiyori.</h2>
             <p className="text-[#555] text-sm">sign in with discord. pick a server. start collecting. ♡</p>
           </div>
           <div className="flex flex-col items-start gap-2">
@@ -272,7 +272,7 @@ export default function LandingPage() {
       <div className="border-t border-white/[0.06]" />
       <footer className="py-8 px-6">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <span className="text-white/20 text-sm">kira · a discord waifu bot ♡</span>
+          <span className="text-white/20 text-sm">hiyori · a discord waifu bot ♡</span>
           <div className="flex gap-4 text-xs text-white/20">
             <a href="/privacy" className="hover:text-white/40 transition-colors">privacy</a>
             <a href="/terms" className="hover:text-white/40 transition-colors">terms</a>

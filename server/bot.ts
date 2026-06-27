@@ -236,7 +236,7 @@ function buildPullEmbed(result: GachaResult, goldBonus: number): EmbedBuilder {
       { name: "rarity", value: `${emoji} ${result.rarityLabel} (${result.rarity})`, inline: true },
       { name: "gold bonus", value: `+${goldBonus} 🪙`, inline: true },
     )
-    .setFooter({ text: "kira's gacha ✨" });
+    .setFooter({ text: "hiyori's gacha ✨" });
 
   if (result.imageUrl) embed.setThumbnail(result.imageUrl);
   return embed;
@@ -250,11 +250,11 @@ const SLASH_COMMANDS = [
 
   new SlashCommandBuilder()
     .setName("help")
-    .setDescription("see everything kira can do ♡"),
+    .setDescription("see everything hiyori can do ♡"),
 
   new SlashCommandBuilder()
     .setName("chat")
-    .setDescription("talk to kira (costs 1 💎 gem)")
+    .setDescription("talk to hiyori (costs 1 💎 gem)")
     .addStringOption((o) => o.setName("message").setDescription("what do you want to say?").setRequired(true)),
 
   new SlashCommandBuilder()
@@ -280,16 +280,16 @@ const SLASH_COMMANDS = [
 
   new SlashCommandBuilder()
     .setName("vote")
-    .setDescription(`vote for kira on top.gg and earn ${VOTE_FREE_GEMS} 💎 bonus gems`),
+    .setDescription(`vote for hiyori on top.gg and earn ${VOTE_FREE_GEMS} 💎 bonus gems`),
 
   new SlashCommandBuilder()
     .setName("roast")
-    .setDescription("kira roasts someone ♡")
+    .setDescription("hiyori roasts someone ♡")
     .addUserOption((o) => o.setName("target").setDescription("who to roast").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("rate")
-    .setDescription("kira rates something out of 10")
+    .setDescription("hiyori rates something out of 10")
     .addStringOption((o) => o.setName("thing").setDescription("what to rate").setRequired(true)),
 
   new SlashCommandBuilder()
@@ -312,16 +312,16 @@ async function handleInteraction(interaction: any): Promise<void> {
   if (commandName === "help") {
     const embed = new EmbedBuilder()
       .setColor(0xD4A1FF)
-      .setTitle("kira's commands ✨")
+      .setTitle("hiyori's commands ✨")
       .setDescription("here's everything i can do for you, darling~ ♡")
       .addFields(
-        { name: "💬 chat", value: "`/chat <message>` — talk to me (costs 1 💎)\n`@Kira <message>` — mention me directly" },
+        { name: "💬 chat", value: "`/chat <message>` — talk to me (costs 1 💎)\n`@Hiyori <message>` — mention me directly" },
         { name: "💰 economy", value: "`/daily` — claim free gems & gold\n`/balance` — check your 💎 gems & 🪙 gold\n`/vote` — vote for free gems on top.gg" },
         { name: "🎰 gacha", value: `\`/pull\` — 1 pull (${PULL_COST_GOLD} 🪙)\n\`/multipull\` — ${MULTI_PULL_COUNT}x pulls (${MULTI_PULL_COST_GOLD} 🪙)\n\`/collection\` — your waifu collection` },
         { name: "✨ fun", value: "`/roast <user>` — i'll roast them\n`/rate <thing>` — i rate it out of 10" },
         { name: "💎 gem info", value: `${FREE_DAILY_GEMS} free gems daily · ${VOTE_FREE_GEMS} gems per vote\neach message to me costs 1 gem` },
       )
-      .setFooter({ text: "kira ✨ collecting hearts since forever" });
+      .setFooter({ text: "hiyori ✨ collecting hearts since forever" });
     await interaction.reply({ embeds: [embed] });
     return;
   }
@@ -366,7 +366,7 @@ async function handleInteraction(interaction: any): Promise<void> {
     const url = getTopGGVoteUrl();
     const embed = new EmbedBuilder()
       .setColor(0xFF6B9D)
-      .setTitle("vote for kira~ ♡")
+      .setTitle("vote for hiyori~ ♡")
       .setDescription(`vote on top.gg to earn **${VOTE_FREE_GEMS} free gems** every 12 hours.\n\n[→ vote here](${url})`)
       .setFooter({ text: "your support means everything to me ♡" });
     await interaction.reply({ embeds: [embed] });
@@ -437,7 +437,7 @@ async function handleInteraction(interaction: any): Promise<void> {
         { name: "🪙 gold returned", value: `+${totalBonus}`, inline: true },
         { name: "🆕 new waifus", value: `${results.filter((r) => r.isNew).length}/${results.length}`, inline: true },
       )
-      .setFooter({ text: "kira's gacha ✨" });
+      .setFooter({ text: "hiyori's gacha ✨" });
     if (highlight.imageUrl) embed.setThumbnail(highlight.imageUrl);
     await interaction.editReply({ embeds: [embed] });
     return;
@@ -472,9 +472,9 @@ async function handleInteraction(interaction: any): Promise<void> {
     const target = interaction.options.getUser("target");
     if (!target) { await interaction.reply({ content: "who am i roasting~?", ephemeral: true }); return; }
     await interaction.deferReply();
-    const prompt = `roast ${target.displayName} in kira's voice. stay in character — playful, sharp, a little theatrical. keep it under 3 sentences.`;
+    const prompt = `roast ${target.displayName} in hiyori's voice. stay in character — playful, sharp, a little theatrical. keep it under 3 sentences.`;
     const reply = await askGemini(prompt, user.displayName, `${user.id}-roast`, { guildId: guild?.id });
-    await interaction.editReply(reply ?? `*kira stares at ${target.displayName} for exactly three seconds* ...no, i can't. it's too easy. it wouldn't be fun~`);
+    await interaction.editReply(reply ?? `*hiyori stares at ${target.displayName} for exactly three seconds* ...no, i can't. it's too easy. it wouldn't be fun~`);
     return;
   }
 
@@ -487,7 +487,7 @@ async function handleInteraction(interaction: any): Promise<void> {
     const thing = interaction.options.getString("thing");
     if (!thing) { await interaction.reply({ content: "rate *what*, darling~", ephemeral: true }); return; }
     await interaction.deferReply();
-    const prompt = `rate "${thing}" out of 10 in kira's voice. give an exact decimal score and a sharp, specific reason. stay in character.`;
+    const prompt = `rate "${thing}" out of 10 in hiyori's voice. give an exact decimal score and a sharp, specific reason. stay in character.`;
     const reply = await askGemini(prompt, user.displayName, `${user.id}-rate`, { guildId: guild?.id });
     await interaction.editReply(reply ?? `${thing}... ${(Math.random() * 10).toFixed(1)}/10. i'll let you guess why.`);
     return;
@@ -515,7 +515,7 @@ async function handleInteraction(interaction: any): Promise<void> {
     await interaction.deferReply();
     await deductGem(user.id);
     const reply = await askGemini(message, user.displayName, user.id, { guildId: guild?.id });
-    await interaction.editReply(reply ?? "...*kira is quiet for a moment* ♡");
+    await interaction.editReply(reply ?? "...*hiyori is quiet for a moment* ♡");
     return;
   }
 
@@ -547,13 +547,13 @@ async function handleMessage(message: Message): Promise<void> {
   }
 
   const mentioned = client && message.mentions.has(client.user!);
-  const nameTriggered = /\bkira\b/i.test(content);
-  const prefixTriggered = content.startsWith("?kira") || content.startsWith("!kira");
+  const nameTriggered = /\bhiyori\b/i.test(content);
+  const prefixTriggered = content.startsWith("?hiyori") || content.startsWith("!hiyori");
 
   const isDirectTrigger = mentioned || prefixTriggered;
   const isNameTrigger = nameTriggered && !mentioned && !prefixTriggered;
 
-  // Passive watch — free, Kira initiates
+  // Passive watch — free, Hiyori initiates
   if (!isDirectTrigger && !isNameTrigger && isPassiveWatchCandidate(content)) {
     const guildSettings = guildId ? await getGuildSettings(guildId).catch(() => null) : null;
     queuePassiveWatch({
@@ -566,7 +566,7 @@ async function handleMessage(message: Message): Promise<void> {
       isControversial: false,
       chattiness: guildSettings?.chattiness ?? 5,
       sendReply: async (text: string) => {
-        pushChannelMessage(channelId, "Kira", text, true);
+        pushChannelMessage(channelId, "Hiyori", text, true);
         await message.reply(text).catch(() => {});
       },
     });
@@ -602,7 +602,7 @@ async function handleMessage(message: Message): Promise<void> {
   const dossierContext = await buildUserDossier(userId).catch(() => null);
 
   let prompt = content.replace(/<@!?\d+>/g, "").trim();
-  if (prefixTriggered) prompt = prompt.replace(/^[?!]kira\s*/i, "").trim();
+  if (prefixTriggered) prompt = prompt.replace(/^[?!]hiyori\s*/i, "").trim();
 
   // Image handling
   const imageAttachment = message.attachments.find((a) =>
@@ -655,12 +655,12 @@ async function handleMessage(message: Message): Promise<void> {
       reply = await askGemini(finalPrompt, authorName, userId, authorCtx);
     }
   } catch (err: any) {
-    log(`AI error: ${err.message}`, "kira");
+    log(`AI error: ${err.message}`, "hiyori");
   }
 
   if (!reply) reply = "i'm having a moment~ try again, darling. ♡";
 
-  pushChannelMessage(channelId, "Kira", reply, true);
+  pushChannelMessage(channelId, "Hiyori", reply, true);
 
   // Trigger memory update occasionally
   triggerUserMemoryUpdate(userId, authorName, guildId).catch(() => {});
@@ -673,7 +673,7 @@ async function handleMessage(message: Message): Promise<void> {
       for (const chunk of chunks) await message.reply(chunk.trim());
     }
   } catch (err: any) {
-    log(`Reply error: ${err.message}`, "kira");
+    log(`Reply error: ${err.message}`, "hiyori");
   }
 
   // Emit to dashboard
@@ -733,7 +733,7 @@ export async function startBot(): Promise<void> {
     process.env.BOT_TOKEN;
 
   if (!token) {
-    log("No bot token set (TOKEN / DISCORD_TOKEN / BOT_TOKEN). Bot disabled.", "kira");
+    log("No bot token set (TOKEN / DISCORD_TOKEN / BOT_TOKEN). Bot disabled.", "hiyori");
     return;
   }
 
@@ -756,7 +756,7 @@ export async function startBot(): Promise<void> {
   });
 
   client.once("ready", async () => {
-    log(`Kira is online as ${client!.user?.tag}`, "kira");
+    log(`Hiyori is online as ${client!.user?.tag}`, "hiyori");
 
     botState = {
       online: true,
@@ -774,9 +774,9 @@ export async function startBot(): Promise<void> {
     const rest = new REST({ version: "10" }).setToken(token!);
     try {
       await rest.put(Routes.applicationCommands(client!.user!.id), { body: SLASH_COMMANDS });
-      log("Slash commands registered.", "kira");
+      log("Slash commands registered.", "hiyori");
     } catch (err: any) {
-      log(`Slash command registration failed: ${err.message}`, "kira");
+      log(`Slash command registration failed: ${err.message}`, "hiyori");
     }
 
     // Init systems
@@ -790,22 +790,22 @@ export async function startBot(): Promise<void> {
 
   client.on("guildCreate", (g) => {
     botState.guildCount = client?.guilds.cache.size ?? botState.guildCount;
-    log(`Joined guild: ${g.name}`, "kira");
+    log(`Joined guild: ${g.name}`, "hiyori");
   });
   client.on("guildDelete", (g) => {
     botState.guildCount = client?.guilds.cache.size ?? botState.guildCount;
-    log(`Left guild: ${g.name}`, "kira");
+    log(`Left guild: ${g.name}`, "hiyori");
   });
 
   client.on("disconnect", () => {
     botState.online = false;
     lastDiscordDisconnectAt = Date.now();
-    log("Disconnected from Discord.", "kira");
+    log("Disconnected from Discord.", "hiyori");
   });
 
   client.on("error", (err) => {
     botState.lastError = err.message;
-    log(`Client error: ${err.message}`, "kira");
+    log(`Client error: ${err.message}`, "hiyori");
   });
 
   try {
@@ -813,7 +813,7 @@ export async function startBot(): Promise<void> {
   } catch (err: any) {
     botState.online = false;
     botState.lastError = err.message;
-    log(`Login failed: ${err.message}`, "kira");
+    log(`Login failed: ${err.message}`, "hiyori");
     loginRetryTimer = setTimeout(() => startBot(), 30_000);
   }
 }
@@ -825,7 +825,7 @@ function startWatchdog() {
       const elapsed = Date.now() - lastDiscordDisconnectAt;
       if (elapsed > 2 * 60 * 1000 && !watchdogRestarting) {
         watchdogRestarting = true;
-        log("Watchdog: reconnecting...", "kira");
+        log("Watchdog: reconnecting...", "hiyori");
         startBot().finally(() => { watchdogRestarting = false; });
       }
     }

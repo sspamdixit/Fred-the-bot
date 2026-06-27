@@ -1,9 +1,9 @@
 ---
-name: Kira economy system
+name: Hiyori economy system
 description: Gem/gold economy, gacha, and top.gg voting integration
 ---
 
-Gems (💎): 1 per message to Kira. Free from daily (20) + voting (10). Paid = future.
+Gems (💎): 1 per message to Hiyori. Free from daily (20) + voting (10). Paid = future.
 Gold (🪙): for gacha. 100 = 1 pull, 900 = 10x pull. 50 earned per daily.
 Tables: gem_balances, waifu_collection, voting_log — created via direct SQL (drizzle push hangs on interactive prompts for new tables; use executeSql instead)
 

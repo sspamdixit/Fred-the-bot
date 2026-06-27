@@ -154,11 +154,11 @@ export async function registerRoutes(
       .map((g) => ({
         id: g.id, name: g.name, icon: g.icon,
         iconUrl: getGuildIconUrl(g), owner: g.owner,
-        permissions: g.permissions, hasKira: botGuildIds.has(g.id),
+        permissions: g.permissions, hasHiyori: botGuildIds.has(g.id),
       }))
       .sort((a, b) => {
-        if (a.hasKira && !b.hasKira) return -1;
-        if (!a.hasKira && b.hasKira) return 1;
+        if (a.hasHiyori && !b.hasHiyori) return -1;
+        if (!a.hasHiyori && b.hasHiyori) return 1;
         return a.name.localeCompare(b.name);
       });
     return res.json({ guilds });
@@ -175,7 +175,7 @@ export async function registerRoutes(
     return res.json({
       id: guild.id, name: guild.name, icon: guild.icon,
       iconUrl: getGuildIconUrl(guild), owner: guild.owner,
-      hasKira: botGuildList.some((g) => g.id === guildId),
+      hasHiyori: botGuildList.some((g) => g.id === guildId),
     });
   });
 
