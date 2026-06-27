@@ -529,6 +529,13 @@ async function handleInteraction(interaction: any): Promise<void> {
   }
 }
 
+// ── Slur filter ───────────────────────────────────────────────────────────────
+const SLUR_PATTERN = /\b(n+i+g+[aeu]+r*s*|f+a+g+(?:g+o+t+s*)?|ch+i+n+k+s*|sp+i+c+s*|k+i+k+e+s*|w+e+t+b+a+c+k+s*|g+o+o+k+s*|r+e+t+a+r+d+(?:ed|s)?|tr+a+n+n+(?:y+|ie+s*)|c+u+n+t+s*|d+y+k+e+s*|b+e+a+n+e+r+s*|c+r+a+c+k+e+r+s*|p+a+k+i+s*|s+l+a+n+t+(?:eye+s*)?|j+i+g+a+b+o+o+s*|p+o+r+c+h+m+o+n+k+e+y+s*|s+a+m+b+o+s*|z+i+p+p+e+r+h+e+a+d+s*|h+a+j+i+s*|r+a+g+h+e+a+d+s*|s+a+n+d+n+i+g+\w*)\b/i;
+
+function containsSlur(text: string): boolean {
+  return SLUR_PATTERN.test(text);
+}
+
 // ── Handle regular messages ────────────────────────────────────────────────────
 async function handleMessage(message: Message): Promise<void> {
   if (message.author.bot) return;
@@ -538,6 +545,9 @@ async function handleMessage(message: Message): Promise<void> {
   const userId = message.author.id;
   const authorName = message.member?.displayName ?? message.author.displayName;
   const content = message.content;
+
+  // Slur filter — silent drop, no engagement
+  if (containsSlur(content)) return;
 
   // Push to channel context
   pushChannelMessage(channelId, authorName, content, false);

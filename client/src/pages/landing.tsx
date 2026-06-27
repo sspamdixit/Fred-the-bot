@@ -3,60 +3,56 @@ import { useLocation } from "wouter";
 
 const FEATURES = [
   {
-    label: "01",
-    title: "waifu gacha",
+    icon: "🎰",
+    title: "Gacha System",
     description:
-      "pull anime characters from a massive database. N through UR rarity. each pull is a surprise — and the rare ones are worth celebrating.",
+      "Pull anime characters from a database of thousands. Five rarity tiers from Common to Legendary. Duplicates return gold — nothing is wasted.",
   },
   {
-    label: "02",
-    title: "gem & gold economy",
+    icon: "💎",
+    title: "Gem & Gold Economy",
     description:
-      "gems let you chat. gold lets you pull. earn daily, vote for bonus gems, and spend strategically. it's a whole system~",
+      "Gems for AI access. Gold for pulls. Earn both through daily rewards, server voting, and just showing up. Spend strategically.",
   },
   {
-    label: "03",
-    title: "hiyori remembers you",
+    icon: "🧠",
+    title: "Persistent Memory",
     description:
-      "she builds a file on everyone. your questions, your moods, your recurring topics. she knows, and she'll bring it up at exactly the right moment.",
+      "Hiyori builds a file on everyone she talks to. Remembers context, past conversations, recurring topics. She notices things.",
   },
   {
-    label: "04",
-    title: "real AI personality",
+    icon: "✨",
+    title: "Real AI Personality",
     description:
-      "not a chatbot that apologizes constantly. hiyori has opinions, warmth, and edge. she teases because she cares. she notices things.",
+      "Not a generic assistant. Hiyori has opinions, edge, and warmth. She adapts her tone to the room and the person.",
   },
   {
-    label: "05",
-    title: "per-server config",
+    icon: "⚙️",
+    title: "Per-Server Config",
     description:
-      "tune her chattiness, creativity, and language. each server gets their own hiyori. she adapts, but she's always herself.",
+      "Tune response length, language, chattiness, and persona. Each server gets a version of Hiyori tuned to their community.",
   },
   {
-    label: "06",
-    title: "multi-AI fallback",
+    icon: "🔁",
+    title: "Multi-AI Fallback",
     description:
-      "gemini, groq, grok. hiyori always finds a way to respond, even when providers have moments. she's resilient like that~",
+      "Routes across Gemini, Groq, and Grok. When one provider has issues, another takes over. Near-zero downtime on AI responses.",
   },
 ];
 
+const RARITIES = [
+  { emoji: "⚪", label: "N", name: "Common", rate: "60%", color: "#9E9E9E" },
+  { emoji: "🔵", label: "R", name: "Uncommon", rate: "25%", color: "#2196F3" },
+  { emoji: "🟣", label: "SR", name: "Rare", rate: "10%", color: "#9C27B0" },
+  { emoji: "🟡", label: "SSR", name: "Super Rare", rate: "4%", color: "#FFD700" },
+  { emoji: "🔴", label: "UR", name: "Legendary", rate: "1%", color: "#FF1744" },
+];
+
 const DIALOGUE = [
-  {
-    user: "are you a bot",
-    hiyori: "i'm hiyori. it's right there in the name, darling~",
-  },
-  {
-    user: "i have no gems",
-    hiyori: "claim your /daily or vote on top.gg~ i'll be here waiting. ♡",
-  },
-  {
-    user: "i got a UR pull!!",
-    hiyori: "*pauses* ...okay. that's actually impressive. what did you get?",
-  },
-  {
-    user: "rate my day",
-    hiyori: "need more details. give me something to work with, precious~",
-  },
+  { user: "are you a bot", bot: "i'm hiyori. it's right there in the name, darling~" },
+  { user: "i have no gems", bot: "claim your /daily or vote on top.gg~ i'll be here waiting. ♡" },
+  { user: "i got a UR pull!!", bot: "*pauses* ...okay. that's actually impressive. what did you get?" },
+  { user: "rate my day", bot: "need more details. give me something to work with, precious~" },
 ];
 
 export default function LandingPage() {
@@ -76,29 +72,31 @@ export default function LandingPage() {
   const handleManage = () => { navigate("/servers"); };
 
   return (
-    <div className="min-h-screen bg-[#0d0d0d] text-[#f0f0f0]" style={{ fontFamily: "system-ui, -apple-system, sans-serif" }}>
-
-      {/* Nav */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06] bg-[#0d0d0d]/95 backdrop-blur-md">
-        <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
-          <span className="text-lg text-white tracking-wide font-bold">hiyori</span>
-          <div className="flex items-center gap-3">
-            <a href="/privacy" className="text-xs text-white/30 hover:text-white/50 transition-colors">privacy</a>
-            <a href="/terms" className="text-xs text-white/30 hover:text-white/50 transition-colors">terms</a>
+    <div
+      className="min-h-screen bg-[#080808] text-[#e8e8e8]"
+      style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}
+    >
+      {/* ── Nav ─────────────────────────────────────────────────────────────── */}
+      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.07] bg-[#080808]/90 backdrop-blur-xl">
+        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+          <span className="text-white font-bold text-base tracking-tight">hiyori</span>
+          <div className="flex items-center gap-6">
+            <a href="/privacy" className="text-sm text-white/40 hover:text-white/70 transition-colors hidden sm:block">Privacy</a>
+            <a href="/terms" className="text-sm text-white/40 hover:text-white/70 transition-colors hidden sm:block">Terms</a>
             {!checkingAuth && (
               user ? (
                 <button
                   onClick={handleManage}
-                  className="px-4 py-1.5 text-sm font-medium bg-white text-[#111] rounded-md hover:bg-white/90 transition-colors"
+                  className="px-4 py-1.5 text-sm font-semibold bg-white text-black rounded-md hover:bg-white/90 transition-colors"
                 >
-                  manage servers
+                  Dashboard
                 </button>
               ) : (
                 <button
                   onClick={handleLogin}
-                  className="px-4 py-1.5 text-sm font-medium bg-white text-[#111] rounded-md hover:bg-white/90 transition-colors"
+                  className="px-4 py-1.5 text-sm font-semibold bg-white text-black rounded-md hover:bg-white/90 transition-colors"
                 >
-                  sign in
+                  Sign In
                 </button>
               )
             )}
@@ -106,105 +104,83 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      {/* Hero */}
-      <section className="pt-32 pb-24 px-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-10">
-
-            <div className="flex-1">
-              <p className="text-xs text-white/30 mb-4 tracking-widest uppercase font-medium">Discord bot</p>
-              <h1 className="text-[5rem] sm:text-[7rem] lg:text-[9rem] text-white font-bold mb-4 -ml-1 leading-none">
-                hiyori.
-              </h1>
-              <p className="text-[#777] text-lg max-w-lg leading-relaxed mb-2">
-                an AI discord bot with gacha, a gem economy, and a memory. she collects characters — and she's quietly collecting you too~ ♡
-              </p>
-              <p className="text-[#D4A1FF] text-sm mb-8">pull waifus · chat with AI · earn gems · build your collection</p>
-              <div className="flex items-center gap-3 flex-wrap">
-                {user ? (
+      {/* ── Hero ────────────────────────────────────────────────────────────── */}
+      <section className="pt-36 pb-28 px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="max-w-3xl">
+            <p className="text-xs font-semibold tracking-widest text-[#9333ea]/70 uppercase mb-5">Discord Bot</p>
+            <h1 className="text-6xl sm:text-7xl lg:text-8xl font-bold text-white leading-[0.95] tracking-tight mb-7">
+              hiyori.
+            </h1>
+            <p className="text-xl text-white/50 leading-relaxed max-w-xl mb-3">
+              An AI Discord bot with gacha character pulls, a gem-and-gold economy, and a memory that doesn't quit.
+            </p>
+            <p className="text-sm text-[#a855f7] mb-10">
+              Pull characters · Chat with AI · Earn daily rewards · Build your collection
+            </p>
+            <div className="flex items-center gap-3 flex-wrap">
+              {user ? (
+                <button
+                  onClick={handleManage}
+                  className="px-6 py-3 text-sm font-semibold bg-[#9333ea] text-white rounded-lg hover:bg-[#7c3aed] transition-colors"
+                >
+                  Manage Servers
+                </button>
+              ) : (
+                <>
                   <button
-                    onClick={handleManage}
-                    className="px-5 py-2.5 text-sm font-semibold bg-white text-[#111] rounded-md hover:bg-white/90 transition-colors"
+                    onClick={handleLogin}
+                    className="px-6 py-3 text-sm font-semibold bg-[#9333ea] text-white rounded-lg hover:bg-[#7c3aed] transition-colors"
                   >
-                    manage your servers
+                    Add to Server
                   </button>
-                ) : (
-                  <>
-                    <button
-                      onClick={handleLogin}
-                      className="px-5 py-2.5 text-sm font-semibold bg-[#D4A1FF] text-[#111] rounded-md hover:bg-[#C084FC] transition-colors"
-                    >
-                      add hiyori to your server
-                    </button>
-                    <button
-                      onClick={handleLogin}
-                      className="px-5 py-2.5 text-sm font-medium text-white/50 border border-white/15 rounded-md hover:border-white/30 hover:text-white/70 transition-colors"
-                    >
-                      sign in with discord
-                    </button>
-                  </>
-                )}
-              </div>
-              <p className="mt-4 text-sm text-white/25 italic">
-                free to add. 20 gems daily. no credit card needed~
-              </p>
+                  <button
+                    onClick={handleLogin}
+                    className="px-6 py-3 text-sm font-medium text-white/60 border border-white/15 rounded-lg hover:border-white/30 hover:text-white/80 transition-colors"
+                  >
+                    Sign in with Discord
+                  </button>
+                </>
+              )}
             </div>
+            <p className="mt-4 text-xs text-white/25">Free to add. 20 gems daily. No credit card needed.</p>
+          </div>
+        </div>
+      </section>
 
-            {/* Hiyori card */}
-            <div className="lg:mb-8 shrink-0" style={{ transform: "rotate(-2deg)" }}>
-              <div className="bg-[#1a0a2e] border border-[#D4A1FF]/20 text-white px-6 py-5 max-w-[280px] shadow-2xl rounded-sm">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#D4A1FF]/40 mb-3">hiyori · discord bot</p>
-                <p className="text-base leading-snug text-white/80 italic">
-                  "you're all so interesting to me, darling~ don't disappoint me now. ♡"
-                </p>
-                <div className="mt-4 flex gap-3 text-xs text-white/30">
-                  <span>💎 gems</span>
-                  <span>🪙 gold</span>
-                  <span>⭐⭐⭐⭐⭐ gacha</span>
+      {/* ── Rarity strip ────────────────────────────────────────────────────── */}
+      <section className="border-t border-b border-white/[0.06] py-6 px-6 bg-white/[0.01]">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex items-center gap-6 flex-wrap">
+            <span className="text-xs font-semibold tracking-widest text-white/25 uppercase shrink-0">Rarity Tiers</span>
+            <div className="flex gap-3 flex-wrap">
+              {RARITIES.map((r) => (
+                <div
+                  key={r.label}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.04] border border-white/[0.07]"
+                >
+                  <span className="text-sm">{r.emoji}</span>
+                  <span className="text-xs font-bold" style={{ color: r.color }}>{r.label}</span>
+                  <span className="text-xs text-white/40">{r.name}</span>
+                  <span className="text-xs text-white/20">{r.rate}</span>
                 </div>
-              </div>
+              ))}
             </div>
-
           </div>
         </div>
       </section>
 
-      {/* Rarity display */}
-      <section className="py-12 px-6 border-t border-white/[0.04]">
-        <div className="max-w-5xl mx-auto">
-          <p className="text-xs text-white/20 mb-6 tracking-widest uppercase">gacha rarities</p>
-          <div className="flex gap-4 flex-wrap">
-            {[
-              { emoji: "⚪", label: "N", name: "Common", rate: "60%", color: "#9E9E9E" },
-              { emoji: "🔵", label: "R", name: "Uncommon", rate: "25%", color: "#2196F3" },
-              { emoji: "🟣", label: "SR", name: "Rare", rate: "10%", color: "#9C27B0" },
-              { emoji: "🟡", label: "SSR", name: "Super Rare", rate: "4%", color: "#FFD700" },
-              { emoji: "🔴", label: "UR", name: "Legendary", rate: "1%", color: "#FF1744" },
-            ].map((r) => (
-              <div
-                key={r.label}
-                className="flex items-center gap-2 px-3 py-2 rounded-md bg-white/[0.03] border border-white/[0.06]"
-              >
-                <span>{r.emoji}</span>
-                <span className="text-xs font-bold" style={{ color: r.color }}>{r.label}</span>
-                <span className="text-xs text-white/40">{r.name}</span>
-                <span className="text-xs text-white/20">{r.rate}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <div className="border-t border-white/[0.06]" />
-
-      {/* Features */}
+      {/* ── Features ────────────────────────────────────────────────────────── */}
       <section className="py-24 px-6">
-        <div className="max-w-5xl mx-auto">
-          <p className="text-white/30 text-sm mb-14">what hiyori does~</p>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-10">
+        <div className="max-w-6xl mx-auto">
+          <div className="mb-14">
+            <p className="text-xs font-semibold tracking-widest text-white/30 uppercase mb-3">Features</p>
+            <h2 className="text-3xl font-bold text-white">Everything in one bot.</h2>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-px bg-white/[0.06] border border-white/[0.06] rounded-xl overflow-hidden">
             {FEATURES.map((f) => (
-              <div key={f.title}>
-                <p className="text-white/20 text-lg mb-1.5">{f.label}</p>
+              <div key={f.title} className="bg-[#080808] p-7 hover:bg-white/[0.02] transition-colors">
+                <span className="text-2xl mb-4 block">{f.icon}</span>
                 <h3 className="text-sm font-semibold text-white mb-2">{f.title}</h3>
                 <p className="text-sm text-white/40 leading-relaxed">{f.description}</p>
               </div>
@@ -213,24 +189,47 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <div className="border-t border-white/[0.06]" />
-
-      {/* Dialogue */}
-      <section className="py-0">
-        <div className="bg-[#f5f0e8]">
-          <div className="max-w-3xl mx-auto px-6 py-20">
-            <p className="text-[#111]/30 text-sm mb-12 font-medium tracking-wide">in her own words~</p>
-            <div className="space-y-8">
-              {DIALOGUE.map((d, i) => (
-                <div key={i} className="space-y-2">
-                  <div className="flex gap-5 items-baseline">
-                    <span className="text-[#111]/30 w-10 shrink-0 text-right text-sm">you</span>
-                    <span className="text-[#333] text-sm leading-relaxed">{d.user}</span>
+      {/* ── Economy explainer ───────────────────────────────────────────────── */}
+      <section className="py-20 px-6 border-t border-white/[0.06]">
+        <div className="max-w-6xl mx-auto">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            <div>
+              <p className="text-xs font-semibold tracking-widest text-white/30 uppercase mb-3">Economy</p>
+              <h2 className="text-3xl font-bold text-white mb-5">Two currencies. One system.</h2>
+              <p className="text-white/50 leading-relaxed mb-8">
+                Gems get you AI access. Gold gets you pulls. Both are earned through daily logins, server voting, and conversation. No paywalls to start — the economy rewards activity.
+              </p>
+              <div className="space-y-4">
+                {[
+                  { icon: "💎", label: "Gems", desc: "Spend to chat with Hiyori. Earn 20 free per day, 10 per vote." },
+                  { icon: "🪙", label: "Gold", desc: "Spend on pulls. 100 per single pull, 900 for 10×. Earn 50 per daily." },
+                  { icon: "🎰", label: "Pulls", desc: "Single or 10× pulls. Gold returns on duplicates. UR pulls are events." },
+                ].map((item) => (
+                  <div key={item.label} className="flex gap-4 items-start">
+                    <span className="text-xl shrink-0 mt-0.5">{item.icon}</span>
+                    <div>
+                      <p className="text-sm font-semibold text-white">{item.label}</p>
+                      <p className="text-sm text-white/40">{item.desc}</p>
+                    </div>
                   </div>
-                  <div className="flex gap-5 items-baseline">
-                    <span className="text-[#9333ea]/60 w-10 shrink-0 text-right text-sm font-bold">hiyori</span>
-                    <span className="text-[#111] text-sm leading-relaxed font-medium">{d.hiyori}</span>
-                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-3">
+              {[
+                { cmd: "/daily", desc: `Claim 20 💎 gems + 50 🪙 gold` },
+                { cmd: "/pull", desc: "Single character pull — 100 🪙" },
+                { cmd: "/multipull", desc: "10× pulls — 900 🪙" },
+                { cmd: "/balance", desc: "Check your gem and gold balance" },
+                { cmd: "/collection", desc: "Browse your full collection" },
+                { cmd: "/vote", desc: "Vote on top.gg for 10 bonus 💎" },
+              ].map((item) => (
+                <div
+                  key={item.cmd}
+                  className="flex items-center justify-between px-4 py-3 rounded-lg bg-white/[0.03] border border-white/[0.07]"
+                >
+                  <code className="text-sm text-[#c084fc] font-mono">{item.cmd}</code>
+                  <span className="text-sm text-white/40">{item.desc}</span>
                 </div>
               ))}
             </div>
@@ -238,49 +237,66 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <div className="border-t border-white/[0.06]" />
-
-      {/* CTA */}
-      <section className="py-24 px-6">
-        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-8">
-          <div>
-            <h2 className="text-3xl text-white font-bold mb-3">add hiyori.</h2>
-            <p className="text-[#555] text-sm">sign in with discord. pick a server. start collecting. ♡</p>
-          </div>
-          <div className="flex flex-col items-start gap-2">
-            {user ? (
-              <button
-                onClick={handleManage}
-                className="shrink-0 px-5 py-2.5 text-sm font-semibold bg-[#D4A1FF] text-[#111] rounded-md hover:bg-[#C084FC] transition-colors"
-              >
-                manage your servers
-              </button>
-            ) : (
-              <button
-                onClick={handleLogin}
-                className="shrink-0 px-5 py-2.5 text-sm font-semibold bg-[#D4A1FF] text-[#111] rounded-md hover:bg-[#C084FC] transition-colors"
-              >
-                get started
-              </button>
-            )}
-            <p className="text-sm text-white/25 italic">free to add. 20 gems daily~</p>
+      {/* ── Dialogue ────────────────────────────────────────────────────────── */}
+      <section className="py-20 px-6 border-t border-white/[0.06] bg-white/[0.015]">
+        <div className="max-w-3xl mx-auto">
+          <p className="text-xs font-semibold tracking-widest text-white/30 uppercase mb-10">In Her Own Words</p>
+          <div className="space-y-6">
+            {DIALOGUE.map((d, i) => (
+              <div key={i} className="grid grid-cols-[80px_1fr] gap-4">
+                <div className="text-right">
+                  <span className="text-xs text-white/25 font-medium">you</span>
+                </div>
+                <p className="text-sm text-white/60">{d.user}</p>
+                <div className="text-right">
+                  <span className="text-xs text-[#a855f7] font-semibold">hiyori</span>
+                </div>
+                <p className="text-sm text-white font-medium">{d.bot}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <div className="border-t border-white/[0.06]" />
-      <footer className="py-8 px-6">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
+      {/* ── CTA ─────────────────────────────────────────────────────────────── */}
+      <section className="py-24 px-6 border-t border-white/[0.06]">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-8">
+          <div>
+            <h2 className="text-4xl font-bold text-white mb-3">Add Hiyori.</h2>
+            <p className="text-white/40 text-sm">Sign in with Discord, pick a server, and start collecting.</p>
+          </div>
+          <div className="flex flex-col items-start gap-2 shrink-0">
+            {user ? (
+              <button
+                onClick={handleManage}
+                className="px-6 py-3 text-sm font-semibold bg-[#9333ea] text-white rounded-lg hover:bg-[#7c3aed] transition-colors"
+              >
+                Manage Servers
+              </button>
+            ) : (
+              <button
+                onClick={handleLogin}
+                className="px-6 py-3 text-sm font-semibold bg-[#9333ea] text-white rounded-lg hover:bg-[#7c3aed] transition-colors"
+              >
+                Get Started — Free
+              </button>
+            )}
+            <p className="text-xs text-white/25 pl-1">20 gems daily · No credit card</p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Footer ──────────────────────────────────────────────────────────── */}
+      <footer className="border-t border-white/[0.06] py-8 px-6">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <span className="text-white/20 text-sm">hiyori · a discord bot ♡</span>
-          <div className="flex gap-4 text-xs text-white/20">
-            <a href="/privacy" className="hover:text-white/40 transition-colors">privacy</a>
-            <a href="/terms" className="hover:text-white/40 transition-colors">terms</a>
-            <a href="/admin" className="hover:text-white/40 transition-colors">admin</a>
+          <div className="flex gap-6 text-xs text-white/25">
+            <a href="/privacy" className="hover:text-white/50 transition-colors">Privacy Policy</a>
+            <a href="/terms" className="hover:text-white/50 transition-colors">Terms of Service</a>
+            <a href="/admin" className="hover:text-white/50 transition-colors">Admin</a>
           </div>
         </div>
       </footer>
-
     </div>
   );
 }
