@@ -8,6 +8,7 @@ import {
   setBotPresence,
   dispatchMessage,
   startBot,
+  registerSlashCommands,
 } from "./bot";
 import { getGeminiEnabled, setGeminiEnabled, getGroqEnabled, setGroqEnabled, getHackclubEnabled, setHackclubEnabled, askGemini, NEWS_FEEDS, fetchRssHeadlines, generateBotStatus } from "./gemini";
 import { triggerQotdNow, getQotdStatus } from "./qotd";
@@ -282,6 +283,11 @@ export async function registerRoutes(
   app.post("/api/bot/restart", async (_req, res) => {
     res.json({ success: true, message: "Bot restarting…" });
     await startBot();
+  });
+
+  app.post("/api/bot/register-commands", async (_req, res) => {
+    const result = await registerSlashCommands();
+    return res.json(result);
   });
 
   app.post("/api/dispatch", async (req, res) => {
