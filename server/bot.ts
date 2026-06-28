@@ -266,6 +266,11 @@ const SLASH_COMMANDS = [
     .setDescription("check your gems and gold balance"),
 
   new SlashCommandBuilder()
+    .setName("profile")
+    .setDescription("view a full stats card — balance, pulls, and rarest character")
+    .addUserOption((o) => o.setName("user").setDescription("whose profile to view (default: yours)").setRequired(false)),
+
+  new SlashCommandBuilder()
     .setName("pull")
     .setDescription(`single gacha pull — costs ${PULL_COST_GOLD} 🪙 gold`),
 
@@ -316,7 +321,7 @@ async function handleInteraction(interaction: any): Promise<void> {
       .setDescription("here's everything i can do for you, darling~ ♡")
       .addFields(
         { name: "💬 chat", value: "`/chat <message>` — talk to me (costs 1 💎)\n`@Hiyori <message>` — mention me directly" },
-        { name: "💰 economy", value: "`/daily` — claim free gems & gold\n`/balance` — check your 💎 gems & 🪙 gold\n`/vote` — vote for free gems on top.gg" },
+        { name: "💰 economy", value: "`/daily` — claim free gems & gold\n`/balance` — check your 💎 gems & 🪙 gold\n`/profile [user]` — full stats card\n`/vote` — vote for free gems on top.gg" },
         { name: "🎰 gacha", value: `\`/pull\` — 1 pull (${PULL_COST_GOLD} 🪙)\n\`/multipull\` — ${MULTI_PULL_COUNT}x pulls (${MULTI_PULL_COST_GOLD} 🪙)\n\`/collection\` — your waifu collection` },
         { name: "✨ fun", value: "`/roast <user>` — i'll roast them\n`/rate <thing>` — i rate it out of 10" },
         { name: "💎 gem info", value: `${FREE_DAILY_GEMS} free gems daily · ${VOTE_FREE_GEMS} gems per vote\neach message to me costs 1 gem` },
@@ -358,6 +363,42 @@ async function handleInteraction(interaction: any): Promise<void> {
         { name: "pulls available", value: `${Math.floor(bal.gold / PULL_COST_GOLD)}x single · ${Math.floor(bal.gold / MULTI_PULL_COST_GOLD)}x multi`, inline: false },
       )
       .setFooter({ text: "claim /daily to get more ♡" });
+    await interaction.editReply({ embeds: [embed] });
+    return;
+  }
+
+  if (commandName === "profile") {
+    await interaction.deferReply();
+    const target = interaction.options.getUser("user") ?? user;
+    const member = guild ? await guild.members.fetch(target.id).catch(() => null) : null;
+    const displayName = member?.displayName ?? target.displayName ?? target.username;
+    const avatarUrl = target.displayAvatarURL({ size: 256 });
+
+    const [bal, { cards: topCards, total: collectionTotal }] = await Promise.all([
+      getBalance(target.id),
+      getCollection(target.id, 1, 1),
+    ]);
+
+    const rarest = topCards[0] ?? null;
+    const singlePulls = Math.floor(bal.gold / PULL_COST_GOLD);
+    const multiPulls = Math.floor(bal.gold / MULTI_PULL_COST_GOLD);
+
+    const rarityBadge = rarest
+      ? `${rarityEmoji(rarest.rarity as any)} **${rarest.characterName}**${rarest.seriesName ? ` · *${rarest.seriesName}*` : ""} (${rarest.rarity})`
+      : "none yet — try `/pull`!";
+
+    const embed = new EmbedBuilder()
+      .setColor(rarest ? (RARITY_COLORS[rarest.rarity as keyof typeof RARITY_COLORS] ?? 0xD4A1FF) : 0xD4A1FF)
+      .setAuthor({ name: `${displayName}'s profile`, iconURL: avatarUrl })
+      .setThumbnail(avatarUrl)
+      .addFields(
+        { name: "💎 gems", value: `**${bal.totalGems}** total\n${bal.freeGems} free · ${bal.paidGems} paid`, inline: true },
+        { name: "🪙 gold", value: `**${bal.gold}**\n${singlePulls}x single · ${multiPulls}x multi`, inline: true },
+        { name: "🎴 collection", value: `**${collectionTotal}** characters\n**${bal.totalPulls ?? 0}** total pulls`, inline: true },
+        { name: "✨ rarest card", value: rarityBadge, inline: false },
+      )
+      .setFooter({ text: "hiyori ✨ • use /pull to expand your collection" });
+
     await interaction.editReply({ embeds: [embed] });
     return;
   }
