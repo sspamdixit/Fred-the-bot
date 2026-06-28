@@ -1,10 +1,10 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, timestamp, integer, boolean, real } from "drizzle-orm/pg-core";
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
 });
@@ -17,21 +17,21 @@ export const insertUserSchema = createInsertSchema(users).pick({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
-export const qotdLog = pgTable("qotd_log", {
-  id: serial("id").primaryKey(),
+export const qotdLog = sqliteTable("qotd_log", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   type: text("type").notNull(),
   question: text("question").notNull(),
   optionA: text("option_a"),
   optionB: text("option_b"),
   messageId: text("message_id"),
   channelId: text("channel_id").notNull(),
-  sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  sentAt: text("sent_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export type QotdEntry = typeof qotdLog.$inferSelect;
 export type InsertQotdEntry = typeof qotdLog.$inferInsert;
 
-export const userMemory = pgTable("user_memory", {
+export const userMemory = sqliteTable("user_memory", {
   userId: text("user_id").primaryKey(),
   dossier: text("dossier").notNull(),
   sureties: text("sureties"),
@@ -41,32 +41,32 @@ export const insertUserMemorySchema = createInsertSchema(userMemory);
 export type InsertUserMemory = z.infer<typeof insertUserMemorySchema>;
 export type UserMemory = typeof userMemory.$inferSelect;
 
-export const botMeta = pgTable("bot_meta", {
+export const botMeta = sqliteTable("bot_meta", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
 });
 
-export const guildMemory = pgTable("guild_memory", {
+export const guildMemory = sqliteTable("guild_memory", {
   guildId: text("guild_id").primaryKey(),
   lore: text("lore").notNull().default(""),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export type GuildMemoryRow = typeof guildMemory.$inferSelect;
 export type BotMetaRow = typeof botMeta.$inferSelect;
 
-export const guildSettings = pgTable("guild_settings", {
+export const guildSettings = sqliteTable("guild_settings", {
   guildId: text("guild_id").primaryKey(),
   personaOverride: text("persona_override"),
   temperature: integer("temperature").notNull().default(7),
   chattiness: integer("chattiness").notNull().default(5),
   proactivity: integer("proactivity").notNull().default(3),
-  memoryEnabled: boolean("memory_enabled").notNull().default(true),
+  memoryEnabled: integer("memory_enabled", { mode: "boolean" }).notNull().default(true),
   responseLength: integer("response_length").notNull().default(3),
   language: text("language").notNull().default("auto"),
   deadChatChannelId: text("dead_chat_channel_id"),
   allowedChannels: text("allowed_channels"),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedBy: text("updated_by"),
 });
 
@@ -89,25 +89,25 @@ export type GuildSettingsUpdate = z.infer<typeof guildSettingsSchema>;
 
 // ── Economy: Gems & Gold ──────────────────────────────────────────────────────
 
-export const gemBalances = pgTable("gem_balances", {
+export const gemBalances = sqliteTable("gem_balances", {
   userId: text("user_id").primaryKey(),
   freeGems: integer("free_gems").notNull().default(20),
   paidGems: integer("paid_gems").notNull().default(0),
   gold: integer("gold").notNull().default(0),
-  lastDailyAt: timestamp("last_daily_at", { withTimezone: true }),
-  lastVoteAt: timestamp("last_vote_at", { withTimezone: true }),
+  lastDailyAt: text("last_daily_at"),
+  lastVoteAt: text("last_vote_at"),
   totalPulls: integer("total_pulls").notNull().default(0),
   totalMessagesSent: integer("total_messages_sent").notNull().default(0),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export type GemBalance = typeof gemBalances.$inferSelect;
 
-// ── Gacha: Waifu Collection ───────────────────────────────────────────────────
+// ── Gacha: Character Collection ───────────────────────────────────────────────
 
-export const waifuCollection = pgTable("waifu_collection", {
-  id: serial("id").primaryKey(),
+export const waifuCollection = sqliteTable("waifu_collection", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   userId: text("user_id").notNull(),
   guildId: text("guild_id"),
   characterId: integer("character_id").notNull(),
@@ -116,19 +116,19 @@ export const waifuCollection = pgTable("waifu_collection", {
   imageUrl: text("image_url"),
   rarity: text("rarity").notNull(),
   rarityStars: integer("rarity_stars").notNull(),
-  isFavorite: boolean("is_favorite").notNull().default(false),
-  obtainedAt: timestamp("obtained_at", { withTimezone: true }).notNull().defaultNow(),
+  isFavorite: integer("is_favorite", { mode: "boolean" }).notNull().default(false),
+  obtainedAt: text("obtained_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export type WaifuCard = typeof waifuCollection.$inferSelect;
 
 // ── Voting Log ────────────────────────────────────────────────────────────────
 
-export const votingLog = pgTable("voting_log", {
-  id: serial("id").primaryKey(),
+export const votingLog = sqliteTable("voting_log", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   userId: text("user_id").notNull(),
   platform: text("platform").notNull().default("topgg"),
-  votedAt: timestamp("voted_at", { withTimezone: true }).notNull().defaultNow(),
+  votedAt: text("voted_at").notNull().$defaultFn(() => new Date().toISOString()),
   gemsAwarded: integer("gems_awarded").notNull().default(10),
 });
 

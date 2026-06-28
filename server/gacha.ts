@@ -139,7 +139,7 @@ export async function getCollection(userId: string, page = 1, pageSize = 10): Pr
   const offset = (page - 1) * pageSize;
   const [cards, countResult] = await Promise.all([
     db.select().from(waifuCollection).where(eq(waifuCollection.userId, userId)).orderBy(desc(waifuCollection.rarityStars), desc(waifuCollection.obtainedAt)).limit(pageSize).offset(offset),
-    db.select({ count: sql<number>`count(*)::int` }).from(waifuCollection).where(eq(waifuCollection.userId, userId)),
+    db.select({ count: sql<number>`count(*)` }).from(waifuCollection).where(eq(waifuCollection.userId, userId)),
   ]);
   const total = countResult[0]?.count ?? 0;
   return { cards, total, page, totalPages: Math.max(1, Math.ceil(total / pageSize)) };

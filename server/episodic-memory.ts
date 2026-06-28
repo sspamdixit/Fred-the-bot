@@ -26,29 +26,34 @@ export async function ensureEpisodesTable(): Promise<void> {
   try {
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS user_episodes (
-        id SERIAL PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id TEXT NOT NULL,
         guild_id TEXT NOT NULL,
         episode TEXT NOT NULL,
         event_label TEXT NOT NULL,
         category TEXT NOT NULL DEFAULT 'event',
-        probe BOOLEAN NOT NULL DEFAULT FALSE,
+        probe INTEGER NOT NULL DEFAULT 0,
         topic TEXT NOT NULL DEFAULT '',
-        confidence INT NOT NULL DEFAULT 1,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        confidence INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS user_episodes_user_guild_idx
         ON user_episodes(user_id, guild_id)
     `);
-    // Safe migrations for existing installs
-    await db.execute(sql`ALTER TABLE user_episodes ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'event'`);
-    await db.execute(sql`ALTER TABLE user_episodes ADD COLUMN IF NOT EXISTS probe BOOLEAN NOT NULL DEFAULT FALSE`);
-    await db.execute(sql`ALTER TABLE user_episodes ADD COLUMN IF NOT EXISTS topic TEXT NOT NULL DEFAULT ''`);
-    await db.execute(sql`ALTER TABLE user_episodes ADD COLUMN IF NOT EXISTS confidence INT NOT NULL DEFAULT 1`);
-    await db.execute(sql`ALTER TABLE user_episodes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`);
+    // Safe migrations for existing installs — SQLite does not support IF NOT EXISTS in ALTER TABLE,
+    // so we attempt each column and silently ignore "duplicate column" errors.
+    for (const alter of [
+      `ALTER TABLE user_episodes ADD COLUMN category TEXT NOT NULL DEFAULT 'event'`,
+      `ALTER TABLE user_episodes ADD COLUMN probe INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE user_episodes ADD COLUMN topic TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE user_episodes ADD COLUMN confidence INTEGER NOT NULL DEFAULT 1`,
+      `ALTER TABLE user_episodes ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+    ]) {
+      try { await db.execute(sql.raw(alter)); } catch { /* column already exists */ }
+    }
     tableReady = true;
     log("[EpisodicMemory] user_episodes table ready.", "memory");
   } catch (err: any) {
@@ -184,7 +189,7 @@ export function queueEpisodeExtraction(userId: string, guildId: string, content:
                 event_label = ${label},
                 probe = ${episode.probe},
                 confidence = ${newConfidence},
-                updated_at = now()
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = ${existingId}
           `);
           log(`[EpisodicMemory] Updated for ${userId} [${episode.category}/conf${newConfidence}]: ${episode.text}`, "memory");

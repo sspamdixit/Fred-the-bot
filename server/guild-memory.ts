@@ -25,7 +25,7 @@ export async function ensureGuildMemoryTable(): Promise<void> {
       CREATE TABLE IF NOT EXISTS guild_memory (
         guild_id TEXT PRIMARY KEY,
         lore TEXT NOT NULL DEFAULT '',
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
     tableReady = true;
@@ -108,9 +108,9 @@ async function extractGuildLore(guildId: string, recentMessages: string): Promis
 
     await db.execute(sql`
       INSERT INTO guild_memory (guild_id, lore, updated_at)
-      VALUES (${guildId}, ${newLore}, now())
+      VALUES (${guildId}, ${newLore}, CURRENT_TIMESTAMP)
       ON CONFLICT (guild_id) DO UPDATE
-        SET lore = EXCLUDED.lore, updated_at = EXCLUDED.updated_at
+        SET lore = excluded.lore, updated_at = excluded.updated_at
     `);
     loreCache.set(guildId, { lore: newLore, fetchedAt: Date.now() });
     log(`[GuildMemory] Lore updated for ${guildId} (${newLore.split(/\s+/).length} words).`, "memory");
