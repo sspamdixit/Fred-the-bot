@@ -245,6 +245,22 @@ function buildPullEmbed(result: GachaResult, goldBonus: number): EmbedBuilder {
 async function handleInteraction(interaction: any): Promise<void> {
   if (!interaction.isChatInputCommand()) return;
   const { commandName, user, guild } = interaction;
+  try {
+    await _handleInteraction(interaction, commandName, user, guild);
+  } catch (err: any) {
+    log(`Interaction error [${commandName}]: ${err?.message ?? err}`, "hiyori");
+    const msg = "something went wrong on my end~ try again in a moment. ♡";
+    try {
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply(msg);
+      } else {
+        await interaction.reply({ content: msg, ephemeral: true });
+      }
+    } catch { /* interaction token expired — nothing we can do */ }
+  }
+}
+
+async function _handleInteraction(interaction: any, commandName: string, user: any, guild: any): Promise<void> {
 
   if (commandName === "ping") {
     await interaction.reply({ content: `pong~ 🏓 \`${client?.ws.ping ?? "?"}ms\`` });
