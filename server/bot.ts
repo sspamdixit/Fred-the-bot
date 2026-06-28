@@ -568,6 +568,9 @@ async function handleInteraction(interaction: any): Promise<void> {
     await interaction.editReply(dossier ?? "no memory record found for this user.");
     return;
   }
+
+  // Unknown command — respond so Discord doesn't show "application did not respond"
+  await interaction.reply({ content: "i don't know that command~ try `/help` to see what i can do ♡", ephemeral: true });
 }
 
 // ── Slur filter ───────────────────────────────────────────────────────────────

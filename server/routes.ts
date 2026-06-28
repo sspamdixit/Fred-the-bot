@@ -203,6 +203,15 @@ export async function registerRoutes(
     return res.json(updated);
   });
 
+  app.get("/invite", (req, res) => {
+    try {
+      const url = getBotInviteUrl();
+      return res.redirect(url);
+    } catch (err: any) {
+      return res.status(503).send("Bot invite unavailable: " + err.message);
+    }
+  });
+
   app.get("/api/public/invite-url", (req, res) => {
     const guildId = req.query.guild_id as string | undefined;
     try {

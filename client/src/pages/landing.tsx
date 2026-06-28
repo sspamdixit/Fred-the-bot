@@ -69,6 +69,7 @@ export default function LandingPage() {
   }, []);
 
   const handleLogin = () => { window.location.href = "/api/oauth/discord"; };
+  const handleAddToServer = () => { window.open("/invite", "_blank"); };
   const handleManage = () => { navigate("/servers"); };
 
   return (
@@ -129,7 +130,7 @@ export default function LandingPage() {
               ) : (
                 <>
                   <button
-                    onClick={handleLogin}
+                    onClick={handleAddToServer}
                     className="px-6 py-3 text-sm font-semibold bg-[#9333ea] text-white rounded-lg hover:bg-[#7c3aed] transition-colors"
                   >
                     Add to Server

@@ -23,9 +23,15 @@ const DISCORD_API = "https://discord.com/api/v10";
 const SCOPES = "identify guilds";
 
 export function getRedirectUri(req: Request): string {
-  const proto = req.get("x-forwarded-proto") ?? req.protocol;
-  const host = req.get("host") ?? "localhost:5000";
-  return `${proto}://${host}/api/oauth/discord/callback`;
+  const base = process.env.PUBLIC_BASE_URL
+    ?? (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : null)
+    ?? (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null)
+    ?? (() => {
+      const proto = req.get("x-forwarded-proto") ?? req.protocol;
+      const host = req.get("host") ?? "localhost:5000";
+      return `${proto}://${host}`;
+    })();
+  return `${base}/api/oauth/discord/callback`;
 }
 
 export function getOAuthUrl(req: Request): string {
